@@ -27,6 +27,7 @@ obtained. Its source and attribution are recorded with the
 - [Host-rendered off-screen resize endpoint](captures/host-resize.png)
 
 The selected geometry is 16 x 16 pitch, 13 x 14 bodies, and a 19 x 10 viewport.
+The current bodies omit only the single pixel at each corner.
 At native size and integer enlargement, the relative fader modifier remains
 separate, cycle counters remain open, and the two flow arrows differ visibly.
 The 18-pixel study adds space without resolving a remaining legibility problem,
@@ -36,8 +37,10 @@ visible in these images; their final emulator presentation still needs review.
 PSX Grid Bitmap, a custom 5 x 7 monoline face, was selected over offline Jura
 at 9 and 10 pixels. Jura's fine strokes were much fainter in this study. The
 bitmap sample keeps `0/O`, `1/I`, `C#4`, coordinates, and long guidance readable
-on dark and light grounds. Heads use `CH`; the sample shows that `CH1` would
-crowd a compact body. This is a visual study result, not a display calibration.
+on dark and light grounds. The current tile labels use a dedicated 4 x 5 face;
+the general UI retains the 5 x 7 face. The pitch studies above predate this
+label and corner adjustment; the host captures reflect it. This is a visual
+study result, not a display calibration.
 
 The host renderer replays submitted primitives in reverse ordering-table order,
 loads the generated indexed texture and CLUT, and approximates RGB555 output.

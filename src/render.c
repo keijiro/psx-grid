@@ -63,9 +63,13 @@ static void tile(int depth, int x, int y, int kind) {
     sprite(depth,x,y,kind*16,0,16,16);
 }
 static void cursor(int x, int y) {
+    // The body spans x+2..14 and y+1..14. Brackets at x+1..15 and
+    // y+0..15 touch its straight edges without covering the body.
+    const int width = 15, height = 16, arm = 4;
+    x++;
     for (int j=0;j<2;j++) for (int i=0;i<2;i++) {
-        rect(3,x+i*(CELL_SIZE-4),y+j*(CELL_SIZE-1),4,1,UI_INK);
-        rect(3,x+i*(CELL_SIZE-1),y+j*(CELL_SIZE-4),1,4,UI_INK);
+        rect(3,x+i*(width-arm),y+j*(height-1),arm,1,UI_INK);
+        rect(3,x+i*(width-1),y+j*(height-arm),1,arm,UI_INK);
     }
 }
 static int clamp(int v, int max) { return v < 0 ? 0 : v > max ? max : v; }

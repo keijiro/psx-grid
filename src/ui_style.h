@@ -3,7 +3,7 @@
 #define SCREEN_W 320
 #define SCREEN_H 240
 // Native-size study keeps both gate counters and the relative modifier open
-// at this pitch. CH fits; CH1 does not, so heads deliberately omit the digit.
+// at this pitch. Heads use CH to preserve the compact label's side margins.
 #define CELL_SIZE 16
 #define VIEW_X 8
 #define VIEW_Y 32

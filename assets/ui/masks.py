@@ -50,6 +50,13 @@ FONT = {
 '#':'.#.#./.#.#./#####/.#.#./#####/.#.#./.#.#.',
 '.':'././././././#',
 }
+# Tile labels use separately drawn 4x5 forms to leave room around the ink
+# without losing one-pixel strokes to resampling the UI face.
+TILE_FONT = {
+'C':'.###/#.../#.../#.../.###',
+'H':'#..#/#..#/####/#..#/#..#',
+'4':'..#./.#../#.#./####/..#.',
+}
 # Nine by ten interior. The relative modifier has a one-pixel gap from the
 # knob; cycle boxes use two rows so every hollow box keeps a real counter.
 ICONS = [

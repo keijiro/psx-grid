@@ -21,8 +21,8 @@ def ink(mask, x, y, color):
 
 def label(s, x, y, color):
     for ch in s:
-        ink(masks.FONT[ch], x, y, color)
-        x += len(masks.FONT[ch].split('/')[0]) + 1
+        ink(masks.TILE_FONT[ch], x, y, color)
+        x += len(masks.TILE_FONT[ch].split('/')[0]) + 1
 
 # 16x16 slots retain gutters even when sprites touch. Bodies are 13x14.
 for kind in range(8):
@@ -30,14 +30,14 @@ for kind in range(8):
     bright = kind in (0, 6, 7)
     field = 3 if bright else 1 if kind == 1 else 2
     for y in range(1, 15):
-        inset = 2 if y in (1,14) else 1 if y in (2,13) else 0
+        inset = 1 if y in (1,14) else 0
         for x in range(2+inset, 15-inset): pixels[y][ox+x] = field
     if kind == 1:
         for y in range(1,15):
             for x in range(2,15):
                 if pixels[y][ox+x] and any(pixels[yy][ox+xx] == 0 for xx,yy in ((x-1,y),(x+1,y),(x,y-1),(x,y+1))):
                     pixels[y][ox+x] = 3
-    if kind in (0,1): label('CH' if kind == 0 else 'C4', ox+3, 5, 1 if bright else 4)
+    if kind in (0,1): label('CH' if kind == 0 else 'C4', ox+4, 5, 1 if bright else 4)
     else: ink(masks.ICONS[kind-2], ox+4, 3, 1 if bright else 4)
 # Pass-through marker, also one sprite rather than five separate pixels.
 ink('#../##./###/##./#..', 128+7, 6, 5)
