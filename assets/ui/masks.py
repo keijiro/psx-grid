@@ -82,3 +82,7 @@ SMALL_FONT = {
 'L':'#../#../#../#../###', 'R':'##./#.#/##./#.#/#.#',
 '%':'#.#/..#/.#./#../#.#',
 }
+
+# The relative lock shares the outlined parameter body; engagement labels are
+# drawn at runtime so zero offsets remain visibly distinct from disabled ones.
+RELATIVE_MARK = '..#../..#../#####/..#../..#..'

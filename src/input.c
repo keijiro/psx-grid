@@ -24,6 +24,7 @@ InputFrame input_update(Input *i, int connected, uint16_t held) {
     f.cross_released = !!(i->previous & ~held & INPUT_CROSS);
     f.cross = !!(held & ~i->previous & INPUT_CROSS);
     f.circle = !!(held & ~i->previous & INPUT_CIRCLE);
+    f.start = !!(held & ~i->previous & INPUT_START);
     i->previous = held;
     if (!direction) { i->direction = 0; i->countdown = 0; }
     else if (i->direction == -1) { i->direction = direction; i->countdown = INPUT_DELAY; }

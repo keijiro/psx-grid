@@ -1,5 +1,8 @@
 # psx-grid
 
-A GUI prototype for editing Jacquard's Score Plane with a PlayStation gamepad.
-It starts with an empty 128 x 64-cell plane. Audio generation, playback, and
-saving are outside its scope.
+A PlayStation gamepad editor and sine-wave sequencer for Jacquard's Score Plane.
+It starts with an empty 128 x 64-cell plane. START plays a snapshot at 120 BPM,
+with polyphonic notes, gates, branches, and relative Attack/Release locks.
+
+See [usage](docs/usage.md), [development](docs/development.md), and the
+[validation record](docs/validation.md). Saving and loading are not implemented.

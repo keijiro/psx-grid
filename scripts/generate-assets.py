@@ -38,6 +38,7 @@ for kind in range(8):
                 if pixels[y][ox+x] and any(pixels[yy][ox+xx] == 0 for xx,yy in ((x-1,y),(x+1,y),(x,y-1),(x,y+1))):
                     pixels[y][ox+x] = 3
     if kind in (4,7): ink(masks.ICONS[4 if kind == 4 else 5], ox+4, 3, 1)
+ink(masks.RELATIVE_MARK, 6*16+6, 9, 5)
 # Pass-through marker, also one sprite rather than five separate pixels.
 ink('#../##./###/##./#..', 128+7, 6, 5)
 metrics = []

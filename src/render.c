@@ -100,12 +100,13 @@ static void small(int x,int y,const char *s,int dark) {
 }
 static void draw_cell(const Score *s,Cell c,int x,int y) {
     if(c.kind==CELL_EMPTY) return;
-    int kind=c.kind==CELL_HEAD?(s->lanes[c.lane].source?5:0):c.kind==CELL_END?7:c.kind==CELL_STEP?8:s->tiles[c.tile].value.kind;
+    int kind=c.kind==CELL_HEAD?(s->lanes[c.lane].source?5:0):c.kind==CELL_END?7:c.kind==CELL_STEP?8:s->tiles[c.tile].value.kind==TILE_RELATIVE?6:s->tiles[c.tile].value.kind;
     char label[16]="";
     if(c.kind==CELL_HEAD) strcpy(label,s->lanes[c.lane].source?"B":"L");
     if(c.kind==CELL_TILE) {
         TileValue v=s->tiles[c.tile].value;
         if(v.kind==TILE_NOTE) snprintf(label,sizeof(label),"%s%d",score_note_name(v.pitch),v.pitch/12);
+        if(v.kind==TILE_RELATIVE) snprintf(label,sizeof(label),"%s%s",v.lock_mask&LOCK_ATTACK?"A":"",v.lock_mask&LOCK_RELEASE?"R":"");
         if(v.kind==TILE_CYCLE) snprintf(label,sizeof(label),"C%d",v.period);
         if(v.kind==TILE_PROBABILITY) snprintf(label,sizeof(label),"%d",v.chance);
     }
@@ -180,7 +181,7 @@ void render_frame(const Editor *e, int connected) {
     text(8,20,line);
     if(e->mode!=EDIT_PLANE && e->mode!=EDIT_MOVE) {
         EditorAction items[EDITOR_MENU_ITEMS]; int n=editor_menu(e,items);
-        int width=208,height=e->mode==EDIT_MENU?n*16+16:e->mode==EDIT_PICKER?88:e->mode==EDIT_PATTERN?112:72;
+        int width=208,height=e->mode==EDIT_MENU?n*16+16:e->mode==EDIT_PICKER?104:e->mode==EDIT_SOUND?88:e->mode==EDIT_PATTERN?112:72;
         int px=clamp(cx+18,SCREEN_W-width-8),py=clamp(cy+18,192-height);
         rect(2,px,py,width,height,UI_PANEL); outline(1,px,py,width,height,UI_BORDER);
         if(e->mode==EDIT_MENU) for(int i=0;i<n;i++) {
@@ -191,6 +192,11 @@ void render_frame(const Editor *e, int connected) {
             for(int k=1;k<TILE_KIND_COUNT;k++) {
                 snprintf(line,sizeof(line),"%c %s",k==(int)e->tile_candidate?'>':' ',score_tile_label((TileKind)k)); text(px+8,py+8+k*16,line);
             }
+        } else if(e->mode==EDIT_SOUND) {
+            text(px+8,py+8,"SOUND / GLOBAL");
+            snprintf(line,sizeof(line),"%c ATTACK %d MS",e->selected==0?'>':' ',e->score.sound.attack); text(px+8,py+28,line);
+            snprintf(line,sizeof(line),"%c RELEASE %d MS",e->selected==1?'>':' ',e->score.sound.release); text(px+8,py+44,line);
+            text(px+8,py+64,e->selected==2?"> BACK":"  BACK");
         } else if(e->mode==EDIT_DELETE) {
             text(px+8,py+8,"DELETE LANE / BRANCH TILES?");
             text(px+8,py+28,e->confirm?"  CANCEL":"> CANCEL"); text(px+8,py+44,e->confirm?"> DELETE":"  DELETE");
@@ -203,6 +209,12 @@ void render_frame(const Editor *e, int connected) {
             text(px+8,py+94,e->pattern_cursor==e->value.period?"> APPLY":"  APPLY");
         } else {
             switch(e->mode) {
+            case EDIT_ATTACK: snprintf(line,sizeof(line),"GLOBAL ATTACK %d MS",e->sound_candidate.attack); break;
+            case EDIT_RELEASE: snprintf(line,sizeof(line),"GLOBAL RELEASE %d MS",e->sound_candidate.release); break;
+            case EDIT_LOCK_ATTACK_ENABLE: snprintf(line,sizeof(line),"ATTACK %s",e->value.lock_mask&LOCK_ATTACK?"ENABLED":"DISABLED"); break;
+            case EDIT_LOCK_RELEASE_ENABLE: snprintf(line,sizeof(line),"RELEASE %s",e->value.lock_mask&LOCK_RELEASE?"ENABLED":"DISABLED"); break;
+            case EDIT_LOCK_ATTACK: snprintf(line,sizeof(line),"ATTACK %+d MS %s",e->value.attack,e->value.lock_mask&LOCK_ATTACK?"":"OFF"); break;
+            case EDIT_LOCK_RELEASE: snprintf(line,sizeof(line),"RELEASE %+d MS %s",e->value.release,e->value.lock_mask&LOCK_RELEASE?"":"OFF"); break;
             case EDIT_LENGTH: snprintf(line,sizeof(line),"LANE LENGTH  %d",e->candidate); break;
             case EDIT_DIVISION: snprintf(line,sizeof(line),"DIVISION  1/%d",score_divisions[e->candidate]); break;
             case EDIT_PITCH: snprintf(line,sizeof(line),"PITCH  %s%d",score_note_name(e->value.pitch),e->value.pitch/12); break;
@@ -211,13 +223,13 @@ void render_frame(const Editor *e, int connected) {
             default: snprintf(line,sizeof(line),"CHANCE  %d / 100",e->value.chance); break;
             }
             text(px+8,py+8,line);
-            text(px+8,py+28,e->mode==EDIT_PITCH?"L/R NOTE  U/D OCTAVE":e->mode==EDIT_DURATION?"L/R .05  U/D 1 STEP":"D-PAD CHANGE");
+            text(px+8,py+28,e->mode==EDIT_ATTACK || e->mode==EDIT_RELEASE || e->mode==EDIT_LOCK_ATTACK || e->mode==EDIT_LOCK_RELEASE?"L/R 1 MS  U/D 100 MS":e->mode==EDIT_PITCH?"L/R NOTE  U/D OCTAVE":e->mode==EDIT_DURATION?"L/R .05  U/D 1 STEP":"D-PAD CHANGE");
             text(px+8,py+48,"X APPLY  O DISCARD");
         }
     }
     text(8,200,connected?status:"CONNECT PAD 1 / RELEASE BUTTONS");
     text(8,216,e->mode==EDIT_PLANE?"X TAP MENU / HOLD + D-PAD MOVE":e->mode==EDIT_MOVE?"RELEASE X DROP  O CANCEL":"D-PAD SELECT  X OK  O BACK");
-    text(8,228,"SCORE EDITOR");
+    text(8,228,e->playing?(e->snapshot_dirty?"PLAYING / EDITS AFTER RESTART":"PLAYING / START TO STOP"):"STOPPED / START TO PLAY");
     DR_TPAGE *page=packet(sizeof(DR_TPAGE));
     if(page) { setDrawTPage(page,0,0,getTPage(0,0,640,0)); addPrim(&buffers[active].ot[7],page); }
     DrawSync(0); VSync(0); PutDispEnv(&buffers[active^1].disp);

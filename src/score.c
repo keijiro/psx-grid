@@ -6,16 +6,19 @@ const int score_divisions[] = {1,2,3,4,6,8,12,16,24,32,48,64};
 static Score scratch;
 static uint8_t occupied[SCORE_HEIGHT][SCORE_WIDTH];
 static int valid(const Score *s, int i) { return i >= 0 && i < SCORE_LANES && s->lanes[i].active; }
-void score_init(Score *s) { memset(s,0,sizeof(*s)); }
-TileValue score_default(TileKind k) { TileValue v = {k,48,20,4,50,1}; return v; }
+void score_init(Score *s) { memset(s,0,sizeof(*s)); s->sound=(SoundSettings){5,5}; }
+TileValue score_default(TileKind k) { TileValue v = {k,48,20,4,50,1,0,0,0}; return v; }
 const char *score_note_name(int p) { static const char *n[]={"C","C#","D","D#","E","F","F#","G","G#","A","A#","B"}; return n[p%12]; }
 static int value_valid(TileValue v) {
     return v.kind > TILE_NONE && v.kind < TILE_KIND_COUNT && v.pitch >= 0 && v.pitch <= 108 &&
-        v.length >= 5 && v.length <= 1280 && v.period >= 2 && v.period <= 32 && v.chance >= 0 && v.chance <= 100;
+        v.length >= 5 && v.length <= 1280 && v.period >= 2 && v.period <= 32 && v.chance >= 0 && v.chance <= 100 && v.lock_mask >= 0 && v.lock_mask <= 3 &&
+        v.attack >= -SOUND_MAX_MS && v.attack <= SOUND_MAX_MS &&
+        v.release >= -SOUND_MAX_MS && v.release <= SOUND_MAX_MS &&
+        ((v.lock_mask & LOCK_ATTACK) || !v.attack) && ((v.lock_mask & LOCK_RELEASE) || !v.release);
 }
 ScoreResult score_edit(Score *s, TileId id, TileValue v) {
     if (!id || id > SCORE_TILE_CAPACITY || s->tiles[id].value.kind != v.kind || !value_valid(v)) return SCORE_INVALID;
-    s->tiles[id].value=v; return SCORE_OK;
+    s->tiles[id].value=v; s->revision++; return SCORE_OK;
 }
 static int owner(const Score *s, TileId id) {
     for (int i=0;i<SCORE_LANES;i++) if (valid(s,i)) for (int j=0;j<s->lanes[i].length;j++)
@@ -31,7 +34,7 @@ int score_division(const Score *s, int i) {
 }
 ScoreResult score_set_division(Score *s,int i,int d) {
     if(!valid(s,i) || s->lanes[i].source) return SCORE_INVALID;
-    for(int j=0;j<SCORE_DIVISIONS;j++) if(d==score_divisions[j]) { s->lanes[i].division=d; return SCORE_OK; }
+    for(int j=0;j<SCORE_DIVISIONS;j++) if(d==score_divisions[j]) { s->lanes[i].division=d; s->revision++; return SCORE_OK; }
     return SCORE_INVALID;
 }
 Cell score_at(const Score *s,int x,int y) {
@@ -81,7 +84,7 @@ static ScoreResult validate(const Score *s) {
     }
     return SCORE_OK;
 }
-static ScoreResult commit(Score *s) { ScoreResult r=validate(&scratch); if(!r) *s=scratch; return r; }
+static ScoreResult commit(Score *s) { ScoreResult r=validate(&scratch); if(!r) { scratch.revision=s->revision+1; *s=scratch; } return r; }
 static int new_lane(Score *s,int x,int y,int n,TileId source) {
     for(int i=0;i<SCORE_LANES;i++) if(!valid(s,i)) {
         Lane *l=&s->lanes[i]; memset(l,0,sizeof(*l));
@@ -92,14 +95,14 @@ static int new_lane(Score *s,int x,int y,int n,TileId source) {
 ScoreResult score_can_create(const Score *s,int x,int y,int n) {
     scratch=*s; if(new_lane(&scratch,x,y,n,0)<0) return SCORE_FULL; return validate(&scratch);
 }
-ScoreResult score_create(Score *s,int x,int y,int n) { ScoreResult r=score_can_create(s,x,y,n); if(!r) *s=scratch; return r; }
+ScoreResult score_create(Score *s,int x,int y,int n) { ScoreResult r=score_can_create(s,x,y,n); if(!r) { scratch.revision=s->revision+1; *s=scratch; } return r; }
 ScoreResult score_can_resize(const Score *s,int i,int n) {
     if(!valid(s,i)) return SCORE_INVALID;
     if(n<1 || n>SCORE_STEPS) return SCORE_BOUNDS;
     for(int j=n;j<s->lanes[i].length;j++) if(s->lanes[i].tiles[j]) return SCORE_TILES;
     scratch=*s; scratch.lanes[i].length=n; return validate(&scratch);
 }
-ScoreResult score_resize(Score *s,int i,int n) { ScoreResult r=score_can_resize(s,i,n); if(!r) *s=scratch; return r; }
+ScoreResult score_resize(Score *s,int i,int n) { ScoreResult r=score_can_resize(s,i,n); if(!r) { scratch.revision=s->revision+1; *s=scratch; } return r; }
 static TileId *link_at(Score *s,Cell c) {
     TileId *p=&s->lanes[c.lane].tiles[c.step];
     for(int d=0;d<c.depth && *p;d++) p=&s->tiles[*p].next;
@@ -122,13 +125,13 @@ ScoreResult score_delete(Score *s,int i) {
     if(source) {
         int p=owner(s,source);
         for(int j=0;j<s->lanes[p].length;j++) for(TileId *t=&s->lanes[p].tiles[j];*t;t=&s->tiles[*t].next)
-            if(*t==source) { *t=s->tiles[source].next; erase_tile(s,source); return SCORE_OK; }
+            if(*t==source) { *t=s->tiles[source].next; erase_tile(s,source); s->revision++; return SCORE_OK; }
     }
-    erase_lane(s,i); return SCORE_OK;
+    erase_lane(s,i); s->revision++; return SCORE_OK;
 }
 ScoreResult score_remove(Score *s,int x,int y) {
     Cell c=score_at(s,x,y); if(c.kind!=CELL_TILE) return SCORE_INVALID;
-    TileId *p=link_at(s,c); *p=s->tiles[c.tile].next; erase_tile(s,c.tile); return SCORE_OK;
+    TileId *p=link_at(s,c); *p=s->tiles[c.tile].next; erase_tile(s,c.tile); s->revision++; return SCORE_OK;
 }
 static ScoreResult insert(Score *s,Cell c,TileValue v) {
     if(!value_valid(v) || (c.kind!=CELL_STEP && c.kind!=CELL_END)) return SCORE_INVALID;
@@ -195,6 +198,11 @@ static ScoreResult move(const Score *s,int sx,int sy,int x,int y) {
     return validate(&scratch);
 }
 MovePlan score_plan_move(const Score *s,int sx,int sy,int x,int y) { return (MovePlan){sx,sy,x,y,move(s,sx,sy,x,y)}; }
-ScoreResult score_apply_move(Score *s,MovePlan p) { ScoreResult r=move(s,p.sx,p.sy,p.x,p.y); if(!r) *s=scratch; return r; }
-const char *score_tile_label(TileKind k) { static const char *v[]={"EMPTY","NOTE","CYCLE GATE","PROBABILITY GATE","JUMP"}; return k>=0 && k<TILE_KIND_COUNT?v[k]:"?"; }
+ScoreResult score_apply_move(Score *s,MovePlan p) { if(p.sx==p.x && p.sy==p.y) return move(s,p.sx,p.sy,p.x,p.y); ScoreResult r=move(s,p.sx,p.sy,p.x,p.y); if(!r) { scratch.revision=s->revision+1; *s=scratch; } return r; }
+const char *score_tile_label(TileKind k) { static const char *v[]={"EMPTY","NOTE","CYCLE GATE","PROBABILITY GATE","JUMP","RELATIVE LOCK"}; return k>=0 && k<TILE_KIND_COUNT?v[k]:"?"; }
 const char *score_message(ScoreResult r) { static const char *v[]={"","LIMIT / EDGE","COLLISION","CAPACITY FULL","REMOVE TRAILING TILES FIRST","INVALID CELL","BRANCH CYCLE"}; return v[r]; }
+
+ScoreResult score_set_sound(Score *s,SoundSettings sound) {
+    if(sound.attack<0 || sound.attack>SOUND_MAX_MS || sound.release<0 || sound.release>SOUND_MAX_MS) return SCORE_INVALID;
+    s->sound=sound; s->revision++; return SCORE_OK;
+}

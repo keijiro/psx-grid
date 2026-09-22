@@ -36,12 +36,20 @@ launch targets with `PCSX_REDUX`, `PCSX_REDUX_BIOS`, and `PCSX_REDUX_DATA`.
 When the emulator first asks about automatic updates, complete the prompt.
 Disable automatic updates to retain the pinned version. If macOS blocks the
 application, open it from Finder and approve it. In the emulator, use
-`Configuration > Controls` to assign Port 1's D-pad, Cross, and Circle buttons
+`Configuration > Controls` to assign Port 1's D-pad, Cross, Circle, and START buttons
 to a gamepad or keyboard. See [usage.md](usage.md) for the editing walkthrough.
 
 ## Structure and Validation
 
 - `src/score.*`: SDK-independent model and edit validation.
+- `src/sequencer.*`: SDK-independent runners, exact absolute deadlines,
+  ordered held locks, generation-tagged gate-offs, and bounded catch-up.
+- `src/audio.*`: SDK-independent voice allocation and volume envelopes with
+  an injected register driver for host tests.
+- `src/audio_psx.c`: Immutable snapshot publication, SPU upload/registers,
+  timer interrupts, lifecycle, and debugger-visible measurements.
+- `scripts/generate-audio.py`: Independent sine ADPCM generation, pitch table,
+  and decoded error report (`generated/sine_samples.txt`).
 - `src/input.*`: Button presses, repeats, disconnection, and reconnection.
 - `src/editor.*`: Menus, candidate properties, clipboard, deletion confirmation,
   and press/hold/release movement transitions.
@@ -51,7 +59,7 @@ to a gamepad or keyboard. See [usage.md](usage.md) for the editing walkthrough.
   masks, font attribution, and deterministic indexed-atlas generation
   (Python 3, no extra packages).
 - `src/ui_style.h`: shared screen geometry and grayscale roles.
-- `src/main.c`: Controller polling and the frame loop.
+- `src/main.c`: Controller polling, editor processing, START, and frame/status updates.
 - `build/{debug,release}/psx-grid.{elf,exe}`: ELF and PS-X EXE outputs.
 
 Run the host tests with Clang, ASan, and UBSan:
@@ -88,3 +96,31 @@ live in the model; it does not depend on atlas coordinates or grayscale values. 
 provenance and licensing live with the [editable sources](../assets/ui/README.md).
 Visual study results and remaining acceptance checks are in
 [validation.md](validation.md).
+
+## Audio fixture
+
+Build and run the standalone development fixture without changing the editor's
+empty startup score:
+
+```sh
+source scripts/env.sh
+cmake --preset debug -DAUDIO_FIXTURE=ON
+cmake --build --preset debug
+python3 scripts/test-audio-emulator.py debug
+cmake --preset release -DAUDIO_FIXTURE=ON
+cmake --build --preset release
+python3 scripts/test-audio-emulator.py release
+```
+
+The runner uses PCSX-Redux's headless test mode in isolated directories under
+`build/validation`. It logs service cost/intervals, actual key-on lateness,
+SPU decoded-buffer peaks, envelope register timing, and dense-score overload.
+The fixture's exit port is emulator-specific; use `psx-grid.exe` on hardware.
+A completed fixture is not a substitute for the listening/controller walkthrough.
+
+`audio_service_peak`, `audio_interval_peak`, and `audio_dispatch_peak` use
+4,233,600-Hz clock ticks. Voice steals, skipped notes, and catch-up overloads
+have separate counters. Linker maps are emitted beside both executables.
+The mutable editor score, model scratch score, and immutable playback score
+are separate fixed allocations; no interrupt allocates, copies the score,
+logs, renders, or starts DMA. Lifecycle preparation runs on the main thread.

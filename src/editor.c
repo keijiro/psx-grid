@@ -2,7 +2,7 @@
 #include <string.h>
 static int clamp(int x,int min,int max) { return x<min?min:x>max?max:x; }
 void editor_init(Editor *e) {
-    memset(e,0,sizeof(*e)); e->x=e->y=1; e->message="";
+    memset(e,0,sizeof(*e)); score_init(&e->score); e->x=e->y=1; e->message="";
     e->last_tile=e->tile_candidate=TILE_NOTE; e->last_note=score_default(TILE_NOTE);
 }
 int editor_menu(const Editor *e,EditorAction items[EDITOR_MENU_ITEMS]) {
@@ -13,18 +13,22 @@ int editor_menu(const Editor *e,EditorAction items[EDITOR_MENU_ITEMS]) {
         TileKind k=e->score.tiles[c.tile].value.kind;
         if(k==TILE_NOTE) { items[n++]=ACTION_PITCH; items[n++]=ACTION_DURATION; }
         if(k==TILE_CYCLE) { items[n++]=ACTION_PERIOD; items[n++]=ACTION_PATTERN; }
+        if(k==TILE_RELATIVE) {
+            items[n++]=ACTION_LOCK_ATTACK_ENABLE; items[n++]=ACTION_LOCK_ATTACK;
+            items[n++]=ACTION_LOCK_RELEASE_ENABLE; items[n++]=ACTION_LOCK_RELEASE;
+        }
         if(k==TILE_PROBABILITY) items[n++]=ACTION_CHANCE;
         items[n++]=ACTION_COPY; items[n++]=ACTION_REMOVE;
     }
     if(c.kind==CELL_HEAD) {
         items[n++]=ACTION_LENGTH;
-        if(!e->score.lanes[c.lane].source) items[n++]=ACTION_DIVISION;
+        if(!e->score.lanes[c.lane].source) { items[n++]=ACTION_DIVISION; items[n++]=ACTION_SOUND; }
         items[n++]=ACTION_DELETE;
     }
     items[n++]=ACTION_CLOSE; return n;
 }
 const char *editor_action_label(EditorAction a) {
-    static const char *labels[]={"NEW LANE","CREATE TILE","DELETE TILE","LANE LENGTH","DELETE LANE","CLOSE","COPY STACK","PASTE STACK","PITCH","NOTE LENGTH","CYCLE PERIOD","CYCLE PATTERN","CHANCE","STEP DIVISION"};
+    static const char *labels[]={"NEW LANE","CREATE TILE","DELETE TILE","LANE LENGTH","DELETE LANE","CLOSE","COPY STACK","PASTE STACK","PITCH","NOTE LENGTH","CYCLE PERIOD","CYCLE PATTERN","CHANCE","STEP DIVISION","SOUND","ATTACK ENABLE","ATTACK OFFSET","RELEASE ENABLE","RELEASE OFFSET"};
     return labels[a];
 }
 static void cancel_move(Editor *e) { e->x=e->source_x; e->y=e->source_y; e->mode=EDIT_PLANE; e->gesture=0; e->message="CANCELLED"; }
@@ -57,6 +61,20 @@ void editor_update(Editor *e,InputFrame f) {
     // A menu confirmation never arms the plane's press/release gesture.
     e->gesture=0;
     if(f.circle) { e->mode=e->mode==EDIT_MENU?EDIT_PLANE:EDIT_MENU; e->selected=0; e->message=""; return; }
+    if(e->mode==EDIT_SOUND) {
+        e->selected=clamp(e->selected+f.dy,0,2);
+        if(f.cross) {
+            if(e->selected==2) { e->mode=EDIT_MENU; e->selected=0; }
+            else { e->mode=e->selected?EDIT_RELEASE:EDIT_ATTACK; e->sound_candidate=e->score.sound; }
+        }
+        return;
+    }
+    if(e->mode==EDIT_ATTACK || e->mode==EDIT_RELEASE) {
+        int *v=e->mode==EDIT_ATTACK?&e->sound_candidate.attack:&e->sound_candidate.release;
+        *v=clamp(*v+f.dx-f.dy*100,0,SOUND_MAX_MS);
+        if(f.cross) finish(e,score_set_sound(&e->score,e->sound_candidate));
+        return;
+    }
     if(e->mode==EDIT_PICKER) {
         e->tile_candidate=(TileKind)clamp(e->tile_candidate+f.dy,1,TILE_KIND_COUNT-1);
         if(f.cross) {
@@ -81,6 +99,17 @@ void editor_update(Editor *e,InputFrame f) {
         return;
     }
     if(e->mode!=EDIT_MENU) {
+        if(e->mode==EDIT_LOCK_ATTACK_ENABLE || e->mode==EDIT_LOCK_RELEASE_ENABLE) {
+            int bit=e->mode==EDIT_LOCK_ATTACK_ENABLE?LOCK_ATTACK:LOCK_RELEASE;
+            if(f.dx || f.dy) {
+                if(f.dx-f.dy>0) e->value.lock_mask|=bit;
+                else { e->value.lock_mask&=~bit; if(bit==LOCK_ATTACK) e->value.attack=0; else e->value.release=0; }
+            }
+        }
+        if(e->mode==EDIT_LOCK_ATTACK && (e->value.lock_mask&LOCK_ATTACK))
+            e->value.attack=clamp(e->value.attack+f.dx-f.dy*100,-SOUND_MAX_MS,SOUND_MAX_MS);
+        if(e->mode==EDIT_LOCK_RELEASE && (e->value.lock_mask&LOCK_RELEASE))
+            e->value.release=clamp(e->value.release+f.dx-f.dy*100,-SOUND_MAX_MS,SOUND_MAX_MS);
         if(e->mode==EDIT_PITCH) e->value.pitch=clamp(e->value.pitch+f.dx-f.dy*12,0,108);
         if(e->mode==EDIT_DURATION) e->value.length=clamp(e->value.length+f.dx-f.dy*20,5,1280);
         if(e->mode==EDIT_PERIOD) e->value.period=clamp(e->value.period+f.dx-f.dy,2,32);
@@ -123,6 +152,11 @@ void editor_update(Editor *e,InputFrame f) {
     case ACTION_PERIOD: e->mode=EDIT_PERIOD; break;
     case ACTION_PATTERN: e->pattern_cursor=0; e->mode=EDIT_PATTERN; break;
     case ACTION_CHANCE: e->mode=EDIT_CHANCE; break;
+    case ACTION_SOUND: e->selected=0; e->mode=EDIT_SOUND; break;
+    case ACTION_LOCK_ATTACK_ENABLE: e->mode=EDIT_LOCK_ATTACK_ENABLE; break;
+    case ACTION_LOCK_RELEASE_ENABLE: e->mode=EDIT_LOCK_RELEASE_ENABLE; break;
+    case ACTION_LOCK_ATTACK: e->mode=EDIT_LOCK_ATTACK; break;
+    case ACTION_LOCK_RELEASE: e->mode=EDIT_LOCK_RELEASE; break;
     case ACTION_CLOSE: e->mode=EDIT_PLANE; break;
     }
 }

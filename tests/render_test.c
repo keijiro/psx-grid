@@ -96,7 +96,10 @@ int main(void) {
         for(int mode=EDIT_PLANE;mode<EDIT_MODE_COUNT;mode++) {
             e.mode=mode; e.lane=0; e.candidate=mode==EDIT_DIVISION?11:64;
             e.value=score_default(TILE_NOTE); e.value.period=32; e.value.pitch=108;
-            e.tile_candidate=TILE_NOTE; e.source_x=1; e.source_y=0;
+            e.value.lock_mask=3; e.value.attack=-16000; e.value.release=16000;
+            e.sound_candidate=e.score.sound=(SoundSettings){16000,16000};
+            e.playing=1; e.snapshot_dirty=mode%2;
+            e.tile_candidate=TILE_RELATIVE; e.source_x=1; e.source_y=0;
             render_frame(&e,1);
         }
     }
@@ -119,6 +122,10 @@ int main(void) {
     e.mode=EDIT_PATTERN; e.value=score_default(TILE_CYCLE); e.value.period=32;
     render_frame(&e,1); save("build/tests/pattern.pgm");
     e.mode=EDIT_LENGTH; e.lane=0; e.candidate=64; render_frame(&e,1); save("build/tests/resize.pgm");
+    e.mode=EDIT_LOCK_ATTACK; e.value=score_default(TILE_RELATIVE); e.value.lock_mask=3; e.value.attack=-16000;
+    render_frame(&e,1); save("build/tests/lock.pgm");
+    e.mode=EDIT_SOUND; e.score.sound=(SoundSettings){16000,16000};
+    render_frame(&e,1); save("build/tests/sound.pgm");
     assert(render_overflows==0);
     printf("PASS: %d render frames; peak %u / 32768 bytes; no overflow or screen escape\n",frame_count,render_packet_peak);
 }
