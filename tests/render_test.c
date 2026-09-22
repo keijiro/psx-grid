@@ -82,39 +82,42 @@ static void save(const char *path) {
     FILE *f=fopen(path,"wb"); assert(f);
     fprintf(f,"P5\n320 240\n255\n"); fwrite(output,1,sizeof(output),f); fclose(f);
 }
+static Editor e;
 int main(void) {
-    Editor e; editor_init(&e); render_init();
-    for(int i=0;i<16;i++) {
-        assert(score_create(&e.score,0,i,64)==SCORE_OK);
-        for(int x=1;x<=64;x++) assert(score_place(&e.score,x,i,(TileKind)(1+x%6))==SCORE_OK);
+    editor_init(&e); render_init();
+    assert(!score_create(&e.score,0,0,64));
+    for(int x=1;x<=64;x++) for(int y=0;y<64;y++) {
+        assert(!score_place(&e.score,x,y,(TileKind)(1+(x+y)%3)));
+        TileId t=score_at(&e.score,x,y).tile;
+        e.score.tiles[t].value.pitch=49; e.score.tiles[t].value.chance=100; e.score.tiles[t].value.period=32;
     }
-    e.message=score_message(SCORE_COLLISION);
     for(int y=0;y<64;y++) for(int x=0;x<128;x++) {
         e.x=x; e.y=y;
-        for(int mode=EDIT_PLANE;mode<=EDIT_PICKER;mode++) {
-            e.mode=mode; e.lane=0; e.candidate=64; e.tile_candidate=(TileKind)(1+(x%6));
+        for(int mode=EDIT_PLANE;mode<EDIT_MODE_COUNT;mode++) {
+            e.mode=mode; e.lane=0; e.candidate=mode==EDIT_DIVISION?11:64;
+            e.value=score_default(TILE_NOTE); e.value.period=32; e.value.pitch=108;
+            e.tile_candidate=TILE_NOTE; e.source_x=1; e.source_y=0;
             render_frame(&e,1);
         }
     }
-    render_frame(&e,0);
-    // Sparse lanes expose the maximum rail workload, including clipped heads.
-    for(int i=0;i<SCORE_LANES;i++) memset(e.score.lanes[i].tiles,0,SCORE_STEPS);
-    for(int y=0;y<64;y++) for(int x=0;x<128;x++) {
-        e.x=x; e.y=y;
-        for(int mode=EDIT_PLANE;mode<=EDIT_PICKER;mode++) {
-            e.mode=mode; e.tile_candidate=(TileKind)(1+x%6); render_frame(&e,x%2);
-        }
+    editor_init(&e);
+    for(int i=0;i<16;i++) assert(!score_create(&e.score,0,i,64));
+    for(int corner=0;corner<4;corner++) for(int mode=0;mode<EDIT_MODE_COUNT;mode++) {
+        e.x=(corner&1)?127:0; e.y=(corner&2)?63:0; e.mode=mode;
+        e.value=score_default(TILE_CYCLE); e.value.period=32;
+        e.candidate=mode==EDIT_DIVISION?11:64; render_frame(&e,0);
     }
-    for(int corner=0;corner<4;corner++) for(int k=TILE_NOTE;k<TILE_KIND_COUNT;k++) {
-        e.x=(corner&1)?127:0; e.y=(corner&2)?63:0;
-        e.mode=EDIT_PICKER; e.tile_candidate=(TileKind)k; render_frame(&e,0);
-    }
-    editor_init(&e); assert(score_create(&e.score,1,1,10)==SCORE_OK);
-    for(int k=TILE_NOTE;k<TILE_KIND_COUNT;k++) assert(score_place(&e.score,k+1,1,(TileKind)k)==SCORE_OK);
-    render_frame(&e,1); e.x=7; e.y=1; capture=1; render_frame(&e,1); save("build/tests/plane.pgm");
-    e.mode=EDIT_PICKER; e.x=8;
-    for(int k=TILE_NOTE;k<TILE_KIND_COUNT;k++) { e.tile_candidate=(TileKind)k; render_frame(&e,1); }
-    save("build/tests/picker.pgm");
+    editor_init(&e); assert(!score_create(&e.score,1,1,16));
+    assert(!score_place(&e.score,2,1,TILE_CYCLE));
+    for(int y=2;y<5;y++) assert(!score_place(&e.score,2,y,TILE_NOTE));
+    assert(!score_place(&e.score,3,1,TILE_PROBABILITY));
+    assert(!score_place(&e.score,4,1,TILE_JUMP));
+    for(int i=0;i<13;i++) assert(!score_place(&e.score,5+i,1,TILE_JUMP));
+    for(int y=0;y<64;y++) { e.y=y; render_frame(&e,1); }
+    e.x=2; e.y=1; capture=1; e.mode=EDIT_PLANE; render_frame(&e,1); save("build/tests/plane.pgm");
+    e.mode=EDIT_PICKER; render_frame(&e,1); save("build/tests/picker.pgm");
+    e.mode=EDIT_PATTERN; e.value=score_default(TILE_CYCLE); e.value.period=32;
+    render_frame(&e,1); save("build/tests/pattern.pgm");
     e.mode=EDIT_LENGTH; e.lane=0; e.candidate=64; render_frame(&e,1); save("build/tests/resize.pgm");
     assert(render_overflows==0);
     printf("PASS: %d render frames; peak %u / 32768 bytes; no overflow or screen escape\n",frame_count,render_packet_peak);

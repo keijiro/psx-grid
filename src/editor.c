@@ -1,80 +1,128 @@
 #include "editor.h"
 #include <string.h>
-void editor_init(Editor *e) { memset(e, 0, sizeof(*e)); e->x = e->y = 1; e->message = ""; e->last_tile = e->tile_candidate = TILE_NOTE; }
-int editor_menu(const Editor *e, EditorAction items[3]) {
-    Cell c = score_at(&e->score, e->x, e->y);
-    int n = 0;
-    if (c.kind == CELL_EMPTY) items[n++] = ACTION_CREATE;
-    if (c.kind == CELL_STEP) items[n++] = ACTION_PLACE;
-    if (c.kind == CELL_TILE) items[n++] = ACTION_REMOVE;
-    if (c.kind != CELL_EMPTY) items[n++] = ACTION_LENGTH;
-    if (c.kind == CELL_HEAD) items[n++] = ACTION_DELETE;
-    items[n++] = ACTION_CLOSE;
-    return n;
+static int clamp(int x,int min,int max) { return x<min?min:x>max?max:x; }
+void editor_init(Editor *e) {
+    memset(e,0,sizeof(*e)); e->x=e->y=1; e->message="";
+    e->last_tile=e->tile_candidate=TILE_NOTE; e->last_note=score_default(TILE_NOTE);
+}
+int editor_menu(const Editor *e,EditorAction items[EDITOR_MENU_ITEMS]) {
+    Cell c=score_resolve(&e->score,e->x,e->y); int n=0;
+    if(c.kind==CELL_EMPTY) items[n++]=ACTION_CREATE;
+    if(c.kind==CELL_STEP || c.kind==CELL_END) { items[n++]=ACTION_PLACE; items[n++]=ACTION_PASTE; }
+    if(c.kind==CELL_TILE) {
+        TileKind k=e->score.tiles[c.tile].value.kind;
+        if(k==TILE_NOTE) { items[n++]=ACTION_PITCH; items[n++]=ACTION_DURATION; }
+        if(k==TILE_CYCLE) { items[n++]=ACTION_PERIOD; items[n++]=ACTION_PATTERN; }
+        if(k==TILE_PROBABILITY) items[n++]=ACTION_CHANCE;
+        items[n++]=ACTION_COPY; items[n++]=ACTION_REMOVE;
+    }
+    if(c.kind==CELL_HEAD) {
+        items[n++]=ACTION_LENGTH;
+        if(!e->score.lanes[c.lane].source) items[n++]=ACTION_DIVISION;
+        items[n++]=ACTION_DELETE;
+    }
+    items[n++]=ACTION_CLOSE; return n;
 }
 const char *editor_action_label(EditorAction a) {
-    static const char *labels[] = {"NEW LANE", "PLACE TILE", "DELETE TILE", "CHANGE LENGTH", "DELETE LANE", "CLOSE"};
+    static const char *labels[]={"NEW LANE","CREATE TILE","DELETE TILE","LANE LENGTH","DELETE LANE","CLOSE","COPY STACK","PASTE STACK","PITCH","NOTE LENGTH","CYCLE PERIOD","CYCLE PATTERN","CHANCE","STEP DIVISION"};
     return labels[a];
 }
-static int clamp(int x, int max) { return x < 0 ? 0 : x > max ? max : x; }
-void editor_update(Editor *e, InputFrame f) {
-    if (!f.connected) return;
-    // Picker cancellation returns to its parent menu, without remembering browsing.
-    if (e->mode == EDIT_PICKER) {
-        if (f.circle) { e->mode = EDIT_MENU; e->selected = 0; return; }
-        e->tile_candidate = (TileKind)(clamp((int)e->tile_candidate - 1 + f.dy, TILE_KIND_COUNT - 2) + 1);
-        if (f.cross) {
-            ScoreResult r = score_place(&e->score, e->x, e->y, e->tile_candidate);
-            e->message = score_message(r);
-            if (r == SCORE_OK) { e->last_tile = e->tile_candidate; e->mode = EDIT_PLANE; }
+static void cancel_move(Editor *e) { e->x=e->source_x; e->y=e->source_y; e->mode=EDIT_PLANE; e->gesture=0; e->message="CANCELLED"; }
+static void finish(Editor *e,ScoreResult r) { e->message=score_message(r); if(!r) e->mode=EDIT_PLANE; }
+void editor_update(Editor *e,InputFrame f) {
+    if(!f.connected) { if(e->gesture || e->mode==EDIT_MOVE) cancel_move(e); return; }
+    if(e->mode==EDIT_PLANE || e->mode==EDIT_MOVE) {
+        // Capture before applying this frame's direction, including simultaneous X.
+        if(f.cross && e->mode==EDIT_PLANE) {
+            e->gesture=1; e->directed=0; e->source_x=e->x; e->source_y=e->y;
+        }
+        if(f.circle && e->gesture) { cancel_move(e); return; }
+        if(e->gesture && (f.dx || f.dy)) {
+            e->directed=1;
+            Cell c=score_at(&e->score,e->source_x,e->source_y);
+            if(c.kind==CELL_TILE || c.kind==CELL_HEAD) e->mode=EDIT_MOVE;
+        }
+        e->x=clamp(e->x+f.dx,0,SCORE_WIDTH-1); e->y=clamp(e->y+f.dy,0,SCORE_HEIGHT-1);
+        if(f.dx || f.dy) e->message="";
+        if(f.cross_released && e->gesture) {
+            e->gesture=0;
+            if(e->mode==EDIT_MOVE) {
+                ScoreResult r=score_apply_move(&e->score,score_plan_move(&e->score,e->source_x,e->source_y,e->x,e->y));
+                if(r) { e->x=e->source_x; e->y=e->source_y; }
+                e->mode=EDIT_PLANE; e->message=score_message(r);
+            } else if(!e->directed) { e->mode=EDIT_MENU; e->selected=0; e->message=""; }
         }
         return;
     }
-    if (f.circle && e->mode != EDIT_PLANE) { e->mode = EDIT_PLANE; e->message = "CANCELLED"; return; }
-    if (e->mode == EDIT_PLANE) {
-        e->x = clamp(e->x + f.dx, SCORE_WIDTH - 1);
-        e->y = clamp(e->y + f.dy, SCORE_HEIGHT - 1);
-        if (f.dx || f.dy) e->message = "";
-        if (f.cross) { e->mode = EDIT_MENU; e->selected = 0; e->message = ""; }
-        return;
-    }
-    if (e->mode == EDIT_LENGTH) {
-        if (f.dx) {
-            int candidate = e->candidate + f.dx;
-            ScoreResult r = score_can_resize(&e->score, e->lane, candidate);
-            e->message = score_message(r);
-            if (r == SCORE_OK) e->candidate = candidate;
-        }
-        if (f.cross) {
-            ScoreResult r = score_resize(&e->score, e->lane, e->candidate);
-            e->message = r == SCORE_OK ? "LENGTH UPDATED" : score_message(r);
-            if (r == SCORE_OK) e->mode = EDIT_PLANE;
+    // A menu confirmation never arms the plane's press/release gesture.
+    e->gesture=0;
+    if(f.circle) { e->mode=e->mode==EDIT_MENU?EDIT_PLANE:EDIT_MENU; e->selected=0; e->message=""; return; }
+    if(e->mode==EDIT_PICKER) {
+        e->tile_candidate=(TileKind)clamp(e->tile_candidate+f.dy,1,TILE_KIND_COUNT-1);
+        if(f.cross) {
+            TileValue v=e->tile_candidate==TILE_NOTE?e->last_note:score_default(e->tile_candidate);
+            ScoreResult r=score_place_value(&e->score,e->x,e->y,v);
+            if(!r) { e->last_tile=e->tile_candidate; if(v.kind==TILE_NOTE) e->last_note=v; }
+            finish(e,r);
         }
         return;
     }
-    if (e->mode == EDIT_DELETE) {
-        if (f.dx) e->confirm = f.dx > 0;
-        if (f.cross) {
-            e->message = e->confirm ? score_message(score_delete(&e->score, e->lane)) : "CANCELLED";
-            e->mode = EDIT_PLANE;
+    if(e->mode==EDIT_DELETE) {
+        e->confirm=clamp(e->confirm+f.dy+f.dx,0,1);
+        if(f.cross) {
+            if(e->confirm) finish(e,e->target?score_remove(&e->score,e->x,e->y):score_delete(&e->score,e->lane));
+            else e->mode=EDIT_MENU;
         }
         return;
     }
-    EditorAction items[3];
-    int count = editor_menu(e, items);
-    e->selected = clamp(e->selected + f.dy, count - 1);
-    if (!f.cross) return;
-    Cell c = score_at(&e->score, e->x, e->y);
-    ScoreResult result = SCORE_OK;
-    switch (items[e->selected]) {
-    case ACTION_CREATE: result = score_create(&e->score, e->x, e->y, SCORE_INITIAL_LENGTH); break;
-    case ACTION_PLACE: e->tile_candidate = e->last_tile; e->mode = EDIT_PICKER; return;
-    case ACTION_REMOVE: result = score_remove(&e->score, e->x, e->y); break;
-    case ACTION_LENGTH:
-        e->lane = c.lane; e->candidate = e->score.lanes[c.lane].length; e->mode = EDIT_LENGTH; return;
-    case ACTION_DELETE: e->lane = c.lane; e->confirm = 0; e->mode = EDIT_DELETE; return;
-    case ACTION_CLOSE: break;
+    if(e->mode==EDIT_LENGTH || e->mode==EDIT_DIVISION) {
+        e->candidate=clamp(e->candidate+f.dx-f.dy,e->mode==EDIT_LENGTH?1:0,e->mode==EDIT_LENGTH?64:SCORE_DIVISIONS-1);
+        if(f.cross) finish(e,e->mode==EDIT_LENGTH?score_resize(&e->score,e->lane,e->candidate):score_set_division(&e->score,e->lane,score_divisions[e->candidate]));
+        return;
     }
-    e->message = score_message(result);
-    e->mode = EDIT_PLANE;
+    if(e->mode!=EDIT_MENU) {
+        if(e->mode==EDIT_PITCH) e->value.pitch=clamp(e->value.pitch+f.dx-f.dy*12,0,108);
+        if(e->mode==EDIT_DURATION) e->value.length=clamp(e->value.length+f.dx-f.dy*20,5,1280);
+        if(e->mode==EDIT_PERIOD) e->value.period=clamp(e->value.period+f.dx-f.dy,2,32);
+        if(e->mode==EDIT_CHANCE) e->value.chance=clamp(e->value.chance+f.dx-f.dy,0,100);
+        if(e->mode==EDIT_PATTERN) {
+            int p=e->pattern_cursor;
+            if(p==e->value.period) { if(f.dy<0) p=e->value.period-1; }
+            else { p=clamp(p+f.dx+f.dy*8,0,e->value.period); }
+            e->pattern_cursor=p;
+            if(f.cross && p<e->value.period) { e->value.pattern^=(uint32_t)1<<p; return; }
+        }
+        if(f.cross) {
+            ScoreResult r=score_edit(&e->score,e->target,e->value);
+            if(!r && e->value.kind==TILE_NOTE) e->last_note=e->value;
+            finish(e,r);
+        }
+        return;
+    }
+    EditorAction items[EDITOR_MENU_ITEMS]; int count=editor_menu(e,items);
+    e->selected=clamp(e->selected+f.dy,0,count-1);
+    if(!f.cross) return;
+    Cell c=score_at(&e->score,e->x,e->y); e->lane=c.lane; e->target=c.tile;
+    if(c.tile) e->value=e->score.tiles[c.tile].value;
+    switch(items[e->selected]) {
+    case ACTION_CREATE: finish(e,score_create(&e->score,e->x,e->y,SCORE_INITIAL_LENGTH)); break;
+    case ACTION_PLACE: e->tile_candidate=e->last_tile; e->mode=EDIT_PICKER; break;
+    case ACTION_PASTE: finish(e,score_paste(&e->score,e->x,e->y,&e->clipboard)); break;
+    case ACTION_COPY: score_copy(&e->score,e->x,e->y,&e->clipboard); e->mode=EDIT_PLANE; break;
+    case ACTION_REMOVE:
+        if(e->value.kind!=TILE_JUMP) { finish(e,score_remove(&e->score,e->x,e->y)); break; }
+        /* A jump owns a whole subtree, so use the same explicit confirmation as a lane. */
+        e->confirm=0; e->mode=EDIT_DELETE; break;
+    case ACTION_DELETE: e->confirm=0; e->mode=EDIT_DELETE; break;
+    case ACTION_LENGTH: e->candidate=e->score.lanes[c.lane].length; e->mode=EDIT_LENGTH; break;
+    case ACTION_DIVISION:
+        e->candidate=0; while(score_divisions[e->candidate]!=score_division(&e->score,c.lane)) e->candidate++;
+        e->mode=EDIT_DIVISION; break;
+    case ACTION_PITCH: e->mode=EDIT_PITCH; break;
+    case ACTION_DURATION: e->mode=EDIT_DURATION; break;
+    case ACTION_PERIOD: e->mode=EDIT_PERIOD; break;
+    case ACTION_PATTERN: e->pattern_cursor=0; e->mode=EDIT_PATTERN; break;
+    case ACTION_CHANCE: e->mode=EDIT_CHANCE; break;
+    case ACTION_CLOSE: e->mode=EDIT_PLANE; break;
+    }
 }

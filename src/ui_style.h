@@ -2,8 +2,8 @@
 #define UI_STYLE_H
 #define SCREEN_W 320
 #define SCREEN_H 240
-// Native-size study keeps both gate counters and the relative modifier open
-// at this pitch. Heads use CH to preserve the compact label's side margins.
+// Sixteen-pixel pitch retains the 19-by-10 viewport. Compact labels fit
+// complete sharp pitches while leaving a gutter between adjacent stacks.
 #define CELL_SIZE 16
 #define VIEW_X 8
 #define VIEW_Y 32

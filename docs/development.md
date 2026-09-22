@@ -43,8 +43,8 @@ to a gamepad or keyboard. See [usage.md](usage.md) for the editing walkthrough.
 
 - `src/score.*`: SDK-independent model and edit validation.
 - `src/input.*`: Button presses, repeats, disconnection, and reconnection.
-- `src/editor.*`: State transitions, menus, candidate lengths, and deletion
-  confirmation.
+- `src/editor.*`: Menus, candidate properties, clipboard, deletion confirmation,
+  and press/hold/release movement transitions.
 - `src/render.*`: 320 x 240 NTSC output, double buffering, scrolling, and
   render-packet management.
 - [`assets/ui/`](../assets/ui/README.md), `scripts/generate-assets.py`: editable
@@ -83,8 +83,8 @@ port of its C# and Unity UI. The original reference checkout is
 `Assets/Jacquard/UI/ScoreView.cs`.
 
 The model owns edit validation, the editor owns interaction state, and the
-renderer owns presentation. Visual tile kinds identify appearance only; the
-model does not depend on atlas coordinates or grayscale values. Asset
+renderer owns presentation. Tile values, stable pool IDs, branch ownership, and transactional validation
+live in the model; it does not depend on atlas coordinates or grayscale values. Asset
 provenance and licensing live with the [editable sources](../assets/ui/README.md).
 Visual study results and remaining acceptance checks are in
 [validation.md](validation.md).

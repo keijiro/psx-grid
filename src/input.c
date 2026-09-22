@@ -20,6 +20,8 @@ InputFrame input_update(Input *i, int connected, uint16_t held) {
         if (!held) i->direction = 0;
         return f;
     }
+    f.cross_held = !!(held & INPUT_CROSS);
+    f.cross_released = !!(i->previous & ~held & INPUT_CROSS);
     f.cross = !!(held & ~i->previous & INPUT_CROSS);
     f.circle = !!(held & ~i->previous & INPUT_CIRCLE);
     i->previous = held;

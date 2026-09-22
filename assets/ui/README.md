@@ -4,6 +4,8 @@
 `scripts/generate-assets.py` packs it into a 256 x 64, 4-bit indexed atlas and
 emits glyph advances with the pixel data. CMake regenerates its private header
 when either source changes. The build requires Python 3's standard library.
+Runtime tile values use the separate three-by-five `SMALL_FONT` glyphs, with
+light and dark atlas rows for note/gate labels and lane heads.
 
 The bitmap face was drawn for this prototype, guided by Jura's monoline forms.
 It is named **PSX Grid Bitmap**, not Jura, and distributed under the accompanying

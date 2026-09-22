@@ -1,125 +1,71 @@
 # Validation Record
 
-Validation date: 2026-09-22 / macOS 27.0 (26A428), Apple Silicon, Apple Clang
-21.0.0. Builds use PSn00bSDK v0.24, GCC 16.2.0, binutils 2.47, and the project's
-pinned configuration. PCSX-Redux build 250 is installed with bundled OpenBIOS.
+Validation date: 2026-09-22, macOS 27.0 / Apple Silicon. Host tests use Clang
+with AddressSanitizer and UndefinedBehaviorSanitizer. Console builds use the
+pinned PSn00bSDK v0.24 toolchain and the Debug and Release presets.
 
-## Verification Status
+## Score editor verification
 
-Debug and Release builds and host tests pass for the model, picker, atlas,
-typography, and plane renderer. **Actual GPU appearance, the emulator editing
-walkthrough, and frame timing remain unverified.** Host captures below are
-not emulator evidence.
+Both console configurations build without warnings. The host suite passes
+model, input/editor, and renderer checks. Reproduce with `./scripts/test.sh`
+and the build commands in [development.md](development.md). The current host
+log is `build/validation/score-editor-host-tests.log`.
 
-The existing Jacquard tile illustration was inspected before producing the
-native-size studies. A fresh capture of a running Jacquard application was not
-obtained. Its source and attribution are recorded with the
-[editable assets](../assets/ui/README.md).
-
-## Visual study
-
-- [Jacquard reference illustration](captures/jacquard-tiles.png)
-- [16-pixel pitch study](captures/study-16.png)
-- [18-pixel pitch study](captures/study-18.png)
-- [Host-rendered comparison plane](captures/host-plane.png)
-- [Host-rendered picker](captures/host-picker.png)
-- [Host-rendered off-screen resize endpoint](captures/host-resize.png)
-
-The selected geometry is 16 x 16 pitch, 13 x 14 bodies, and a 19 x 10 viewport.
-The current bodies omit only the single pixel at each corner.
-At native size and integer enlargement, the relative fader modifier remains
-separate, cycle counters remain open, and the two flow arrows differ visibly.
-The 18-pixel study adds space without resolving a remaining legibility problem,
-so the original navigation density is retained. Single-pixel lattice dots are
-visible in these images; their final emulator presentation still needs review.
-
-PSX Grid Bitmap, a custom 5 x 7 monoline face, was selected over offline Jura
-at 9 and 10 pixels. Jura's fine strokes were much fainter in this study. The
-bitmap sample keeps `0/O`, `1/I`, `C#4`, coordinates, and long guidance readable
-on dark and light grounds. The current tile labels use a dedicated 4 x 5 face;
-the general UI retains the 5 x 7 face. The pitch studies above predate this
-label and corner adjustment; the host captures reflect it. This is a visual
-study result, not a display calibration.
-
-The host renderer replays submitted primitives in reverse ordering-table order,
-loads the generated indexed texture and CLUT, and approximates RGB555 output.
-It checks texture setup precedes sprites and shows panel/cursor layering. It
-cannot reproduce the GPU, emulator scaling, pixel aspect, or timing.
-
-## Automated verification
-
-Reproduce with `./scripts/test.sh` and the Debug/Release commands in
-[development.md](development.md).
-The latest host log is `build/validation/ui-host-tests.log`.
-
-| Area | Result |
+| Area | Automated coverage |
 | --- | --- |
-| Debug / Release | Both produce MIPS ELF and PS-X EXE outputs with no compiler warnings. |
-| Model | Existing classification, bounds, collision, capacity, resizing, deletion, and slot-reuse tests pass. |
-| Visual kinds | Each of the six explicit IDs is placed and removed; invalid IDs, occupied cells, heads, endpoints, and empty plane reject placement without changing score bytes. Every kind blocks shortening across it. Slot reuse clears kind data. |
-| Picker | From an empty editor, create a lane and place all six kinds through input/editor transitions. Browsing and both cancellation steps preserve score bytes, coordinates, and the last successful kind. Selection clamps to both ends. |
-| Input | Held Cross does not commit on entry; direction delay/repeat, mode reset, disconnect suspension, and release-to-rearm reconnect behavior pass, including reconnect inside the picker. Scrolling away/back preserves all kind bytes. |
-| Repeated editing | Existing 1,000 create/delete cycles pass. |
-| Render | 81,954 frames: every plane coordinate in all five modes for full and sparse long lanes, all picker choices at all four plane corners, disconnected guidance, and comparison captures. |
-| GPU packets | TILE=16, SPRT=20, DR_TPAGE=8 bytes, matching the SDK. Screen bounds, UV bounds, VRAM uploads, CLUT transparency/grayscale, primitive grayscale, and texture-page ordering pass. |
-| Memory | AddressSanitizer and UndefinedBehaviorSanitizer pass; no packet overflow. |
+| Properties | Pitch, duration, period, and chance bounds; remembered note values; cycle switches retained outside a shortened period; division choices and branch inheritance |
+| Stacks | Insertion into occupied stacks through movement, interior deletion, upward/downward reordering, moving suffixes between steps, terminator extension, independent clipboard values |
+| Branches | Four-step creation, source ownership, inherited division, moving heads without moving connections, descendant cycle rejection, deleting a branch/source/regular parent |
+| Atomic edits | Byte-for-byte preservation on collisions, boundary failures, lane capacity, tile capacity, partial-paste capacity failure, and invalid moves; planning without score mutation |
+| Capacity | An actual 4,096-tile score; stack depth to row 63; 16 lanes; deletion and pool reuse; 1,000 create/place/delete cycles |
+| Input/editor | X tap release, simultaneous X/direction, hold/release movement, invalid drops, Circle cancellation, disconnect cancellation, all-buttons-up reconnect, direction repeat and repeat reset, property cancellation and pattern confirmation |
+| Rendering | Every plane coordinate in all 12 editor modes with maximum tile density; sparse lanes and all modes at plane corners; 14 jump connections; host captures |
+| GPU packets | SDK-sized packets, screen and texture bounds, CLUT transparency and grayscale, ordering-table texture setup, panel layering, no packet overflow |
 
-The measured host packet peak is **20,136 / 32,768 bytes** (61.5%) per buffer;
-`render_overflows` remains **0**. Fixed storage, double buffering, and
-allocation-free frames remain in use. Debugger-visible `render_packet_peak` and `render_overflows` are retained.
-The measurement includes the sparse-rail workload and full picker overlay.
+The renderer submits 98,420 tested frames. The measured packet peak is
+24,528 / 32,768 bytes per buffer (74.9%), with zero overflows. The result is
+also recorded at the end of the host log.
+`render_packet_peak` and `render_overflows` remain visible to a debugger.
+Fixed storage and allocation-free frames remain in use.
 
-The previous setup validation verified pinned hashes and successful idempotent
-installation. Its logs remain under `build/validation`. See
-[development.md](development.md) for build requirements and the
-[asset documentation](../assets/ui/README.md) for the optional comparison study.
+## Visual evidence
 
-## Reproducing the comparison arrangement
+The current host renderer captures are:
 
-The normal executable always starts empty. To reproduce the plane capture
-through ordinary controls:
+- [Stack and branch plane](captures/host-plane.png)
+- [Four-kind picker](captures/host-picker.png)
+- [32-lap cycle pattern](captures/host-pattern.png)
+- [Off-screen resize endpoint](captures/host-resize.png)
 
-1. Create a lane at `(1,1)`.
-2. On steps `(2,1)` through `(7,1)`, place Note, Absolute Parameter, Relative
-   Parameter, Cycle Gate, Probability Gate, and Jump respectively.
-3. Change the lane length to 10, leaving four empty steps and the endpoint at
-   `(12,1)`. Leave the cursor on Jump at `(7,1)`.
-4. Move to `(8,1)` and open the picker for the overlay comparison; cancel it
-   twice and open Change Length, increasing its candidate to 64, for the
-   off-screen endpoint comparison.
+These images replay submitted GPU primitives in ordering-table order and
+approximate RGB555 output. They check panel occlusion and label placement,
+but do not establish actual GPU behavior, emulator scaling, or frame timing.
 
-The render test constructs the same arrangement for repeatable host captures,
-writing `build/tests/{plane,picker,resize}.pgm`. Convert these directly to PNG
-with an image tool to refresh the checked-in host images. Do not smooth when
-inspecting integer enlargements. The test fixture is not part of startup.
+The original [Jacquard illustration](captures/jacquard-tiles.png) and
+[16-pixel](captures/study-16.png) / [18-pixel](captures/study-18.png) studies are
+historical design references. They include parameter tiles removed from the
+current editor. Asset provenance and licensing are in
+[assets/ui/README.md](../assets/ui/README.md).
 
-## Emulator and outstanding acceptance
+## Emulator and physical console
 
-The 2026-09-22 Debug launch started PCSX-Redux, but UI automation returned
-`Invalid app`, preventing screen inspection and controller interaction. The
-launch log is `build/validation/ui-emulator.log`; process launch alone does
-not verify emulator behavior.
+PCSX-Redux build 250 was launched with the Debug executable using
+`scripts/run.sh`. Computer-use access failed with `Invalid app` for both the
+application path and display name. Window enumeration is unavailable through
+that interface. The launch log is
+`build/validation/score-editor-emulator.log`; launch alone is not verification.
 
-Still required on Debug and Release:
+**The emulator walkthrough remains unverified.** Run the chord/gate, property,
+copy, cross-lane move, and branch deletion sequence in
+[usage.md](usage.md#walkthrough) on Debug and Release. Also inspect edge menus,
+valid/invalid movement previews, off-screen connections, reconnect behavior,
+and frame timing at high density on the actual emulator GPU path.
 
-- Run the [empty-start editing walkthrough](usage.md#controls), placing/deleting
-  all six kinds, resizing and deleting lanes, and scrolling away/back with the
-  gamepad. Exercise cell-specific menus, rejected edits, repeated editing, and
-  menu placement at all four viewport corners.
-- Inspect native and normal emulator presentations against Jacquard, including
-  text on both polarities, note borders, gate counters, relative modifiers,
-  selection on bright tiles, and panel corners.
-- Check lattice alignment and rail continuity while scrolling, candidate
-  endpoints and arrows, held buttons, cancellation, and controller reconnection.
-- Verify atlas uploads, transparency, draw order, and buffer switching on the
-  actual GPU path. Observe packet counters and frame behavior under full and
-  sparse load; host results do not establish a frame-rate measurement.
-- Obtain a representative running Jacquard capture for the final comparison.
+**Physical-console testing remains unverified**, independently of the emulator
+check. Neither host rendering nor a successful MIPS build substitutes for it.
 
-No physical-console testing has been performed.
+## Platform limits
 
-## Platform Limits
-
-Output is 320 x 240 NTSC; PAL repeat tuning, lowercase, Japanese, and general
-Unicode rendering are not implemented. See [usage.md](usage.md) for the model
-limits and excluded editing features.
+Output remains 320 by 240 NTSC. PAL timing, lowercase, Japanese, and general
+Unicode rendering are not implemented. See [usage.md](usage.md) for editing
+limits and the intentionally excluded audio and persistence features.

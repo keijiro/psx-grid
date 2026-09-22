@@ -1,63 +1,93 @@
-# Using the Score Plane
+# Using the Score Editor
 
-See [development.md](development.md) for setup, build, and emulator launch
-instructions.
+See [development.md](development.md) for setup, builds, and emulator launch.
+The executable starts with an empty score and the cursor at `(1,1)`.
 
 ## Controls
 
 | State | D-pad | X / Cross | O / Circle |
 | --- | --- | --- | --- |
-| Plane | Move the cursor; scroll at edges | Open menu | No action |
-| Menu | Select an item with Up/Down | Execute | Close |
-| Tile picker | Select a kind with Up/Down | Place | Return to menu |
-| Change length | Change the candidate with Left/Right | Confirm | Cancel |
-| Delete lane confirmation | Select Cancel/Delete with Left/Right | Confirm | Cancel |
+| Plane | Move and scroll | Tap to open the cursor menu; hold with a direction to move an object | Cancel a move |
+| Moving | Select a destination, including invalid ground | Release to drop | Return to source |
+| Menu / picker | Up/Down selects | Execute | Return |
+| Pitch | Left/Right changes semitone; Up/Down changes octave | Apply | Discard |
+| Note length | Left/Right changes 0.05 steps; Up/Down changes one step | Apply | Discard |
+| Other numeric property | Right/Up increases; Left/Down decreases | Apply | Discard |
+| Cycle pattern | Navigate eight columns and the Apply item | Toggle a lap, or apply at Apply | Discard |
+| Deletion confirmation | Down/Right selects Delete; Up/Left selects Cancel | Execute selection | Return |
 
-1. At the initial position `(1,1)`, press X and confirm `NEW LANE` with X.
-2. Move right, then select `PLACE TILE` with X. Choose a kind with Up/Down
-   and press X again to place it. Circle returns to the menu without placing.
-3. At the same position, select `DELETE TILE` with X to remove only the tile.
-4. Select `CHANGE LENGTH` to resize the lane. A dashed outline marks the
-   candidate endpoint. An off-screen endpoint appears as an edge arrow with
-   its `END` coordinate. Press Circle to return without changing the data.
-5. Return to the bright `CH` lane head, then select `DELETE LANE`, Right, and X to
-   delete the lane and its tiles.
+Menus open on X release, with no long-press timer. An X press and direction in
+one frame grabs the cell at the cursor's original position. Directional input
+on an empty cell suppresses the tap menu. Menu confirmation never begins a
+move. Invalid drops and Circle return to the source without modifying the score.
 
-The grayscale plane uses center dots, dotted lane rails, and triangles on
-empty steps. Bright `CH` heads and U-turn endpoints bound each lane. The cursor
-uses bright corner brackets outside the tile body.
+The controller must release all buttons after reconnecting. Disconnecting
+cancels a move; other editors retain their candidates. Directions repeat after
+18 frames, then every three frames. Opposite directions cancel; horizontal
+movement takes precedence over vertical movement. Mode changes reset repeat.
 
-The picker offers Note (`C4`), Absolute Parameter, Relative Parameter, Cycle
-Gate, Probability Gate, and Jump. Notes have outlined bodies, parameters and
-gates use gray fields, and jumps use bright fields. These are visual kinds
-only: they do not implement music, parameters, probabilities, or jump behavior.
-The picker starts with Note and remembers the last successfully placed kind;
-browsing and cancellation leave both that choice and the score unchanged.
-To replace an occupied tile, delete it and place another.
+## Tiles and lanes
 
-Editing pauses while the controller is disconnected and until held buttons
-are released after reconnection. Cross and Circle act only on the initial
-press; changing modes resets direction repeat.
+Ground offers `NEW LANE`. Empty steps, terminators, and cells immediately below
+stacks offer `CREATE TILE` and `PASTE STACK`. Placement on a terminator extends
+the lane by one step. Occupied cells are never overwritten.
 
-A held direction starts repeating after 18 frames and then repeats every
-3 frames (about 300 ms and 50 ms under NTSC). Opposite directions cancel each other;
-horizontal movement takes precedence when both axes are active.
+| Object | Menu properties and initial values |
+| --- | --- |
+| Note | Pitch C0–C9, initially C4; length 0.25–64 steps, initially 1 |
+| Cycle gate | Period 2–32, initially 4; pattern with only lap 1 enabled |
+| Probability gate | Chance 0–100%, initially 50% |
+| Regular head (`L`) | Length, step division, delete lane |
+| Branch head (`B`) | Length, delete lane; division inherited from its source |
+| Jump | Copy stack, delete tile; destination is its own branch |
 
-## Plane and Editing Limits
+New notes remember the pitch and length of the last confirmed note placement
+or edit. Shortening a cycle period preserves switches outside the active
+period. Pattern changes are committed only with the explicit `APPLY` item.
+Cycle tiles display `C` and their period; probability tiles display their
+percentage as a number. Full editable values appear in the cursor menus.
 
-The plane starts empty, with 128 columns and 64 rows. Coordinates are
-zero-based; the cursor starts at `(1,1)`. The model supports up to 16 lanes
-of 1-64 steps each; new lanes contain 16 steps. A lane occupies its head, every step, and its endpoint. The editor
-rejects collisions, positions outside the plane, and capacity overflows. If a
-shorter length would discard tiles, it asks the user to delete those tiles
-first. Menus and canceled operations preserve the cursor position.
+Notes in a vertical stack describe a chord. Gates govern tiles below them;
+this phase stores the structure without evaluating gates or producing sound.
+Deleting a tile closes the gap. Moving to another step carries the selected
+tile and all tiles below it; a drop on a stack inserts at that depth. Moving
+within the same stack reorders just the selected tile. Dragging either kind of
+head moves the entire lane; connected lanes keep their positions.
 
-A lane with head `(x,y)` has steps from `(x+1,y)` through `(x+length,y)`
-and an endpoint at `(x+length+1,y)`. Each step holds at most one tile.
-New lanes use the cursor position as their head; creation fails if the initial
-length does not fit. Lane deletion starts with Cancel selected.
+`COPY STACK` includes the selected tile and everything below it except jumps.
+A selection containing only jumps leaves the previous clipboard intact.
+Pastes create independent tiles, including independent property values.
 
-Audio generation, playback, musical tile behavior, parameter editing, jump
-destinations/connections, stacks, branch lanes, lane and tile movement,
-copying, automatic extension at endpoints, saving, and loading are outside
-the prototype's scope.
+A jump creates a four-step branch below the score. Its connection and any
+visible off-screen endpoint markers are drawn on the plane. Deleting a jump
+removes its branch and every descendant branch. Deleting a branch head also
+removes its source jump. Lane and jump deletion require confirmation, initially
+set to Cancel. Moves that would create a branch cycle are rejected.
+
+The plane contains 128 by 64 cells, up to 16 lanes (including branches), and
+4,096 tiles. Regular lanes start at 16 steps; all lanes allow 1–64 steps.
+Stack depth is limited by the bottom of the plane. A head at `(x,y)` has steps
+at `(x+1,y)` through `(x+length,y)` and an endpoint at `(x+length+1,y)`.
+Collision, boundary, and capacity failures leave the score unchanged. Shortening
+a lane cannot discard occupied trailing steps.
+
+Division denominators are `1, 2, 3, 4, 6, 8, 12, 16, 24, 32, 48, 64`, initially
+16. Audio, auditioning, playback, effects, timbre, saving, loading, and undo
+are outside this phase.
+
+## Walkthrough
+
+1. Tap X at `(1,1)` and execute `NEW LANE`.
+2. At `(2,1)`, create a Cycle Gate. At `(2,2)` and `(2,3)`, create Notes.
+3. Open each note's menu and edit pitch and length. Open the gate's menu,
+   change its period, toggle laps in its pattern, and select Apply.
+4. Copy from the gate. Move to `(3,1)` and paste the complete stack.
+5. Create another lane on clear ground. Hold X on the pasted gate, navigate
+   to an empty step in the new lane, and release X. The whole stack moves.
+6. Create a Jump on an empty step. Follow its connection to the branch head;
+   edit its length, then delete the branch with explicit confirmation.
+   Verify that its source jump disappears as well.
+
+During a move the original score stays visible. Outlines show the carried
+shape at the candidate position: bright means valid, muted means invalid.
+The source marker is clamped to a viewport edge when it scrolls out of view.
