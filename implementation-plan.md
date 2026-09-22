@@ -1,186 +1,260 @@
-# psx-grid 実装プラン
+# psx-grid Implementation Plan
 
-## 1. 目的と完了条件
+## 1. Objective and Completion Criteria
 
-`plan.md` に基づき、Jacquard の Score Plane を PlayStation 上で操作する GUI 試作を作成する。D-pad での位置指定と、X（Cross）ボタンから開くコンテキストメニューの操作感を検証する。
+Based on `plan.md`, build a GUI prototype for operating Jacquard's Score Plane
+on PlayStation. The prototype evaluates cursor positioning with the D-pad and
+the context menu opened with the X (Cross) button.
 
-次の操作がゲームパッドだけで一巡できれば、今回の実装は完了とする。
+The implementation is complete when the following workflow can be performed
+entirely with a gamepad:
 
-1. 空の Score Plane 上でカーソルを移動する。
-2. X ボタンでメニューを開き、レーンを作成する。
-3. レーン上にタイルを配置し、選択して削除する。
-4. レーンを伸縮し、必要に応じて削除する。
-5. 複数レーンと画面外の位置を行き来して編集する。
+1. Move the cursor across an empty Score Plane.
+2. Open a menu with X and create a lane.
+3. Place a tile on the lane, select it, and delete it.
+4. Extend or shorten a lane and delete it when needed.
+5. Edit multiple lanes and positions outside the initial viewport.
 
-音声生成、シーケンス再生、タイル固有の機能・パラメーター編集、保存・読み込みは対象外とする。本書は実装計画であり、環境構築やプログラム実装はまだ行っていない。
+Audio generation, sequence playback, tile-specific behavior and parameter
+editing, saving, and loading are outside the scope. This document is an
+implementation plan; at the time it was written, the environment and program
+had not yet been created.
 
-## 2. 参照元と採用方針
+## 2. References and Adopted Approach
 
-### PlayStation 開発環境
+### PlayStation Development Environment
 
-`../psx-test` の以下を参照する。
+Use the following files from `../psx-test` as references:
 
-- `README.md`、`toolchain.lock`: セットアップ手順と依存関係の固定情報。
-- `CMakeLists.txt`、`CMakePresets.json`: C ソースから Debug / Release の PS-X EXE と ELF を生成する構成。
-- `scripts/setup.sh`、`scripts/env.sh`、`scripts/run.sh`: 環境構築、zsh 環境設定、エミュレーター起動。
-- `patches/`: SDK の互換性パッチ。
-- `src/main.c`: 320×240 の描画初期化、ダブルバッファ、ゲームパッド入力と長押しリピート。
+- `README.md` and `toolchain.lock`: setup instructions and pinned dependency
+  details.
+- `CMakeLists.txt` and `CMakePresets.json`: generation of Debug and Release
+  PS-X EXE and ELF files from C sources.
+- `scripts/setup.sh`, `scripts/env.sh`, and `scripts/run.sh`: environment setup,
+  zsh configuration, and emulator launch.
+- `patches/`: SDK compatibility patches.
+- `src/main.c`: 320 x 240 rendering initialization, double buffering, gamepad
+  input, and held-direction repeat behavior.
 
-同プロジェクトで固定されている PSn00bSDK v0.24、MIPS GCC 16.2.0 / binutils 2.47、PCSX-Redux build 250 と同梱 OpenBIOS を基準とする。これらは参照ファイルに記載されたバージョンであり、最新版を選定する計画ではない。
+Use the versions pinned by that project as the baseline: PSn00bSDK v0.24, MIPS
+GCC 16.2.0, binutils 2.47, PCSX-Redux build 250, and its bundled OpenBIOS.
+These versions come from the reference files; selecting the latest releases is
+not part of this plan.
 
-設定、スクリプト、パッチを本プロジェクト用に適応し、成果物名を `psx-grid` に統一する。SDK・エミュレーター・設定は本プロジェクト内の `.local/` 等に配置する。既存のシステム側ツールチェーンはバージョンを確認して再利用する。シンセサイザー処理は持ち込まない。
+Adapt the configuration, scripts, and patches to this project, and use
+`psx-grid` consistently for artifact names. Store the SDK, emulator, and
+configuration inside this project under locations such as `.local/`. Reuse an
+existing system toolchain after verifying its version. Do not bring over the
+synthesizer implementation.
 
-### Jacquard のモデルと UI
+### Jacquard Model and UI
 
-`/Users/keijiro/Projects/jacquard/main` の以下を参照した。
+The plan references the following files under
+`/Users/keijiro/Projects/jacquard/main`:
 
-- `Assets/Core/Model/Lane.cs`: 整数グリッド、横方向のレーン、先頭・終端セル、ステップと縦方向のタイルスタック。
-- `Assets/Core/Model/Score.cs`: セルの種類判定、占有判定、レーン延長時の空間確認。
-- `Assets/Jacquard/App/ScoreEditor.cs`: 作成・配置・削除・長さ変更とカーソル選択。
-- `Assets/Jacquard/UI/ScoreView.cs`: グリッド、レール、タイル、カーソルの表示。
+- `Assets/Core/Model/Lane.cs`: integer grid, horizontal lanes, head and endpoint
+  cells, steps, and vertical tile stacks.
+- `Assets/Core/Model/Score.cs`: cell classification, occupancy checks, and
+  available-space checks when extending a lane.
+- `Assets/Jacquard/App/ScoreEditor.cs`: creation, placement, deletion, length
+  changes, and cursor selection.
+- `Assets/Jacquard/UI/ScoreView.cs`: display of the grid, rails, tiles, and
+  cursor.
 
-C# や Unity UI を直接移植せず、グリッド座標とセル種別の考え方を C の小さなモデルに置き換える。
+Replace the grid-coordinate and cell-kind concepts with a small C model instead
+of directly porting the C# or Unity UI.
 
-## 3. 試作の具体仕様
+## 3. Prototype Specification
 
-以下の数値と簡略化は `plan.md` にない実装上の初期案である。操作感の確認後に調整できるよう定数化する。
+The following values and simplifications are initial implementation choices
+that do not appear in `plan.md`. Define them as constants so they can be tuned
+after evaluating the interaction.
 
-### Score Plane とデータ
+### Score Plane and Data
 
-- 論理平面は 128 列×64 行、カーソルの初期位置は `(1, 1)`。起動時は空の平面とする。
-- 最大 16 レーン、各レーンの長さは 1〜64 ステップ、作成時は 16 ステップとする。
-- レーンは先頭位置と長さを持つ。先頭が `(x, y)` の場合、ステップは `(x + 1, y)` から、終端は `(x + length + 1, y)` に置く。
-- レーンの先頭・全ステップ・終端を占有領域とし、他レーンとの重複や平面外への作成・延長を禁止する。
-- 通常タイルは見た目だけの 1 種類とし、各ステップに最大 1 個配置する。先頭・終端は通常タイルと区別する。
-- Jacquard のスタック、分岐レーン、レーンやタイルの移動、コピー、終端への配置による自動延長は今回の対象外とする。
-- 空き容量不足や衝突時は変更せず、理由を短いメッセージで表示する。
+- The logical plane contains 128 columns and 64 rows. The cursor starts at
+  `(1, 1)`, and the plane is empty at startup.
+- Support up to 16 lanes, each containing 1-64 steps. A new lane contains 16
+  steps.
+- A lane stores its head position and length. For a head at `(x, y)`, steps
+  begin at `(x + 1, y)` and the endpoint is `(x + length + 1, y)`.
+- Treat the head, every step, and the endpoint as occupied. Reject creation or
+  extension that overlaps another lane or leaves the plane.
+- Provide one visual-only kind of regular tile, with at most one tile per step.
+  Keep the head and endpoint distinct from regular tiles.
+- Jacquard's stacks, branch lanes, lane and tile movement, copying, and
+  automatic extension by placing at an endpoint are outside the scope.
+- If capacity is exhausted or a collision occurs, leave the data unchanged and
+  display a brief explanation.
 
-### 入力と画面状態
+### Input and Screen States
 
-| 状態 | D-pad | X（Cross） | ○（Circle） |
+| State | D-pad | X (Cross) | O (Circle) |
 | --- | --- | --- | --- |
-| 平面操作 | 上下左右へ 1 セル移動 | 現在位置のメニューを開く | 何もしない |
-| コンテキストメニュー | 上下で項目選択 | 項目を実行 | 閉じる |
-| 長さ変更 | 左右で候補値を増減 | 変更を確定 | 元の長さに戻って閉じる |
-| 削除確認 | 左右で取消／削除を選択 | 選択を確定 | 取り消す |
+| Plane editing | Move one cell in four directions | Open the menu for the current position | No action |
+| Context menu | Select an item with Up/Down | Execute the item | Close |
+| Length change | Adjust the candidate with Left/Right | Confirm the change | Restore the original length and close |
+| Delete confirmation | Select Cancel/Delete with Left/Right | Confirm the selection | Cancel |
 
-- X と ○ は押した瞬間だけ反応させ、押しっぱなしで決定・削除が連続しないようにする。
-- D-pad は初回即時反応、約 300 ms 後にリピート開始、以降約 50 ms 間隔を初期値とする。
-- 同時押しで斜め移動しないよう、左右・上下の逆方向は相殺し、両軸入力は横方向を優先する。
-- 状態遷移時にリピートをリセットし、メニューを開いた X 入力で最初の項目まで実行しないようにする。
-- パッド未接続時は編集を停止し、再接続時に以前の入力が残らないようにする。
+- Respond to X and Circle only on the initial press so holding a button cannot
+  repeatedly confirm or delete.
+- Respond to the D-pad immediately, begin repeating after about 300 ms, and use
+  an initial repeat interval of about 50 ms.
+- Prevent diagonal movement: opposite directions on either axis cancel each
+  other, and horizontal input takes precedence when both axes are active.
+- Reset repeat state during state transitions. The X press that opens a menu
+  must not also execute its first item.
+- Suspend editing while the controller is disconnected and discard stale input
+  after reconnection.
 
-### 選択位置に応じたメニュー
+### Menu by Selected Position
 
-| セルの種類 | メニュー項目 |
+| Cell kind | Menu items |
 | --- | --- |
-| レーン外の空白 | 新規レーン、閉じる |
-| レーン先頭 | 長さ変更、レーン削除、閉じる |
-| レーン内の空きステップ | タイル配置、長さ変更、閉じる |
-| 通常タイル | タイル削除、長さ変更、閉じる |
-| レーン終端 | 長さ変更、閉じる |
+| Empty space outside a lane | New lane, Close |
+| Lane head | Change length, Delete lane, Close |
+| Empty step within a lane | Place tile, Change length, Close |
+| Regular tile | Delete tile, Change length, Close |
+| Lane endpoint | Change length, Close |
 
-- 新規レーンはカーソル位置を先頭にする。その場所に初期長のレーンが収まらなければ、移動を促す。別の行への自動配置は行わない。
-- タイル配置・削除後はメニューを閉じ、カーソルは元のセルに残す。
-- 長さ変更中は候補の終端をプレビューし、確定までは元データを変更しない。
-- 短縮でタイルが失われる候補は選べないようにし、先に対象タイルを削除する案内を表示する。
-- レーン削除は内部のタイルも削除するため、取消を初期選択とした確認を表示する。
-- 長さ変更・レーン削除後もカーソル座標は保ち、そのセルの種類を再判定する。
+- Use the cursor position as the head of a new lane. If the initial length does
+  not fit there, ask the user to move; do not place it automatically on another
+  row.
+- Close the menu after placing or deleting a tile, and leave the cursor on its
+  original cell.
+- Preview the candidate endpoint while changing length, and do not modify the
+  original data until confirmation.
+- Do not allow a candidate length that would discard tiles. Tell the user to
+  delete those tiles first.
+- Because deleting a lane also deletes its tiles, show a confirmation with
+  Cancel selected initially.
+- Preserve the cursor coordinates after a length change or lane deletion, then
+  classify the cell again.
 
-### 描画とスクロール
+### Rendering and Scrolling
 
-- 320×240 を基準に、上部に位置・状態、中央に Score Plane、下部に操作ガイドを配置する。
-- セル間隔は 16 ピクセルを初期値とし、グリッド、横方向のレール、先頭、終端、通常タイル、カーソルを形と色で区別する。
-- カーソルが表示領域の端に近づいたらセル単位で自動スクロールする。論理座標と画面座標を分離し、画面外でも同じ編集規則を使う。
-- メニューは画面内に収まる位置へ補正し、背後のカーソル移動を止める。
-- 初期版は短い英語ラベルと簡単な図形を使用する。日本語フォントと Jacquard の全アイコン再現は対象外とする。
-- 描画順を背景→グリッド／レール→タイル→カーソル→メニュー／ガイドに定め、可視範囲のみを描画する。
+- Target 320 x 240. Place position and state information at the top, the Score
+  Plane in the center, and control guidance at the bottom.
+- Start with 16-pixel cell spacing. Distinguish the grid, horizontal rail, head,
+  endpoint, regular tile, and cursor by shape and color.
+- Scroll by whole cells when the cursor approaches a viewport edge. Keep
+  logical and screen coordinates separate so the same editing rules apply
+  outside the viewport.
+- Constrain menus to the screen and stop the cursor behind a menu from moving.
+- Use short English labels and simple shapes in the initial version. Japanese
+  fonts and reproducing every Jacquard icon are outside the scope.
+- Draw in this order: background, grid/rails, tiles, cursor, menus/guidance.
+  Draw only the visible area.
 
-## 4. 実装構成
+## 4. Implementation Structure
 
-| ファイル | 責務 |
+| File | Responsibility |
 | --- | --- |
-| `src/main.c` | 初期化、フレーム進行、入力・編集・描画の呼び出し |
-| `src/input.c`, `src/input.h` | パッド状態、押下検出、方向リピート |
-| `src/score.c`, `src/score.h` | レーン・タイル管理、セル分類、境界・衝突・容量確認 |
-| `src/editor.c`, `src/editor.h` | カーソル、メニュー、長さ変更候補、確認状態 |
-| `src/render.c`, `src/render.h` | GPU 初期化、座標変換、スクロール、各 UI の描画 |
-| `CMakeLists.txt`, `CMakePresets.json` | PS-X EXE / ELF のビルド |
-| `scripts/`, `patches/`, `toolchain.lock` | 再現可能な開発環境 |
-| `tests/score_test.c` | ホストで実行するモデルの境界・整合性テスト |
-| `README.md`, `docs/validation.md` | 実行・操作手順、確認結果と既知の制限 |
+| `src/main.c` | Initialization, frame progression, and input/edit/render calls |
+| `src/input.c`, `src/input.h` | Controller state, press detection, and direction repeat |
+| `src/score.c`, `src/score.h` | Lane and tile management, cell classification, and boundary/collision/capacity checks |
+| `src/editor.c`, `src/editor.h` | Cursor, menus, candidate lengths, and confirmation state |
+| `src/render.c`, `src/render.h` | GPU initialization, coordinate conversion, scrolling, and UI rendering |
+| `CMakeLists.txt`, `CMakePresets.json` | PS-X EXE and ELF builds |
+| `scripts/`, `patches/`, `toolchain.lock` | Reproducible development environment |
+| `tests/score_test.c` | Host-side boundary and consistency tests for the model |
+| `README.md`, `docs/validation.md` | Execution and control instructions, validation results, and known limitations |
 
-レーンとステップは上限付き固定配列とし、毎フレームの動的確保を避ける。モデルは SDK 非依存にする。編集の可否はモデル側で一元的に判断し、メニューの表示条件と実行時の検証で共用する。描画パケットの最大使用量を見積もり、バッファ境界をチェックする。
+Store lanes and steps in bounded fixed arrays to avoid per-frame dynamic
+allocation. Keep the model independent of the SDK. Centralize edit validation
+in the model and share it between menu visibility and execution-time checks.
+Estimate maximum render-packet usage and check the buffer boundary.
 
-## 5. 実装手順と各段階の完了条件
+## 5. Implementation Steps and Completion Criteria
 
-### Step 1: 開発環境と最小実行ファイル
+### Step 1: Development Environment and Minimal Executable
 
-1. `psx-test` の構築ファイル・スクリプト・ロック情報・パッチを適応する。
-2. ターゲット名、EXE パス、説明文を `psx-grid` に変更する。
-3. `.local/`、`third_party/`、`build/` をバージョン管理対象外にする。
-4. 画面初期化と簡単な文字表示だけを実装し、Debug / Release をビルドする。
+1. Adapt the build files, scripts, lock data, and patches from `psx-test`.
+2. Change the target name, EXE path, and description to `psx-grid`.
+3. Exclude `.local/`, `third_party/`, and `build/` from version control.
+4. Implement only display initialization and simple text, then build Debug and
+   Release configurations.
 
-完了条件: 本プロジェクトのスクリプトからエミュレーターを起動し、両構成の EXE を表示できる。セットアップの再実行で固定構成が維持される。
+Completion criterion: the project scripts can launch the emulator and display
+the EXE from both configurations. Running setup again preserves the pinned
+configuration.
 
-### Step 2: Score モデル
+### Step 2: Score Model
 
-1. グリッド座標、レーン、タイル、セル種別を定義する。
-2. セル検索、レーン作成・削除、タイル配置・削除、長さ変更を実装する。
-3. 境界、容量、占有、短縮時のタイル保護を実装する。
-4. ホスト側テストで失敗時にデータが変わらないことも確認する。
+1. Define grid coordinates, lanes, tiles, and cell kinds.
+2. Implement cell lookup, lane creation and deletion, tile placement and
+   deletion, and length changes.
+3. Enforce boundaries, capacity, occupancy, and tile protection when shortening.
+4. Use host tests to verify that rejected operations leave the data unchanged.
 
-完了条件: 先頭・終端を含む重複を防ぎ、合法な編集だけを適用できる。
+Completion criterion: overlaps, including heads and endpoints, are prevented,
+and only valid edits are applied.
 
-### Step 3: Score Plane とカーソル
+### Step 3: Score Plane and Cursor
 
-1. ダブルバッファによる描画ループとパッド入力を実装する。
-2. グリッド、レーン、タイル、カーソルを描画する。
-3. D-pad の単発移動・リピート、境界制限、追従スクロールを実装する。
+1. Implement a double-buffered render loop and controller input.
+2. Draw the grid, lanes, tiles, and cursor.
+3. Implement initial and repeated D-pad movement, boundary constraints, and
+   cursor-following scroll.
 
-完了条件: 開発用の複数レーンを表示し、全方向にスクロールして目的のセルを選べる。最終版の起動状態は空の平面へ戻す。
+Completion criterion: development fixtures with multiple lanes are visible,
+and the cursor can reach a target cell by scrolling in every direction. Restore
+the empty startup plane in the final version.
 
-### Step 4: コンテキストメニューと編集
+### Step 4: Context Menus and Editing
 
-1. 入力先を画面状態で切り替える。
-2. セル種別からメニューを構成し、レーン作成とタイル配置・削除を接続する。
-3. レーン長のプレビュー・確定・取消とレーン削除確認を実装する。
-4. 実行できない操作の理由と状態別ガイドを表示する。
+1. Route input according to screen state.
+2. Build menus from the selected cell kind and connect lane creation and tile
+   placement/deletion.
+3. Implement lane-length preview, confirmation, and cancellation, plus lane
+   deletion confirmation.
+4. Display reasons for rejected operations and state-specific control guidance.
 
-完了条件: 空の平面から、作成→配置→削除→長さ変更→レーン削除までゲームパッドのみで完了できる。取消ではデータが変わらない。
+Completion criterion: using only the gamepad, a user can start from an empty
+plane and create, place, delete, resize, and delete a lane. Cancellation leaves
+the data unchanged.
 
-### Step 5: 操作感と負荷の確認
+### Step 5: Interaction and Load Validation
 
-1. 以下の受け入れシナリオを Debug / Release で確認する。
-2. カーソル速度、リピート間隔、セル寸法、配色、メニュー位置を実操作で調整する。
-3. 最大レーン数・長さの配置で描画パケット量とフレーム処理を確認する。
-4. 実行手順と操作表、制限、検証環境、結果を文書化する。
+1. Run the following acceptance scenarios in Debug and Release configurations.
+2. Tune cursor speed, repeat intervals, cell dimensions, colors, and menu
+   placement through direct interaction.
+3. Measure render-packet usage and frame processing with the maximum lane count
+   and length.
+4. Document execution steps, controls, limitations, validation environment,
+   and results.
 
-完了条件: エミュレーター上で継続操作して表示破綻・入力暴発・データ不整合がなく、VSync ごとの更新を維持できる。実機確認の有無を検証記録に明記する。
+Completion criterion: continuous editing in the emulator produces no visual
+corruption, unintended input, or data inconsistency and continues to update on
+each VSync. Record whether the result was also tested on physical hardware.
 
-依存順は Step 1 → Step 2 → Step 3 → Step 4 → Step 5 とする。
+The dependency order is Step 1 -> Step 2 -> Step 3 -> Step 4 -> Step 5.
 
-## 6. 受け入れシナリオ
+## 6. Acceptance Scenarios
 
-| 観点 | 確認内容 |
+| Area | Check |
 | --- | --- |
-| 初期操作 | 空の平面からレーンを作り、任意のステップへタイルを配置・削除できる |
-| セル判定 | 空白・先頭・空きステップ・通常タイル・終端で対応するメニューになる |
-| 入力 | 単発、長押し、方向切替、同時押し、X 長押し、○ 取消が仕様どおり動く |
-| 状態遷移 | メニューを開く入力が決定に流れず、メニュー中に背後のカーソルが動かない |
-| 延長 | 終端を含む衝突や平面境界を越える変更を拒否し、元データを維持する |
-| 短縮 | 最小長未満とタイルを失う短縮を拒否し、合法な短縮と取消ができる |
-| 削除 | 通常タイル削除はレーンを残し、レーン削除は確認後に配下のタイルも消す |
-| 容量 | 最大レーン数・最大長に達しても、追加や延長の失敗が既存データを壊さない |
-| 表示範囲 | 画面外への移動と復帰で選択位置が一致し、四隅でもメニューを読める |
-| 接続 | パッド切断中に編集されず、再接続時に意図しない操作が起きない |
-| 継続操作 | 作成・削除・伸縮を繰り返しても表示とモデルが一致し続ける |
+| Initial workflow | Create a lane on an empty plane, then place and delete a tile on any step. |
+| Cell classification | Empty space, head, empty step, regular tile, and endpoint each produce the appropriate menu. |
+| Input | Initial press, hold, direction change, simultaneous directions, holding X, and cancellation with Circle behave as specified. |
+| State transitions | The press that opens a menu does not execute an item, and the cursor behind an open menu does not move. |
+| Extension | Changes that collide, including at the endpoint, or leave the plane are rejected without altering the original data. |
+| Shortening | Lengths below the minimum and changes that discard tiles are rejected; valid shortening and cancellation work. |
+| Deletion | Deleting a regular tile preserves its lane; confirmed lane deletion also removes its tiles. |
+| Capacity | Failed creation or extension at maximum lane count or length does not damage existing data. |
+| Viewport | Moving off-screen and back preserves the selected position, and menus remain readable in all four corners. |
+| Connection | Editing stops while the controller is disconnected, and reconnection does not trigger unintended operations. |
+| Repeated editing | Display and model remain consistent through repeated creation, deletion, extension, and shortening. |
 
-モデルの境界・衝突・短縮・容量制限はホスト側テストで確認する。入力と画面の状態遷移、視認性、操作感はエミュレーターで確認し、未確認事項を成功扱いにしない。
+Verify model boundaries, collisions, shortening, and capacity limits with host
+tests. Verify input and screen-state transitions, visibility, and interaction
+in the emulator. Do not record unverified items as passed.
 
-## 7. 最終成果物
+## 7. Deliverables
 
-- 本プロジェクト内で再構築可能な開発環境と C ソース。
-- `build/debug/psx-grid.elf`、`build/debug/psx-grid.exe` および Release 版。
-- セットアップ・ビルド・起動・操作方法を記載した `README.md`。
-- 検証結果と Jacquard 本体との差分・既知の制限を記録した `docs/validation.md`。
+- A reproducible development environment and C sources within this project.
+- `build/debug/psx-grid.elf`, `build/debug/psx-grid.exe`, and their Release
+  counterparts.
+- A `README.md` covering setup, build, launch, and controls.
+- A `docs/validation.md` recording validation results, differences from
+  Jacquard, and known limitations.

@@ -1,26 +1,35 @@
-# 主旨
+# Purpose
 
-このプロジェクトは Jacquard の PlayStation 移植を最終目標とした準備段階であり、基本的な GUI を検証するものです。
+This project is a preparatory step toward the eventual goal of porting Jacquard
+to PlayStation. It validates a basic GUI.
 
-# Jacquard プロジェクトについて
+# Jacquard Project
 
-~/Projects/jacquard/main に存在する Unity プロジェクトです。
+Jacquard is the Unity project located at `~/Projects/jacquard/main`.
 
-# PlayStation 開発環境について
+# PlayStation Development Environment
 
-../psx-test を参考にして同等の環境をこちらにも構築し使用してください。
+Use `../psx-test` as a reference to build and use an equivalent environment in
+this project.
 
-# 実装範囲について
+# Implementation Scope
 
-一気に Jacquard を移植するのではなく、最も基本的な操作だけを検証します。
+Validate only the most basic operations instead of porting all of Jacquard at
+once.
 
-- メインの Score Plane のみを表示し、その上にタイルを配置する所までを実装する。
-- その操作感を検証するのが目的であり、タイルの機能は実装は目的としません。
+- Display only the main Score Plane and support placing tiles on it.
+- The goal is to evaluate how the interface feels. Implementing tile behavior
+  is outside the scope of this prototype.
 
-# 操作系について
+# Controls
 
-オリジナルの Jacquard はタッチ操作を基本としているため、これをゲームパッド入力に置き換えるのが最大の違いとなります。
+The original Jacquard is designed primarily for touch input. Replacing that
+interaction with gamepad input is the most significant difference in this
+port.
 
-D-pad でカーソルを上下左右に移動し、Xボタンで選択位置に対応したメニューを表示。そこでは、新規レーンを作成したり、新規タイルを作成したり、あるいは、既存のレーンやタイルの編集を行うことができます。
+The D-pad moves the cursor in four directions. The X button opens a menu for
+the selected position, where the user can create a lane or tile and edit an
+existing lane or tile.
 
-現段階ではタイルの機能は実装しないので、タイルを選択しても、基本的には削除しか行えません。ただし、レーンの長さは変更可能にしてください。
+Tile behavior is not implemented at this stage, so selecting a tile generally
+only allows the user to delete it. Lane length must remain editable.

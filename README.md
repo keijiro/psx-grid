@@ -1,14 +1,16 @@
 # psx-grid
 
-Jacquard の Score Plane を PlayStation のゲームパッドで編集する GUI 試作です。
-起動時は空の 128×64 セルの平面を表示します。音声生成・再生・保存は行いません。
+A GUI prototype for editing Jacquard's Score Plane with a PlayStation gamepad.
+It starts with an empty 128 x 64-cell plane. Audio generation, playback, and
+saving are outside its scope.
 
-## セットアップと実行
+## Setup and Execution
 
-Apple Silicon Mac、Xcode Command Line Tools、Homebrew、Git が必要です。
-参照プロジェクト `../psx-test` と同じ PSn00bSDK v0.24、MIPS GCC 16.2.0 /
-binutils 2.47、PCSX-Redux build 250 と同梱 OpenBIOS を使用します。
-固定情報は [toolchain.lock](toolchain.lock) にあります。
+The setup requires an Apple Silicon Mac, Xcode Command Line Tools, Homebrew,
+and Git. It uses the same pinned dependencies as the `../psx-test` reference
+project: PSn00bSDK v0.24, MIPS GCC 16.2.0, binutils 2.47, PCSX-Redux build 250,
+and its bundled OpenBIOS. See [toolchain.lock](toolchain.lock) for the pinned
+details.
 
 ```sh
 ./scripts/setup.sh
@@ -18,7 +20,7 @@ cmake --build --preset debug
 ./scripts/run.sh
 ```
 
-Release:
+For a release build:
 
 ```sh
 source scripts/env.sh
@@ -27,57 +29,71 @@ cmake --build --preset release
 ./scripts/run.sh build/release/psx-grid.exe
 ```
 
-SDK・エミュレーター・設定は `.local/`、SDK ソースは `third_party/` に配置します。
-既存の固定バージョンのシステムツールチェーンを再利用します。セットアップは再実行可能です。
-`env.sh` はシェル設定ファイルを書き換えません。
-`run.sh` は interpreter / debugger を有効にし、ログを標準出力に送ります。
-`PCSX_REDUX`、`PCSX_REDUX_BIOS`、`PCSX_REDUX_DATA` で起動先を変更できます。
+The setup places the SDK, emulator, and configuration under `.local/`, and the
+SDK sources under `third_party/`. It reuses an existing system toolchain when
+the installed version matches the pinned version. The setup can be run more
+than once. `env.sh` does not modify shell configuration files. `run.sh` enables
+the interpreter and debugger and sends logs to standard output. Override the
+launch targets with `PCSX_REDUX`, `PCSX_REDUX_BIOS`, and `PCSX_REDUX_DATA`.
 
-初回にエミュレーターの自動更新設定が出たら選択を完了してください。
-固定バージョンを保つ場合は自動更新を無効にします。
-macOS が起動をブロックした場合は Finder からアプリを開いて確認してください。
-エミュレーターの `Configuration > Controls` で Port 1 の D-pad / Cross / Circle を
-ゲームパッドまたはキーボードに割り当てます。未接続時と再接続時のボタン解放待ちは編集を停止します。
+When the emulator first asks about automatic updates, complete the prompt.
+Disable automatic updates to retain the pinned version. If macOS blocks the
+application, open it from Finder and approve it. In the emulator, use
+`Configuration > Controls` to assign Port 1's D-pad, Cross, and Circle buttons
+to a gamepad or keyboard. Editing pauses while the controller is disconnected
+and while the application waits for held buttons to be released after a
+reconnection.
 
-## 操作
+## Controls
 
-| 状態 | D-pad | X / Cross | ○ / Circle |
+| State | D-pad | X / Cross | O / Circle |
 | --- | --- | --- | --- |
-| 平面 | カーソル移動・端で自動スクロール | メニュー | なし |
-| メニュー | 上下で選択 | 実行 | 閉じる |
-| 長さ変更 | 左右で候補を変更 | 確定 | 取消 |
-| レーン削除確認 | 左で取消、右で削除 | 確定 | 取消 |
+| Plane | Move the cursor; scroll at edges | Open menu | No action |
+| Menu | Select an item with Up/Down | Execute | Close |
+| Change length | Change the candidate with Left/Right | Confirm | Cancel |
+| Delete lane confirmation | Select Cancel/Delete with Left/Right | Confirm | Cancel |
 
-1. 初期位置 `(1,1)` で X → `NEW LANE` を X で確定します。
-2. 右へ移動し、X → `PLACE TILE` でタイルを置きます。
-3. 同じ位置で X → `DELETE TILE` でタイルだけを消します。
-4. `CHANGE LENGTH` で長さを変更します。黄色の枠が候補終端です。
-   画面外の終端は端の矢印と `END` 座標で示します。○ で元データを維持して戻ります。
-5. 緑の先頭へ戻り、`DELETE LANE` → 右 → X でレーンとタイルを削除します。
+1. At the initial position `(1,1)`, press X and confirm `NEW LANE` with X.
+2. Move right, then select `PLACE TILE` with X to place a tile.
+3. At the same position, select `DELETE TILE` with X to remove only the tile.
+4. Select `CHANGE LENGTH` to resize the lane. A yellow outline marks the
+   candidate endpoint. An off-screen endpoint appears as an edge arrow with
+   its `END` coordinate. Press Circle to return without changing the data.
+5. Return to the green lane head, then select `DELETE LANE`, Right, and X to
+   delete the lane and its tiles.
 
-先頭は緑の四角、終端は橙色の縦線、通常タイルは青い四角、カーソルは白い枠です。
-長押しは 18 フレーム後、以降 3 フレーム間隔（NTSC で約 300 ms / 50 ms）。
-逆方向同時押しは相殺し、両軸では横方向を優先します。
+The lane head is a green square, its endpoint is an orange vertical line, a
+regular tile is a blue square, and the cursor is a white outline. A held
+direction starts repeating after 18 frames and then repeats every 3 frames
+(about 300 ms and 50 ms under NTSC). Opposite directions cancel each other;
+horizontal movement takes precedence when both axes are active.
 
-最大 16 レーン、1〜64 ステップ（新規は16）。先頭・終端を含めて領域を占有します。
-衝突・平面外・容量超過を拒否し、短縮でタイルが失われる場合は先に削除する案内を表示します。
-メニューと取消操作ではカーソル位置を保持します。
+The model supports up to 16 lanes of 1-64 steps each; new lanes contain 16
+steps. A lane occupies its head, every step, and its endpoint. The editor
+rejects collisions, positions outside the plane, and capacity overflows. If a
+shorter length would discard tiles, it asks the user to delete those tiles
+first. Menus and canceled operations preserve the cursor position.
 
-## 構成と検証
+## Structure and Validation
 
-- `src/score.*`: SDK 非依存モデルと編集検証。
-- `src/input.*`: 押下・リピート・切断／再接続の処理。
-- `src/editor.*`: 状態遷移、メニュー、長さ候補、削除確認。
-- `src/render.*`: 320×240 NTSC、ダブルバッファ、スクロール、描画パケット管理。
-- `src/main.c`: パッド読み取りとフレームループ。
-- `build/{debug,release}/psx-grid.{elf,exe}`: ELF と PS-X EXE。
+- `src/score.*`: SDK-independent model and edit validation.
+- `src/input.*`: Button presses, repeats, disconnection, and reconnection.
+- `src/editor.*`: State transitions, menus, candidate lengths, and deletion
+  confirmation.
+- `src/render.*`: 320 x 240 NTSC output, double buffering, scrolling, and
+  render-packet management.
+- `src/main.c`: Controller polling and the frame loop.
+- `build/{debug,release}/psx-grid.{elf,exe}`: ELF and PS-X EXE outputs.
 
-ホストの Clang で ASan / UBSan を使ったテストを実行できます。
+Run the host tests with Clang, ASan, and UBSan:
 
 ```sh
 ./scripts/test.sh
 ```
 
-境界・衝突・容量・取消・入力・反復編集に加え、GPU スタブで全座標・全画面状態の
-描画範囲とバッファを確認します。GPU スタブは実機 GPU や操作感の検証には代わりません。
-確認済み項目と残作業は [docs/validation.md](docs/validation.md) を参照してください。
+The tests cover boundaries, collisions, capacity, cancellation, input, and
+repeated edits. A GPU stub also checks render bounds and buffer usage across
+all coordinates and screen states. It does not substitute for testing the
+actual GPU or evaluating the interaction. See
+[docs/validation.md](docs/validation.md) for verified behavior and remaining
+work.

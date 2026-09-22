@@ -1,69 +1,92 @@
-# 検証記録
+# Validation Record
 
-検証日: 2026-09-22 / macOS 27.0 (26A428), Apple Silicon, Apple Clang 21.0.0。
-`toolchain.lock` の host 欄は参照プロジェクトで固定構成を作成した時点の情報です。
-今回も PSn00bSDK v0.24 / GCC 16.2.0 / binutils 2.47 / PCSX-Redux build 250 を使用しました。
+Validation date: 2026-09-22 / macOS 27.0 (26A428), Apple Silicon, Apple Clang
+21.0.0. The host fields in `toolchain.lock` describe the environment used when
+the pinned configuration was created for the reference project. This project
+also used PSn00bSDK v0.24, GCC 16.2.0, binutils 2.47, and PCSX-Redux build 250.
 
-## 確認済み
+## Verified
 
-| 項目 | 結果 |
+| Area | Result |
 | --- | --- |
-| セットアップ | プロジェクト内へ SDK とエミュレーターを構築。再実行も成功し、SDK 再ビルドを省略 |
-| 固定情報 | SDK・主要サブモジュールのコミット、パッチ、配布 DMG、OpenBIOS の SHA-256 を照合 |
-| Debug / Release | 両方の `psx-grid.elf` と `psx-grid.exe` を生成。MIPS-I ELF / Sony PlayStation EXE を確認 |
-| モデル | 先頭・終端・空きステップ・タイル分類、境界、重複、最小／最大長、16 レーン上限、タイル保護、削除と再利用 |
-| 失敗時の保持 | 不正な作成・延長・短縮・配置後のモデルを byte 単位で比較 |
-| 入力 | 初回移動、18 フレーム待ち、3 フレーム間隔、方向切替、逆方向相殺、横優先、X 長押し、接続時の解放待ち |
-| 編集 | 作成→配置→削除→伸縮→確認削除、取消、カーソル保持、平面端、切断中停止、1,000 回の編集サイクル |
-| 描画スタブ | 最大 16 レーン×64 タイルで全 128×64 座標×4 状態と未接続状態の計 32,769 フレームを実行 |
-| メモリ | ホストテストを AddressSanitizer / UndefinedBehaviorSanitizer 付きで実行し成功 |
+| Setup | Installed the SDK and emulator inside the project. A second run succeeded and skipped rebuilding the SDK. |
+| Pinned inputs | Verified the SDK and major submodule commits, patches, distributed DMG, and OpenBIOS SHA-256 hashes. |
+| Debug / Release | Generated `psx-grid.elf` and `psx-grid.exe` for both configurations and identified them as MIPS-I ELF and Sony PlayStation EXE files. |
+| Model | Covered head, endpoint, empty-step, and tile classification; boundaries; overlap; minimum and maximum lengths; the 16-lane limit; tile protection; deletion; and slot reuse. |
+| Failure atomicity | Compared the model byte for byte after rejected creation, extension, shortening, and placement operations. |
+| Input | Covered initial movement, the 18-frame delay, the 3-frame repeat interval, direction changes, cancellation of opposite directions, horizontal priority, holding X, and waiting for button release after connection. |
+| Editing | Covered create, place, delete, resize, confirmed lane deletion, cancellation, cursor retention, plane edges, suspension while disconnected, and 1,000 edit cycles. |
+| Render stub | Rendered 32,769 frames: every position on the 128 x 64 plane in four states, plus the disconnected state, with 16 lanes of 64 tiles. |
+| Memory | Passed the host tests under AddressSanitizer and UndefinedBehaviorSanitizer. |
 
-再現コマンドは README のビルド手順と `./scripts/test.sh`。
-ログは `build/validation/{setup,setup-rerun,host-tests}.log` にあります。
-SDK 側の CMake 設定時に GNUInstallDirs の開発者向け警告が出ますが、ビルドは成功します。
-GPU の DMA タグを別型として参照する SDK マクロのため、描画ファイルだけに
-`-fno-strict-aliasing` を指定しています。
+Reproduce these results with the build commands in the README and
+`./scripts/test.sh`. Logs are stored in
+`build/validation/{setup,setup-rerun,host-tests}.log`.
 
-## 描画量
+The SDK emits a GNUInstallDirs developer warning during CMake configuration,
+but the build succeeds. The render source alone uses `-fno-strict-aliasing`
+because an SDK macro accesses the GPU DMA tag through a different type.
 
-各バッファは 32,768 バイト。GPU スタブは SDK と同じ TILE=16、SPRT_8=16、
-DR_TPAGE=8 バイトを使用します。テストでの最大予約量は **12,752 バイト**。
-図形・文字の全座標が 320×240 内に収まることと、予約前の境界検査を確認しました。
-各描画呼び出しに先立ち容量を検査し、超過時は書き込みを省略します。
-`render_packet_peak` と `render_overflows` をデバッガーから参照できます。
+## Render Volume
 
-可視セルは 19×10、グリッド線は 31 本です。各セルがレール＋図形2枚を使う
-保守的な上限でもセル部分は 9,120 バイトです。文字列は実バイト数から予約します。
-毎フレームの動的確保はなく、モデル・入力・描画パケットは固定領域を使用します。
-ホストのスタブでは実際の GPU 実行、描画順、フォント合成、VSync の速度は検証できません。
+Each buffer is 32,768 bytes. The GPU stub uses the same primitive sizes as the
+SDK: TILE=16, SPRT_8=16, and DR_TPAGE=8 bytes. The highest reservation measured
+by the tests was **12,752 bytes**. The tests verified that all shape and text
+coordinates remain within 320 x 240 and that bounds are checked before each
+reservation. Every drawing call checks capacity first and skips the write if
+the buffer would overflow. The debugger exposes `render_packet_peak` and
+`render_overflows`.
 
-## エミュレーターと未確認事項
+The viewport contains 19 x 10 cells and 31 grid lines. Even with the
+conservative assumption that every cell uses a rail and two shapes, the cell
+area consumes 9,120 bytes. Text reservations use the actual byte length. The
+model, input state, and render packets use fixed storage; no allocation occurs
+per frame.
 
-本プロジェクトの `scripts/run.sh` から Debug / Release を指定して PCSX-Redux の
-プロセスが起動・継続することを確認しました。ログは `build/validation/pcsx-*.log`。
-ただし UI 自動操作がアプリのパス・名前とも `Invalid app` となり接続できませんでした。
-標準出力にはフォント探索ログがあり、EXE の画面表示やゲームループ到達を確証する
-ログは得られていません。**エミュレーター受け入れテスト合格とはしていません。**
-検証用に起動したプロセスは終了しています。
+The host stub cannot validate execution on the actual GPU, draw order, font
+composition, or VSync timing.
 
-以下は実操作での残確認です。Debug / Release の両方で実施してください。
+## Emulator and Outstanding Checks
 
-- 空の画面表示から README の操作例を一巡する。
-- 四隅のメニュー、長いレーンの画面外終端、スクロール往復の視認性。
-- D-pad 長押し・同時押し、X の長押し、○ 取消、パッド抜き差し。
-- 複数レーンで衝突・短縮保護・上限拒否時の案内。
-- 最大負荷での継続操作、表示とデータの一致、VSync ごとの更新と実測 FPS。
-- 18 / 3 フレームのリピート、16 ピクセルのセル間隔、配色の操作感評価。
+Launching the Debug and Release configurations through this project's
+`scripts/run.sh` started PCSX-Redux processes that remained running. Logs are
+stored in `build/validation/pcsx-*.log`. UI automation could not connect to the
+application because both its path and name produced `Invalid app`. Standard
+output contained font-search messages, but no log established that the EXE was
+visible or that its game loop had started. **The emulator acceptance test is
+therefore not recorded as passed.** The processes started for validation have
+been stopped.
 
-実機では未確認です。実装計画の Step 5 の実操作による調整・受け入れ確認は残っています。
+The following checks still require direct interaction in both Debug and
+Release configurations:
 
-## Jacquard 本体との差分・制限
+- Complete the README walkthrough from the initial empty plane.
+- Inspect menus in all four corners, the off-screen endpoint of a long lane,
+  and visibility while scrolling away and back.
+- Hold and combine D-pad directions, hold X, cancel with Circle, and disconnect
+  and reconnect the controller.
+- With multiple lanes, inspect collision, shortening protection, and limit
+  rejection messages.
+- Continue editing under maximum load while checking that display and data
+  remain consistent, updates occur on every VSync, and the measured frame rate
+  remains acceptable.
+- Evaluate the interaction with the 18/3-frame repeat timing, 16-pixel cell
+  spacing, and current colors.
 
-単一の通常タイルのみ、各ステップ最大1個。横方向レーンは最大16、各1〜64ステップ。
-平面は128×64。作成時の長さ16を自動短縮したり別の行へ移動したりはしません。
-レーンの先頭を `(x,y)` とし、最初のステップを `(x+1,y)` に配置します。
+No physical-console testing has been performed. The hands-on tuning and
+acceptance work in Step 5 of the implementation plan remains outstanding.
 
-スタック・分岐・移動・コピー・終端からの自動延長はありません。
-音声・シーケンス再生・タイル機能・パラメーター・保存／読み込みも対象外です。
-NTSC 320×240 固定、短い英語ラベルを使用します。PAL のリピート時間調整は未対応です。
-長さ候補が画面外の場合は端の黄色い枠・矢印と END 座標で案内します。
+## Differences from Jacquard and Known Limitations
+
+The prototype provides one kind of regular tile and allows at most one tile per
+step. It supports up to 16 horizontal lanes of 1-64 steps on a 128 x 64 plane.
+New lanes have a fixed length of 16; the editor neither shortens them
+automatically nor moves them to another row. A lane with its head at `(x,y)`
+places its first step at `(x+1,y)`.
+
+The prototype omits stacks, branches, moving, copying, and automatic extension
+from the endpoint. Audio, sequence playback, tile behavior, parameters, saving,
+and loading are also outside its scope. Output is fixed at 320 x 240 NTSC with
+short English labels; repeat timing has not been adjusted for PAL. When a
+candidate endpoint is off-screen, a yellow edge outline, arrow, and `END`
+coordinate indicate its position.
