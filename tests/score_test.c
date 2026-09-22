@@ -118,7 +118,11 @@ static void controls(void) {
     for(int j=1;j<INPUT_INTERVAL;j++) assert(!input_update(&i,1,INPUT_CROSS|INPUT_RIGHT).dx);
     assert(input_update(&i,1,INPUT_CROSS|INPUT_RIGHT).dx==1);
     f=input_update(&i,1,0); assert(f.cross_released && !f.cross_held);
-    input_reset_repeat(&i); assert(!input_update(&i,1,INPUT_RIGHT).dx);
+    input_reset_repeat(&i); assert(input_update(&i,1,INPUT_RIGHT).dx==1);
+    input_reset_repeat(&i);
+    for(int j=1;j<INPUT_DELAY;j++) assert(!input_update(&i,1,INPUT_RIGHT).dx);
+    assert(input_update(&i,1,INPUT_RIGHT).dx==1);
+    input_reset_repeat(&i); assert(input_update(&i,1,INPUT_DOWN).dy==1);
     e.x=3; e.y=1; action(ACTION_COPY); assert(e.clipboard.count==2);
     e.x=4; action(ACTION_PASTE); assert(score_at(&e.score,4,1).tile!=a);
     e.x=1; action(ACTION_DELETE); assert(!e.confirm); tap(INPUT_CROSS); assert(e.score.lanes[0].active);

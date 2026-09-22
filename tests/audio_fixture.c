@@ -1,12 +1,12 @@
 // Standalone development fixture; never compiled into the editor executable.
 #include "audio.h"
+#include "pad.h"
 #include "editor.h"
 #include "render.h"
 #include <psxetc.h>
 #include <psxgpu.h>
 #include <psxapi.h>
 #include <psxspu.h>
-#include <psxpad.h>
 #include <stdio.h>
 #include <stdarg.h>
 extern volatile uint32_t audio_service_peak, audio_interval_peak, audio_services;
@@ -15,7 +15,6 @@ extern volatile uint32_t audio_dispatch_peak, audio_note_count, audio_first_note
 extern volatile uint32_t audio_started;
 static Editor editor;
 static uint32_t capture[256];
-static uint8_t pads[2][34];
 static void log_message(const char *format,...) {
     char message[256]; va_list args;
     va_start(args,format); vsnprintf(message,sizeof(message),format,args); va_end(args);
@@ -38,12 +37,11 @@ static void report(const char *phase) {
     log_message("DISPATCH %s: peak=%u count=%u span=%u\n",phase,(unsigned)v[8],(unsigned)v[9],(unsigned)v[10]);
 }
 static void frames(int count) {
-    for(int i=0;i<count;i++) { editor.x=i%128; editor.y=(i/4)%64; render_frame(&editor,1); }
+    for(int i=0;i<count;i++) { editor.x=i%128; editor.y=(i/4)%64; render_frame(&editor,1); InputSample sample; while(pad_read(&sample)) {} }
 }
 int main(void) {
     editor_init(&editor); render_init();
-    InitPAD(pads[0],sizeof(pads[0]),pads[1],sizeof(pads[1])); StartPAD();
-    audio_platform_init();
+    audio_platform_init(); pad_init();
     frames(60); report("idle");
     score_create(&editor.score,0,0,16);
     for(int i=1;i<=16;i++) score_place(&editor.score,i,0,TILE_NOTE);

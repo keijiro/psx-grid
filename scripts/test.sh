@@ -16,3 +16,6 @@ ${CC:-cc} -std=c11 -Wall -Wextra -Werror -g -fsanitize=address,undefined \
 build/tests/audio_test
 python3 scripts/generate-audio.py build/generated/sine_samples.h
 python3 tests/audio_assets_test.py
+${CC:-cc} -std=c11 -Wall -Wextra -Werror -g -fsanitize=address,undefined \
+  -Isrc tests/input_test.c src/score.c src/input.c src/editor.c -o build/tests/input_test
+build/tests/input_test

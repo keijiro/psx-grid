@@ -50,7 +50,9 @@ to a gamepad or keyboard. See [usage.md](usage.md) for the editing walkthrough.
   timer interrupts, lifecycle, and debugger-visible measurements.
 - `scripts/generate-audio.py`: Independent sine ADPCM generation, pitch table,
   and decoded error report (`generated/sine_samples.txt`).
-- `src/input.*`: Button presses, repeats, disconnection, and reconnection.
+- `src/input.*`: Ordered input history, button presses, repeats, disconnection,
+  and reconnection.
+- `src/pad.*`: Port 1 asynchronous SIO polling and completed-report publication.
 - `src/editor.*`: Menus, candidate properties, clipboard, deletion confirmation,
   and press/hold/release movement transitions.
 - `src/render.*`: 320 x 240 NTSC output, double buffering, scrolling, and
@@ -59,7 +61,7 @@ to a gamepad or keyboard. See [usage.md](usage.md) for the editing walkthrough.
   masks, font attribution, and deterministic indexed-atlas generation
   (Python 3, no extra packages).
 - `src/ui_style.h`: shared screen geometry and grayscale roles.
-- `src/main.c`: Controller polling, editor processing, START, and frame/status updates.
+- `src/main.c`: Input history consumption, editor processing, START, and frame/status updates.
 - `build/{debug,release}/psx-grid.{elf,exe}`: ELF and PS-X EXE outputs.
 
 Run the host tests with Clang, ASan, and UBSan:
@@ -124,3 +126,30 @@ have separate counters. Linker maps are emitted beside both executables.
 The mutable editor score, model scratch score, and immutable playback score
 are separate fixed allocations; no interrupt allocates, copies the score,
 logs, renders, or starts DMA. Lifecycle preparation runs on the main thread.
+
+## Input fixture
+
+`AUDIO_FIXTURE=ON` also builds `input-fixture.exe`. After the builds above, run:
+
+```sh
+python3 scripts/test-input-emulator.py debug digital
+python3 scripts/test-input-emulator.py debug analog
+python3 scripts/test-input-emulator.py release digital
+python3 scripts/test-input-emulator.py release analog
+```
+
+The runner injects one-frame Right/Cross/START taps through Redux's controller
+API, so they pass through SIO and the application's real pad driver. It checks
+stopped playback, a 24-voice score, consumption delayed by eight rendered frames,
+a held-button disconnect/reconnect, and a 4,096-tile overloaded score. Logs are written to
+`build/validation/input-{debug,release}-{digital,analog}-emulator.log`.
+Host tests separately exercise queue wraparound, overflow recovery and editor
+mode transitions. Manual controller feel and physical-console communication
+remain separate checks.
+
+Platform initialization proceeds from rendering (SDK IRQ setup), to audio
+(Timer 2 clock and the periodic service), to pad callbacks. The shared timer
+services both audio and deferred pad transfers even when playback is stopped.
+The editor consumes completed pad reports on the main thread; rendering and
+score transactions never run inside the input callbacks. Port 2, memory cards,
+rumble and analog-axis editing are not implemented.

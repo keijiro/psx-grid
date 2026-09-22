@@ -1,6 +1,7 @@
 # Validation Record
 
-Validation date: 2026-09-22, macOS 27.0 / Apple Silicon. Host tests use Clang
+Validation dates: 2026-09-22 (editor baseline) and 2026-09-23
+(input regression and refreshed audio measurements), macOS 27.0 / Apple Silicon. Host tests use Clang
 with AddressSanitizer and UndefinedBehaviorSanitizer. Console builds use the
 pinned PSn00bSDK v0.24 toolchain and the Debug and Release presets.
 
@@ -134,37 +135,38 @@ Both headless emulator fixtures pass their numeric assertions, including a
 
 | Measurement | Debug | Release |
 | --- | ---: | ---: |
-| C4 service cost | 0.147 ms | 0.147 ms |
-| C4 service interval | 0.519 ms | 0.516 ms |
-| C4 key-on lateness | 0.371 ms | 0.307 ms |
-| 24-note chord service cost | 0.605 ms | 0.605 ms |
-| 24-note chord service interval | 0.612 ms | 0.610 ms |
-| 24-note chord key-on lateness | 0.622 ms | 0.628 ms |
-| Maximum-density service cost | 1.117 ms | 1.117 ms |
+| C4 service cost | 0.148 ms | 0.148 ms |
+| C4 service interval | 0.316 ms | 0.298 ms |
+| C4 key-on lateness | 0.239 ms | 0.240 ms |
+| 24-note chord service cost | 0.606 ms | 0.606 ms |
+| 24-note chord service interval | 0.612 ms | 0.611 ms |
+| 24-note chord key-on lateness | 0.665 ms | 0.690 ms |
+| Maximum-density service cost | 1.117 ms | 1.119 ms |
 
 The normal fixtures remain below the 1 ms dispatch and service-interval targets
-while the GPU frame loop scrolls and SDK pad polling is enabled. Normalized sixteen-step loop duration from
-the observed C4 key-on span is 2.000023 s / 1.999978 s (Debug / Release).
+while the GPU frame loop scrolls and asynchronous pad polling is enabled. Normalized sixteen-step loop duration from
+the observed C4 key-on span is 1.999991 s / 1.999996 s (Debug / Release).
 This short emulator trace supplements the longer host clock tests; it does not
 establish long-session wall-clock or analog output timing.
 
 | Requested time | Debug Attack / Release | Release Attack / Release |
 | --- | ---: | ---: |
-| 0 ms | 0.043 / 0.023 ms | 0.105 / 0.080 ms |
-| 1 ms | 1.035 / 1.042 ms | 1.209 / 1.075 ms |
-| 5 ms | 5.044 / 5.039 ms | 5.091 / 5.214 ms |
-| 100 ms | 100.045 / 100.026 ms | 100.098 / 100.096 ms |
+| 0 ms | 0.075 / 0.230 ms | 0.214 / 0.001 ms |
+| 1 ms | 1.289 / 1.076 ms | 1.014 / 1.002 ms |
+| 5 ms | 5.091 / 5.081 ms | 5.053 / 5.046 ms |
+| 100 ms | 100.221 / 100.089 ms | 100.003 / 100.136 ms |
 
 All 48 left/right voice volume registers are zero after ordinary and overloaded
 stops. ADSR level readback can lag the emulator's audio thread, so the stop
 assertion uses the output volume registers rather than assuming that the held
 hardware envelope itself has already read back as zero.
 
-The linker reports 634,064 bytes of BSS in each editor build. Total text/data/BSS
-is 695,662 bytes in Debug and 689,078 in Release. The Debug image ends at
-`0x800b9d80`, leaving about 1.27 MiB above it before the top of console RAM.
+The linker reports 634,568 bytes of BSS in each editor build. Total text/data/BSS
+is 697,378 bytes in Debug and 690,706 in Release. The Debug image ends at
+`0x800ba43c`, leaving about 1.27 MiB above it before the top of console RAM.
 This includes three 182,712-byte scores, the editor clipboard, held-lock/voice
-state, two 32 KiB render packet buffers, and the SDK's 4 KiB interrupt stack.
+state, the fixed input history, two 32 KiB render packet buffers, and the SDK's
+4 KiB interrupt stack.
 No event queue grows with playback duration.
 
 The SPU hardware ADSR holds the sample open; editable envelopes use timer-driven
@@ -189,3 +191,40 @@ configurations, and measure longer sessions while editing. The
 [computer-use blocker](#computer-use-blocker) prevents automated UI verification;
 headless fixtures do not establish that interactive walkthrough. Physical-console audio, clock,
 controller, and display validation remain entirely separate and unverified.
+
+## Input regression (2026-09-23)
+
+The previous BIOS polling path could leave a connected pad's button buffer
+unchanged across video frames. A diagnostic Debug run observed 600/600 updates
+before audio initialization, 517/600 with the audio timer running while stopped,
+481/600 during playback, and 600/600 after disabling that timer. Connection
+status alone did not reveal the missing updates.
+
+The replacement driver was tested through PCSX-Redux's actual SIO path, with
+Lua injecting controller buttons rather than modifying application input memory.
+Both Debug and Release pass with digital (`0x41`) and analog (`0x73`) reports:
+
+| Scenario | Injected taps | Detected taps in each configuration/device |
+| --- | ---: | ---: |
+| Playback stopped | 100 | 100 |
+| 24-voice playback | 100 | 100 |
+| Consumption delayed by eight rendered frames | 100 | 100 |
+| Reconnect held, release, then a fresh tap | 1 | 1 |
+| 4,096-tile overloaded playback | 10 | 10 |
+
+Each tap holds Right, Cross and START for one emulated video frame. Direction,
+Cross press, Cross release and START counts all match independently. There are
+no queue overflows or connected-controller timeouts, including during overload.
+Completed-report counts match poll counts to within one in-flight transaction
+at measurement boundaries. Deliberate disconnection produces 16 disconnected
+reports; held reconnect produces no actions before release.
+
+The host suite also passes queue wraparound and overflow cancellation, ordered
+menu gestures, new-direction response immediately after a mode change, and
+repeat suppression for a direction already held. The refreshed audio fixture
+passes its existing dispatch, envelope, loop-duration, overload and stop checks.
+Commands and log locations are in [development.md](development.md#input-fixture).
+
+These tests establish emulated digital and DualShock-mode communication and
+input event delivery. Physical controllers/adapters, the `0x53` analog-joystick
+report type, and subjective interaction latency remain unverified.

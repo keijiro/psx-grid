@@ -1,4 +1,5 @@
 #include "audio.h"
+#include "pad.h"
 #include <psxspu.h>
 #include <psxetc.h>
 #include <psxapi.h>
@@ -68,6 +69,7 @@ static void service(void) {
     AudioTime now=read_clock();
     uint32_t interval=(uint32_t)(now-previous); previous=now;
     if(interval>audio_interval_peak) audio_interval_peak=interval;
+    pad_service();
     if(enabled) sequencer_service(&seq,now);
     else { NoteSink sink=audio_sink(&audio); sink.advance(sink.context,now); }
     audio_voice_steals=audio.steals; audio_skipped_notes=seq.skipped+late_starts; audio_overloads=seq.overloads;
