@@ -60,11 +60,22 @@ ScoreResult score_delete(Score *s, int i) {
     memset(&s->lanes[i], 0, sizeof(Lane));
     return SCORE_OK;
 }
-ScoreResult score_tile(Score *s, int x, int y, int place) {
+ScoreResult score_place(Score *s, int x, int y, TileKind kind) {
     Cell c = score_at(s, x, y);
-    if (c.kind != (place ? CELL_STEP : CELL_TILE)) return SCORE_INVALID;
-    s->lanes[c.lane].tiles[c.step] = !!place;
+    if (kind <= TILE_NONE || kind >= TILE_KIND_COUNT || c.kind != CELL_STEP) return SCORE_INVALID;
+    s->lanes[c.lane].tiles[c.step] = kind;
     return SCORE_OK;
+}
+ScoreResult score_remove(Score *s, int x, int y) {
+    Cell c = score_at(s, x, y);
+    if (c.kind != CELL_TILE) return SCORE_INVALID;
+    s->lanes[c.lane].tiles[c.step] = TILE_NONE;
+    return SCORE_OK;
+}
+const char *score_tile_label(TileKind kind) {
+    static const char *labels[] = {"EMPTY", "NOTE", "ABSOLUTE PARAMETER", "RELATIVE PARAMETER",
+        "CYCLE GATE", "PROBABILITY GATE", "JUMP"};
+    return kind >= TILE_NONE && kind < TILE_KIND_COUNT ? labels[kind] : "?";
 }
 const char *score_message(ScoreResult r) {
     static const char *messages[] = {"", "LIMIT / EDGE: MOVE OR ADJUST", "LANE COLLISION: MOVE OR ADJUST",

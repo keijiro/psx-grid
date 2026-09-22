@@ -8,6 +8,7 @@
 #define SCORE_INITIAL_LENGTH 16
 typedef struct { int active, x, y, length; uint8_t tiles[SCORE_STEPS]; } Lane;
 typedef struct { Lane lanes[SCORE_LANES]; } Score;
+typedef enum { TILE_NONE, TILE_NOTE, TILE_ABSOLUTE, TILE_RELATIVE, TILE_CYCLE, TILE_PROBABILITY, TILE_JUMP, TILE_KIND_COUNT } TileKind;
 typedef enum { CELL_EMPTY, CELL_HEAD, CELL_STEP, CELL_TILE, CELL_END } CellKind;
 typedef struct { CellKind kind; int lane, step; } Cell;
 typedef enum { SCORE_OK, SCORE_BOUNDS, SCORE_COLLISION, SCORE_FULL, SCORE_TILES, SCORE_INVALID } ScoreResult;
@@ -18,6 +19,8 @@ ScoreResult score_create(Score *score, int x, int y, int length);
 ScoreResult score_can_resize(const Score *score, int lane, int length);
 ScoreResult score_resize(Score *score, int lane, int length);
 ScoreResult score_delete(Score *score, int lane);
-ScoreResult score_tile(Score *score, int x, int y, int place);
+ScoreResult score_place(Score *score, int x, int y, TileKind kind);
+ScoreResult score_remove(Score *score, int x, int y);
+const char *score_tile_label(TileKind kind);
 const char *score_message(ScoreResult result);
 #endif

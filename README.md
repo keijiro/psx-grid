@@ -50,20 +50,33 @@ reconnection.
 | --- | --- | --- | --- |
 | Plane | Move the cursor; scroll at edges | Open menu | No action |
 | Menu | Select an item with Up/Down | Execute | Close |
+| Tile picker | Select a kind with Up/Down | Place | Return to menu |
 | Change length | Change the candidate with Left/Right | Confirm | Cancel |
 | Delete lane confirmation | Select Cancel/Delete with Left/Right | Confirm | Cancel |
 
 1. At the initial position `(1,1)`, press X and confirm `NEW LANE` with X.
-2. Move right, then select `PLACE TILE` with X to place a tile.
+2. Move right, then select `PLACE TILE` with X. Choose a kind with Up/Down
+   and press X again to place it. Circle returns to the menu without placing.
 3. At the same position, select `DELETE TILE` with X to remove only the tile.
-4. Select `CHANGE LENGTH` to resize the lane. A yellow outline marks the
+4. Select `CHANGE LENGTH` to resize the lane. A dashed outline marks the
    candidate endpoint. An off-screen endpoint appears as an edge arrow with
    its `END` coordinate. Press Circle to return without changing the data.
-5. Return to the green lane head, then select `DELETE LANE`, Right, and X to
+5. Return to the bright `CH` lane head, then select `DELETE LANE`, Right, and X to
    delete the lane and its tiles.
 
-The lane head is a green square, its endpoint is an orange vertical line, a
-regular tile is a blue square, and the cursor is a white outline. A held
+The grayscale plane uses center dots, dotted lane rails, and triangles on
+empty steps. Bright `CH` heads and U-turn endpoints bound each lane. The cursor
+uses bright corner brackets outside the tile body.
+
+The picker offers Note (`C4`), Absolute Parameter, Relative Parameter, Cycle
+Gate, Probability Gate, and Jump. Notes have outlined bodies, parameters and
+gates use gray fields, and jumps use bright fields. These are visual kinds
+only: they do not implement music, parameters, probabilities, or jump behavior.
+The picker starts with Note and remembers the last successfully placed kind;
+browsing and cancellation leave both that choice and the score unchanged.
+To replace an occupied tile, delete it and place another.
+
+A held
 direction starts repeating after 18 frames and then repeats every 3 frames
 (about 300 ms and 50 ms under NTSC). Opposite directions cancel each other;
 horizontal movement takes precedence when both axes are active.
@@ -82,6 +95,9 @@ first. Menus and canceled operations preserve the cursor position.
   confirmation.
 - `src/render.*`: 320 x 240 NTSC output, double buffering, scrolling, and
   render-packet management.
+- `assets/ui/`, `scripts/generate-assets.py`: editable masks, font attribution,
+  and deterministic indexed-atlas generation (Python 3, no extra packages).
+- `src/ui_style.h`: shared screen geometry and grayscale roles.
 - `src/main.c`: Controller polling and the frame loop.
 - `build/{debug,release}/psx-grid.{elf,exe}`: ELF and PS-X EXE outputs.
 

@@ -1,92 +1,125 @@
 # Validation Record
 
 Validation date: 2026-09-22 / macOS 27.0 (26A428), Apple Silicon, Apple Clang
-21.0.0. The host fields in `toolchain.lock` describe the environment used when
-the pinned configuration was created for the reference project. This project
-also used PSn00bSDK v0.24, GCC 16.2.0, binutils 2.47, and PCSX-Redux build 250.
+21.0.0. Builds use PSn00bSDK v0.24, GCC 16.2.0, binutils 2.47, and the project's
+pinned configuration. PCSX-Redux build 250 is installed with bundled OpenBIOS.
 
-## Verified
+## Appearance implementation status
+
+The model, picker, atlas, typography, and plane renderer from
+[the appearance plan](ui-appearance-plan.md) are implemented. Debug and Release
+builds and host tests pass. **Actual GPU appearance, the emulator editing
+walkthrough, and frame timing remain unverified.** The plan's emulator exit
+conditions have not been met; host captures below are not emulator evidence.
+
+The existing Jacquard tile illustration was inspected before producing the
+native-size studies. A fresh capture of a running Jacquard application was not
+obtained. Its source and attribution are recorded with the
+[editable assets](../assets/ui/README.md).
+
+## Visual study
+
+- [Jacquard reference illustration](captures/jacquard-tiles.png)
+- [16-pixel pitch study](captures/study-16.png)
+- [18-pixel pitch study](captures/study-18.png)
+- [Host-rendered comparison plane](captures/host-plane.png)
+- [Host-rendered picker](captures/host-picker.png)
+- [Host-rendered off-screen resize endpoint](captures/host-resize.png)
+
+The selected geometry is 16 x 16 pitch, 13 x 14 bodies, and a 19 x 10 viewport.
+At native size and integer enlargement, the relative fader modifier remains
+separate, cycle counters remain open, and the two flow arrows differ visibly.
+The 18-pixel study adds space without resolving a remaining legibility problem,
+so the original navigation density is retained. Single-pixel lattice dots are
+visible in these images; their final emulator presentation still needs review.
+
+PSX Grid Bitmap, a custom 5 x 7 monoline face, was selected over offline Jura
+at 9 and 10 pixels. Jura's fine strokes were much fainter in this study. The
+bitmap sample keeps `0/O`, `1/I`, `C#4`, coordinates, and long guidance readable
+on dark and light grounds. Heads use `CH`; the sample shows that `CH1` would
+crowd a compact body. This is a visual study result, not a display calibration.
+
+The host renderer replays submitted primitives in reverse ordering-table order,
+loads the generated indexed texture and CLUT, and approximates RGB555 output.
+It checks texture setup precedes sprites and shows panel/cursor layering. It
+cannot reproduce the GPU, emulator scaling, pixel aspect, or timing.
+
+## Automated verification
+
+Reproduce with `./scripts/test.sh` and the Debug/Release commands in the README.
+The latest host log is `build/validation/ui-host-tests.log`.
 
 | Area | Result |
 | --- | --- |
-| Setup | Installed the SDK and emulator inside the project. A second run succeeded and skipped rebuilding the SDK. |
-| Pinned inputs | Verified the SDK and major submodule commits, patches, distributed DMG, and OpenBIOS SHA-256 hashes. |
-| Debug / Release | Generated `psx-grid.elf` and `psx-grid.exe` for both configurations and identified them as MIPS-I ELF and Sony PlayStation EXE files. |
-| Model | Covered head, endpoint, empty-step, and tile classification; boundaries; overlap; minimum and maximum lengths; the 16-lane limit; tile protection; deletion; and slot reuse. |
-| Failure atomicity | Compared the model byte for byte after rejected creation, extension, shortening, and placement operations. |
-| Input | Covered initial movement, the 18-frame delay, the 3-frame repeat interval, direction changes, cancellation of opposite directions, horizontal priority, holding X, and waiting for button release after connection. |
-| Editing | Covered create, place, delete, resize, confirmed lane deletion, cancellation, cursor retention, plane edges, suspension while disconnected, and 1,000 edit cycles. |
-| Render stub | Rendered 32,769 frames: every position on the 128 x 64 plane in four states, plus the disconnected state, with 16 lanes of 64 tiles. |
-| Memory | Passed the host tests under AddressSanitizer and UndefinedBehaviorSanitizer. |
+| Debug / Release | Both produce MIPS ELF and PS-X EXE outputs with no compiler warnings. |
+| Model | Existing classification, bounds, collision, capacity, resizing, deletion, and slot-reuse tests pass. |
+| Visual kinds | Each of the six explicit IDs is placed and removed; invalid IDs, occupied cells, heads, endpoints, and empty plane reject placement without changing score bytes. Every kind blocks shortening across it. Slot reuse clears kind data. |
+| Picker | From an empty editor, create a lane and place all six kinds through input/editor transitions. Browsing and both cancellation steps preserve score bytes, coordinates, and the last successful kind. Selection clamps to both ends. |
+| Input | Held Cross does not commit on entry; direction delay/repeat, mode reset, disconnect suspension, and release-to-rearm reconnect behavior pass, including reconnect inside the picker. Scrolling away/back preserves all kind bytes. |
+| Repeated editing | Existing 1,000 create/delete cycles pass. |
+| Render | 81,954 frames: every plane coordinate in all five modes for full and sparse long lanes, all picker choices at all four plane corners, disconnected guidance, and comparison captures. |
+| GPU packets | TILE=16, SPRT=20, DR_TPAGE=8 bytes, matching the SDK. Screen bounds, UV bounds, VRAM uploads, CLUT transparency/grayscale, primitive grayscale, and texture-page ordering pass. |
+| Memory | AddressSanitizer and UndefinedBehaviorSanitizer pass; no packet overflow. |
 
-Reproduce these results with the build commands in the README and
-`./scripts/test.sh`. Logs are stored in
-`build/validation/{setup,setup-rerun,host-tests}.log`.
+The measured host packet peak is **20,136 / 32,768 bytes** (61.5%) per buffer;
+`render_overflows` remains **0**. This replaces the old renderer's 12,752-byte
+measurement. Fixed storage, double buffering, and allocation-free frames remain
+in use. Debugger-visible `render_packet_peak` and `render_overflows` are retained.
+The measurement includes the sparse-rail workload and full picker overlay.
 
-The SDK emits a GNUInstallDirs developer warning during CMake configuration,
-but the build succeeds. The render source alone uses `-fno-strict-aliasing`
-because an SDK macro accesses the GPU DMA tag through a different type.
+The previous setup validation verified pinned hashes and successful idempotent
+installation. Its logs remain under `build/validation`. No dependency version
+was changed for this appearance work. Python 3 now generates the atlas during
+builds; Pillow is only an optional dependency for the comparison study.
 
-## Render Volume
+## Reproducing the comparison arrangement
 
-Each buffer is 32,768 bytes. The GPU stub uses the same primitive sizes as the
-SDK: TILE=16, SPRT_8=16, and DR_TPAGE=8 bytes. The highest reservation measured
-by the tests was **12,752 bytes**. The tests verified that all shape and text
-coordinates remain within 320 x 240 and that bounds are checked before each
-reservation. Every drawing call checks capacity first and skips the write if
-the buffer would overflow. The debugger exposes `render_packet_peak` and
-`render_overflows`.
+The normal executable always starts empty. To reproduce the plane capture
+through ordinary controls:
 
-The viewport contains 19 x 10 cells and 31 grid lines. Even with the
-conservative assumption that every cell uses a rail and two shapes, the cell
-area consumes 9,120 bytes. Text reservations use the actual byte length. The
-model, input state, and render packets use fixed storage; no allocation occurs
-per frame.
+1. Create a lane at `(1,1)`.
+2. On steps `(2,1)` through `(7,1)`, place Note, Absolute Parameter, Relative
+   Parameter, Cycle Gate, Probability Gate, and Jump respectively.
+3. Change the lane length to 10, leaving four empty steps and the endpoint at
+   `(12,1)`. Leave the cursor on Jump at `(7,1)`.
+4. Move to `(8,1)` and open the picker for the overlay comparison; cancel it
+   twice and open Change Length, increasing its candidate to 64, for the
+   off-screen endpoint comparison.
 
-The host stub cannot validate execution on the actual GPU, draw order, font
-composition, or VSync timing.
+The render test constructs the same arrangement for repeatable host captures,
+writing `build/tests/{plane,picker,resize}.pgm`. Convert these directly to PNG
+with an image tool to refresh the checked-in host images. Do not smooth when
+inspecting integer enlargements. The test fixture is not part of startup.
 
-## Emulator and Outstanding Checks
+## Emulator and outstanding acceptance
 
-Launching the Debug and Release configurations through this project's
-`scripts/run.sh` started PCSX-Redux processes that remained running. Logs are
-stored in `build/validation/pcsx-*.log`. UI automation could not connect to the
-application because both its path and name produced `Invalid app`. Standard
-output contained font-search messages, but no log established that the EXE was
-visible or that its game loop had started. **The emulator acceptance test is
-therefore not recorded as passed.** The processes started for validation have
-been stopped.
+Launching the new Debug executable via `scripts/run.sh` started PCSX-Redux.
+Both full-path and display-name connections through the UI automation tool
+returned `Invalid app`. No screen or controller interaction could be obtained.
+The process was stopped after this attempt; the launch log is
+`build/validation/ui-emulator.log`. Launching a process alone is not a passed
+emulator test. The earlier baseline's emulator checks were also unverified.
 
-The following checks still require direct interaction in both Debug and
-Release configurations:
+Still required on Debug and Release:
 
-- Complete the README walkthrough from the initial empty plane.
-- Inspect menus in all four corners, the off-screen endpoint of a long lane,
-  and visibility while scrolling away and back.
-- Hold and combine D-pad directions, hold X, cancel with Circle, and disconnect
-  and reconnect the controller.
-- With multiple lanes, inspect collision, shortening protection, and limit
-  rejection messages.
-- Continue editing under maximum load while checking that display and data
-  remain consistent, updates occur on every VSync, and the measured frame rate
-  remains acceptable.
-- Evaluate the interaction with the 18/3-frame repeat timing, 16-pixel cell
-  spacing, and current colors.
+- Run the ordinary empty-start editing walkthrough, placing/deleting all six
+  kinds and scrolling away/back with the gamepad.
+- Inspect native and normal emulator presentations against Jacquard, including
+  text on both polarities, note borders, gate counters, relative modifiers,
+  selection on bright tiles, and panel corners.
+- Check lattice alignment and rail continuity while scrolling, candidate
+  endpoints and arrows, held buttons, cancellation, and controller reconnection.
+- Verify atlas uploads, transparency, draw order, and buffer switching on the
+  actual GPU path. Observe packet counters and frame behavior under full and
+  sparse load; host results do not establish a frame-rate measurement.
+- Obtain a representative running Jacquard capture for the final comparison.
 
-No physical-console testing has been performed. The hands-on tuning and
-acceptance work in Step 5 of the implementation plan remains outstanding.
+No physical-console testing has been performed.
 
-## Differences from Jacquard and Known Limitations
+## Scope limits
 
-The prototype provides one kind of regular tile and allows at most one tile per
-step. It supports up to 16 horizontal lanes of 1-64 steps on a 128 x 64 plane.
-New lanes have a fixed length of 16; the editor neither shortens them
-automatically nor moves them to another row. A lane with its head at `(x,y)`
-places its first step at `(x+1,y)`.
-
-The prototype omits stacks, branches, moving, copying, and automatic extension
-from the endpoint. Audio, sequence playback, tile behavior, parameters, saving,
-and loading are also outside its scope. Output is fixed at 320 x 240 NTSC with
-short English labels; repeat timing has not been adjusted for PAL. When a
-candidate endpoint is off-screen, a yellow edge outline, arrow, and `END`
-coordinate indicate its position.
+Kinds describe appearance only. Audio, playback, musical tile behavior,
+parameter editing, jump destinations/connections, stacks, saving, and loading
+remain outside this prototype. There is one tile per step, up to 16 lanes of
+1–64 steps, on a 128 x 64 plane. Output is 320 x 240 NTSC; PAL repeat tuning,
+lowercase, Japanese, and general Unicode rendering are not implemented.
