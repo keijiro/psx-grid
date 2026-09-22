@@ -4,13 +4,12 @@ Validation date: 2026-09-22 / macOS 27.0 (26A428), Apple Silicon, Apple Clang
 21.0.0. Builds use PSn00bSDK v0.24, GCC 16.2.0, binutils 2.47, and the project's
 pinned configuration. PCSX-Redux build 250 is installed with bundled OpenBIOS.
 
-## Appearance implementation status
+## Verification Status
 
-The model, picker, atlas, typography, and plane renderer from
-[the appearance plan](ui-appearance-plan.md) are implemented. Debug and Release
-builds and host tests pass. **Actual GPU appearance, the emulator editing
-walkthrough, and frame timing remain unverified.** The plan's emulator exit
-conditions have not been met; host captures below are not emulator evidence.
+Debug and Release builds and host tests pass for the model, picker, atlas,
+typography, and plane renderer. **Actual GPU appearance, the emulator editing
+walkthrough, and frame timing remain unverified.** Host captures below are
+not emulator evidence.
 
 The existing Jacquard tile illustration was inspected before producing the
 native-size studies. A fresh capture of a running Jacquard application was not
@@ -49,7 +48,8 @@ cannot reproduce the GPU, emulator scaling, pixel aspect, or timing.
 
 ## Automated verification
 
-Reproduce with `./scripts/test.sh` and the Debug/Release commands in the README.
+Reproduce with `./scripts/test.sh` and the Debug/Release commands in
+[development.md](development.md).
 The latest host log is `build/validation/ui-host-tests.log`.
 
 | Area | Result |
@@ -65,15 +65,14 @@ The latest host log is `build/validation/ui-host-tests.log`.
 | Memory | AddressSanitizer and UndefinedBehaviorSanitizer pass; no packet overflow. |
 
 The measured host packet peak is **20,136 / 32,768 bytes** (61.5%) per buffer;
-`render_overflows` remains **0**. This replaces the old renderer's 12,752-byte
-measurement. Fixed storage, double buffering, and allocation-free frames remain
-in use. Debugger-visible `render_packet_peak` and `render_overflows` are retained.
+`render_overflows` remains **0**. Fixed storage, double buffering, and
+allocation-free frames remain in use. Debugger-visible `render_packet_peak` and `render_overflows` are retained.
 The measurement includes the sparse-rail workload and full picker overlay.
 
 The previous setup validation verified pinned hashes and successful idempotent
-installation. Its logs remain under `build/validation`. No dependency version
-was changed for this appearance work. Python 3 now generates the atlas during
-builds; Pillow is only an optional dependency for the comparison study.
+installation. Its logs remain under `build/validation`. See
+[development.md](development.md) for build requirements and the
+[asset documentation](../assets/ui/README.md) for the optional comparison study.
 
 ## Reproducing the comparison arrangement
 
@@ -96,17 +95,17 @@ inspecting integer enlargements. The test fixture is not part of startup.
 
 ## Emulator and outstanding acceptance
 
-Launching the new Debug executable via `scripts/run.sh` started PCSX-Redux.
-Both full-path and display-name connections through the UI automation tool
-returned `Invalid app`. No screen or controller interaction could be obtained.
-The process was stopped after this attempt; the launch log is
-`build/validation/ui-emulator.log`. Launching a process alone is not a passed
-emulator test. The earlier baseline's emulator checks were also unverified.
+The 2026-09-22 Debug launch started PCSX-Redux, but UI automation returned
+`Invalid app`, preventing screen inspection and controller interaction. The
+launch log is `build/validation/ui-emulator.log`; process launch alone does
+not verify emulator behavior.
 
 Still required on Debug and Release:
 
-- Run the ordinary empty-start editing walkthrough, placing/deleting all six
-  kinds and scrolling away/back with the gamepad.
+- Run the [empty-start editing walkthrough](usage.md#controls), placing/deleting
+  all six kinds, resizing and deleting lanes, and scrolling away/back with the
+  gamepad. Exercise cell-specific menus, rejected edits, repeated editing, and
+  menu placement at all four viewport corners.
 - Inspect native and normal emulator presentations against Jacquard, including
   text on both polarities, note borders, gate counters, relative modifiers,
   selection on bright tiles, and panel corners.
@@ -119,10 +118,8 @@ Still required on Debug and Release:
 
 No physical-console testing has been performed.
 
-## Scope limits
+## Platform Limits
 
-Kinds describe appearance only. Audio, playback, musical tile behavior,
-parameter editing, jump destinations/connections, stacks, saving, and loading
-remain outside this prototype. There is one tile per step, up to 16 lanes of
-1–64 steps, on a 128 x 64 plane. Output is 320 x 240 NTSC; PAL repeat tuning,
-lowercase, Japanese, and general Unicode rendering are not implemented.
+Output is 320 x 240 NTSC; PAL repeat tuning, lowercase, Japanese, and general
+Unicode rendering are not implemented. See [usage.md](usage.md) for the model
+limits and excluded editing features.
