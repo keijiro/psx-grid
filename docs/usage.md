@@ -85,10 +85,32 @@ property edit or move. It never repeats while held. Playback starts at step
 zero with lap zero on every regular lane; branches have no independent runner.
 Stopping silences voices with a short ramp. Starting again restarts the score.
 
-Playback uses a snapshot of the committed score and shared sound settings.
-Editing continues while playing, but becomes audible only after stop/start.
-The status area shows `PLAYING` or `STOPPED` and warns `EDITS AFTER RESTART`
-after a committed change. There is no Transport Row or playhead.
+Committed score and global sound edits are published during playback, after
+any time slice already being processed has finished. Notes, gates, jumps, and
+new locks use the updated contents when their steps are next read; a held
+lock uses its updated value on subsequent slices until its step ends. Deleted
+locks stop contributing after publication. Unconfirmed property candidates
+and moves are not published.
+
+Existing regular lanes retain their next deadline and lap count. A division
+change applies to the next step's duration; it does not move the deadline of
+the current step. Moving a head changes runner order. If the visited branch
+is deleted, its runner returns to step zero of its origin; if its lane is
+shortened past the next step, it returns to step zero of that lane. Neither
+repair increments the lap count. Removing an origin removes its runner.
+Already sounding notes keep their scheduled gates and envelopes.
+
+The first regular head in top-to-bottom, then left-to-right order is the
+master. New regular lanes join at a master lap boundary. That boundary is
+assigned when the master reads its final step, so a lane published while that
+step is already sounding waits one additional lap. A new lane that becomes
+the master starts at publication instead, so it can provide that boundary. Playback stays enabled with no regular lanes; the first lane drawn
+then starts at publication. Deleting and recreating a lane creates a new
+runner, even if the same pool slot is reused.
+
+The status area shows `PLAYING` or `STOPPED`, with `APPLYING EDITS` while a
+committed revision is waiting for publication. There is no Transport Row or
+playhead.
 
 Tempo is fixed at 120 BPM. A step lasts 2000 divided by the lane division in
 milliseconds: sixteen steps at division 16 make a two-second loop. Notes keep
@@ -137,8 +159,9 @@ The source marker is clamped to a viewport edge when it scrolls out of view.
 
 ## Playback walkthrough
 
-1. Create a lane and place Notes at its first few steps. Press START, edit a
-   pitch, and verify the restart notice. Stop/start to hear the new pitch.
+1. Create a lane and place Notes at its first few steps. Press START and edit
+   a pitch. On the next visit to that step after publication, the new pitch
+   should sound without restarting playback.
 2. Select its head, open `SOUND`, and try a long Release. Stop during a tail.
 3. Place a Relative Lock above a Note. Enable Attack and set +100 ms. Place
    another Note above that lock to compare the two envelopes in one chord.

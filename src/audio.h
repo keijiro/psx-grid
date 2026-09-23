@@ -25,8 +25,8 @@ typedef struct {
 AudioTime audio_ms(int ms);
 void audio_init(Audio *audio, AudioDriver driver);
 NoteSink audio_sink(Audio *audio);
-// Platform lifecycle; snapshot preparation happens with the sequencer detached,
-// while the timer continues servicing the bounded stop ramp.
+// Platform lifecycle and live publication. Call update regularly on the main
+// thread, even without input, to publish edits coalesced behind a pending score.
 void audio_platform_init(void);
 AudioTime audio_platform_time(void);
 void audio_platform_update(const Score *score, int connected, int start);

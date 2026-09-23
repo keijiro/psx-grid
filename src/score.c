@@ -86,8 +86,10 @@ static ScoreResult validate(const Score *s) {
 }
 static ScoreResult commit(Score *s) { ScoreResult r=validate(&scratch); if(!r) { scratch.revision=s->revision+1; *s=scratch; } return r; }
 static int new_lane(Score *s,int x,int y,int n,TileId source) {
+    if(s->generation==UINT32_MAX) return -1;
     for(int i=0;i<SCORE_LANES;i++) if(!valid(s,i)) {
         Lane *l=&s->lanes[i]; memset(l,0,sizeof(*l));
+        s->lane_generation[i]=++s->generation;
         l->active=1; l->x=x; l->y=y; l->length=n; l->division=16; l->source=source; return i;
     }
     return -1;
@@ -138,7 +140,8 @@ static ScoreResult insert(Score *s,Cell c,TileValue v) {
     Lane *l=&s->lanes[c.lane];
     if(c.kind==CELL_END) { if(l->length==SCORE_STEPS) return SCORE_BOUNDS; l->length++; }
     TileId id=1; while(id<=SCORE_TILE_CAPACITY && s->tiles[id].value.kind) id++;
-    if(id>SCORE_TILE_CAPACITY) return SCORE_FULL;
+    if(id>SCORE_TILE_CAPACITY || s->generation==UINT32_MAX) return SCORE_FULL;
+    s->tile_generation[id]=++s->generation;
     TileId *p=link_at(s,c); s->tiles[id]=(Tile){v,*p,-1}; *p=id;
     if(v.kind==TILE_JUMP) {
         // Keep one clear row below every existing stack so the branch head

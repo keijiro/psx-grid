@@ -229,7 +229,7 @@ void render_frame(const Editor *e, int connected) {
     }
     text(8,200,connected?status:"CONNECT PAD 1 / RELEASE BUTTONS");
     text(8,216,e->mode==EDIT_PLANE?"X TAP MENU / HOLD + D-PAD MOVE":e->mode==EDIT_MOVE?"RELEASE X DROP  O CANCEL":"D-PAD SELECT  X OK  O BACK");
-    text(8,228,e->playing?(e->snapshot_dirty?"PLAYING / EDITS AFTER RESTART":"PLAYING / START TO STOP"):"STOPPED / START TO PLAY");
+    text(8,228,e->playing?(e->snapshot_dirty?"PLAYING / APPLYING EDITS":"PLAYING / START TO STOP"):"STOPPED / START TO PLAY");
     DR_TPAGE *page=packet(sizeof(DR_TPAGE));
     if(page) { setDrawTPage(page,0,0,getTPage(0,0,640,0)); addPrim(&buffers[active].ot[7],page); }
     DrawSync(0); VSync(0); PutDispEnv(&buffers[active^1].disp);

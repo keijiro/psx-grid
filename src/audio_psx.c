@@ -5,13 +5,18 @@
 #include <psxapi.h>
 #include "sine_samples.h"
 
-static Score snapshot;
+// The main thread owns the spare until it publishes it. The interrupt owns
+// both buffers while one is pending, and releases the old one only after a
+// whole slice has finished. No score copy needs to mask timer interrupts.
+static Score snapshots[2];
+static volatile int active_snapshot, pending_snapshot=-1;
 static Sequencer seq;
 static Audio audio;
 static AudioTime clock_ticks;
 static uint16_t last_counter;
 static volatile int enabled;
-static uint32_t published_revision, late_starts;
+static volatile uint32_t published_revision;
+static uint32_t late_starts;
 volatile uint32_t audio_service_peak, audio_interval_peak, audio_services;
 volatile uint32_t audio_voice_steals, audio_skipped_notes, audio_overloads;
 volatile uint32_t audio_dispatch_peak, audio_note_count, audio_first_note, audio_last_note;
@@ -70,7 +75,15 @@ static void service(void) {
     uint32_t interval=(uint32_t)(now-previous); previous=now;
     if(interval>audio_interval_peak) audio_interval_peak=interval;
     pad_service();
-    if(enabled) sequencer_service(&seq,now);
+    if(enabled) {
+        int pending=pending_snapshot;
+        if(pending>=0 && sequencer_resync(&seq,&snapshots[pending],now)) {
+            active_snapshot=pending;
+            published_revision=snapshots[pending].revision;
+            pending_snapshot=-1;
+        }
+        sequencer_service(&seq,now);
+    }
     else { NoteSink sink=audio_sink(&audio); sink.advance(sink.context,now); }
     audio_voice_steals=audio.steals; audio_skipped_notes=seq.skipped+late_starts; audio_overloads=seq.overloads;
     uint32_t elapsed=(uint32_t)(read_clock()-now);
@@ -107,12 +120,13 @@ void audio_platform_update(const Score *score,int connected,int start) {
     if(!connected || (start && enabled)) {
         EnterCriticalSection();
         if(enabled) { sequencer_stop(&seq,read_clock()); enabled=0; }
+        pending_snapshot=-1;
         ExitCriticalSection();
     } else if(start) {
         // The timer remains live while the immutable snapshot is prepared.
         // Nothing in the interrupt can observe this copy until publication.
-        snapshot=*score;
-        sequencer_start(&seq,&snapshot,audio_sink(&audio),0);
+        snapshots[0]=*score;
+        sequencer_start(&seq,&snapshots[0],audio_sink(&audio),0);
         EnterCriticalSection();
         AudioTime now=read_clock();
         // Restart discards release tails. Zero their registers before reuse;
@@ -123,7 +137,17 @@ void audio_platform_update(const Score *score,int connected,int start) {
         for(int i=0;i<seq.count;i++) seq.runners[i].next=now;
         audio_started=(uint32_t)now;
         audio_dispatch_peak=audio_note_count=audio_first_note=audio_last_note=late_starts=0;
+        active_snapshot=0; pending_snapshot=-1;
         published_revision=score->revision; enabled=1;
+        ExitCriticalSection();
+    } else if(enabled && pending_snapshot<0 && score->revision!=published_revision) {
+        // With no pending publication the active buffer cannot change during
+        // this copy. Edits arriving while a buffer is pending are coalesced in
+        // the editor score and copied on a later main-thread update.
+        int spare=1-active_snapshot;
+        snapshots[spare]=*score;
+        EnterCriticalSection();
+        pending_snapshot=spare;
         ExitCriticalSection();
     }
 }

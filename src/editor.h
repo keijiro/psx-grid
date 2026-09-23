@@ -8,6 +8,7 @@ typedef enum { ACTION_CREATE, ACTION_PLACE, ACTION_REMOVE, ACTION_LENGTH, ACTION
 typedef struct {
     Score score;
     SoundSettings sound_candidate;
+    // Dirty means committed edits are waiting for audio publication.
     int playing, snapshot_dirty;
     Clipboard clipboard;
     int x, y, selected, lane, candidate, confirm;

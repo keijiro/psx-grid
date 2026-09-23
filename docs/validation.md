@@ -1,7 +1,7 @@
 # Validation Record
 
 Validation dates: 2026-09-22 (editor baseline) and 2026-09-23
-(input regression and refreshed audio measurements), macOS 27.0 / Apple Silicon. Host tests use Clang
+(input regression, live editing, and refreshed audio measurements), macOS 27.0 / Apple Silicon. Host tests use Clang
 with AddressSanitizer and UndefinedBehaviorSanitizer. Console builds use the
 pinned PSn00bSDK v0.24 toolchain and the Debug and Release presets.
 
@@ -10,7 +10,7 @@ pinned PSn00bSDK v0.24 toolchain and the Debug and Release presets.
 Both console configurations build without warnings. The host suite passes
 model, input/editor, and renderer checks. Reproduce with `./scripts/test.sh`
 and the build commands in [development.md](development.md). The current host
-log is `build/validation/audio-host-tests.log`.
+log is `build/validation/live-edit-host-tests.log`.
 
 | Area | Automated coverage |
 | --- | --- |
@@ -101,12 +101,41 @@ Output remains 320 by 240 NTSC. PAL timing, lowercase, Japanese, and general
 Unicode rendering are not implemented. See [usage.md](usage.md) for editing
 limits and the intentionally excluded persistence and transport features.
 
+## Live editing verification (2026-09-23)
+
+Debug and Release build without warnings, and the complete ASan/UBSan host
+suite passes. The current host log is
+`build/validation/live-edit-host-tests.log`. New coverage includes publication
+between split slices, retained positions/laps, absolute deadlines and random
+state, live gate/cycle and division changes, held-lock edits/order and ID reuse,
+branch deletion, lane shortening/removal/recreation, head ordering, master
+changes, pending-lane admission, and empty playback. Model tests check stable
+birth generations across edits/moves, failed branch-allocation rollback,
+reused tile/lane IDs, and generation exhaustion.
+
+The actual SPU/timer fixture accepts 25/25 ordinary revisions and 32/32 dense
+revisions in each build while playback stays active. Its ordinary pitch edits
+change the SPU frequency register from 4,082 to 6,117. The dense case fills all
+4,096 tile slots and reverses the sixteen lane heads at every revision, covering
+runner reconciliation and execution-order changes during overload. A separate
+case queues a second edit while the first revision is pending, then checks that
+regular updates without further edits deliver the final revision. START-stop
+and disconnect with a revision pending both cancel publication and leave every
+voice's output volumes at zero.
+
+The score copy runs with interrupts enabled but still occupies the main thread
+for roughly 19 ms in ordinary playback and 27 ms under maximum density. This
+exceeds one NTSC frame and remains an interaction-latency limitation: passing
+audio deadlines does not establish smooth rendering or controller feel during
+continuous editing. Timing and memory measurements below use the live-edit
+builds. Longer interactive editing and listening remain unverified.
+
 ## Audio playback verification
 
 The playback implementation now has an SDK-independent sequencer/voice test,
 an independent ADPCM decoder test, and a standalone PCSX-Redux SPU/timer fixture.
 The host suite uses ASan/UBSan; both console configurations build without warnings.
-Logs are generated under `build/validation/audio-host-tests.log` and
+Logs are generated under `build/validation/live-edit-host-tests.log` and
 `audio-{debug,release}-emulator.log`. Reproduce with the commands in
 [development.md](development.md#audio-fixture).
 
@@ -118,7 +147,7 @@ catch-up, full-pool rollback, stale gate-offs, zero/long envelopes, release duri
 attack, deterministic stealing, same-time off/on, and silence after stop.
 START is checked in every editor mode, including the held/reconnect guard and
 uncommitted candidates. Renderer tests include the larger picker, global Sound,
-engagement switches, signed limits, and both playback status strings.
+engagement switches, signed limits, and the playback status display.
 
 The generated ten octave-root loops cover C0–C9. The calculated pitch-register
 error is at most **0.151 cents** before SPU interpolation. Independently decoding
@@ -135,13 +164,22 @@ Both headless emulator fixtures pass their numeric assertions, including a
 
 | Measurement | Debug | Release |
 | --- | ---: | ---: |
-| C4 service cost | 0.148 ms | 0.148 ms |
-| C4 service interval | 0.316 ms | 0.298 ms |
-| C4 key-on lateness | 0.239 ms | 0.240 ms |
-| 24-note chord service cost | 0.606 ms | 0.606 ms |
-| 24-note chord service interval | 0.612 ms | 0.611 ms |
-| 24-note chord key-on lateness | 0.665 ms | 0.690 ms |
-| Maximum-density service cost | 1.117 ms | 1.119 ms |
+| C4 service cost | 0.151 ms | 0.151 ms |
+| C4 service interval | 0.297 ms | 0.300 ms |
+| C4 key-on lateness | 0.203 ms | 0.187 ms |
+| 24-note chord service cost | 0.608 ms | 0.608 ms |
+| 24-note chord service interval | 0.614 ms | 0.613 ms |
+| 24-note chord key-on lateness | 0.665 ms | 0.749 ms |
+| Maximum-density service cost | 1.129 ms | 1.129 ms |
+| Live ordinary service cost | 0.153 ms | 0.151 ms |
+| Live ordinary service interval | 0.315 ms | 0.303 ms |
+| Live ordinary key-on lateness | 0.241 ms | 0.220 ms |
+| Live dense service cost | 1.129 ms | 1.129 ms |
+| Live dense service interval | 1.137 ms | 1.134 ms |
+| Ordinary revision copy | 19.168 ms | 19.169 ms |
+| Ordinary revision copy through adoption | 19.426 ms | 19.283 ms |
+| Dense revision copy | 27.440 ms | 26.977 ms |
+| Dense revision copy through adoption | 27.651 ms | 28.216 ms |
 
 The normal fixtures remain below the 1 ms dispatch and service-interval targets
 while the GPU frame loop scrolls and asynchronous pad polling is enabled. Normalized sixteen-step loop duration from
@@ -151,21 +189,22 @@ establish long-session wall-clock or analog output timing.
 
 | Requested time | Debug Attack / Release | Release Attack / Release |
 | --- | ---: | ---: |
-| 0 ms | 0.075 / 0.230 ms | 0.214 / 0.001 ms |
-| 1 ms | 1.289 / 1.076 ms | 1.014 / 1.002 ms |
-| 5 ms | 5.091 / 5.081 ms | 5.053 / 5.046 ms |
-| 100 ms | 100.221 / 100.089 ms | 100.003 / 100.136 ms |
+| 0 ms | 0.043 / 0.030 ms | 0.075 / 0.060 ms |
+| 1 ms | 1.134 / 1.125 ms | 1.115 / 1.119 ms |
+| 5 ms | 5.007 / 5.000 ms | 4.980 / 4.987 ms |
+| 100 ms | 99.989 / 99.978 ms | 100.081 / 100.081 ms |
 
 All 48 left/right voice volume registers are zero after ordinary and overloaded
 stops. ADSR level readback can lag the emulator's audio thread, so the stop
 assertion uses the output volume registers rather than assuming that the held
 hardware envelope itself has already read back as zero.
 
-The linker reports 634,568 bytes of BSS in each editor build. Total text/data/BSS
-is 697,378 bytes in Debug and 690,706 in Release. The Debug image ends at
-`0x800ba43c`, leaving about 1.27 MiB above it before the top of console RAM.
-This includes three 182,712-byte scores, the editor clipboard, held-lock/voice
-state, the fixed input history, two 32 KiB render packet buffers, and the SDK's
+The linker reports 887,268 bytes of BSS in each editor build. Total text/data/BSS
+is 951,858 bytes in Debug and 945,226 in Release. The Debug image ends at
+`0x800f864c`, leaving about 1.03 MiB above it before the top of console RAM.
+This includes four 199,168-byte scores (editor, model scratch, and two playback
+buffers), the editor clipboard, held-lock/voice state, the fixed input history,
+two 32 KiB render packet buffers, and the SDK's
 4 KiB interrupt stack.
 No event queue grows with playback duration.
 
@@ -202,6 +241,7 @@ status alone did not reveal the missing updates.
 
 The replacement driver was tested through PCSX-Redux's actual SIO path, with
 Lua injecting controller buttons rather than modifying application input memory.
+All four configurations were rerun successfully against the live-edit builds.
 Both Debug and Release pass with digital (`0x41`) and analog (`0x73`) reports:
 
 | Scenario | Injected taps | Detected taps in each configuration/device |

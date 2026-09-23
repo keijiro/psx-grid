@@ -21,6 +21,7 @@ int main(void) {
             if(editor.mode!=before) input_reset_repeat(&input);
             audio_platform_update(&editor.score,connected,frame.start);
         }
+        audio_platform_update(&editor.score,connected,0);
         editor.playing=audio_platform_playing();
         editor.snapshot_dirty=editor.playing && editor.score.revision!=audio_platform_revision();
         render_frame(&editor,connected);

@@ -22,7 +22,16 @@ typedef struct { TileKind kind; int pitch, length, period, chance; uint32_t patt
 } TileValue;
 typedef struct { TileValue value; TileId next; int branch; } Tile;
 typedef struct { int active, x, y, length, division; TileId source, tiles[SCORE_STEPS]; } Lane;
-typedef struct { Lane lanes[SCORE_LANES]; Tile tiles[SCORE_TILE_CAPACITY + 1]; SoundSettings sound; uint32_t revision; } Score;
+typedef struct {
+    Lane lanes[SCORE_LANES];
+    Tile tiles[SCORE_TILE_CAPACITY + 1];
+    SoundSettings sound;
+    uint32_t revision;
+    // Pool positions survive moves but can be reused after deletion. Birth
+    // generations distinguish those objects across skipped playback revisions.
+    // Allocation stops at UINT32_MAX rather than aliasing an earlier birth.
+    uint32_t generation, lane_generation[SCORE_LANES], tile_generation[SCORE_TILE_CAPACITY + 1];
+} Score;
 typedef enum { CELL_EMPTY, CELL_HEAD, CELL_STEP, CELL_TILE, CELL_END } CellKind;
 typedef struct { CellKind kind; int lane, step, depth; TileId tile; } Cell;
 typedef enum { SCORE_OK, SCORE_BOUNDS, SCORE_COLLISION, SCORE_FULL, SCORE_TILES, SCORE_INVALID, SCORE_CYCLE } ScoreResult;

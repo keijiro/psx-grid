@@ -82,6 +82,41 @@ static void model(void) {
     assert(!score_create(&s,10,63,4)); snapshot(); unchanged(score_paste(&s,11,63,&clip));
     assert(!score_create(&s,6,0,4)); snapshot(); unchanged(score_place(&s,5,0,TILE_NOTE));
 }
+static void generations(void) {
+    base();
+    uint32_t lane=s.lane_generation[0];
+    assert(lane);
+    assert(!score_place(&s,1,0,TILE_NOTE));
+    TileId tile=id(1,0);
+    uint32_t birth=s.tile_generation[tile];
+    assert(birth>lane);
+    TileValue value=s.tiles[tile].value; value.pitch=60;
+    assert(!score_edit(&s,tile,value));
+    assert(!score_apply_move(&s,score_plan_move(&s,1,0,2,0)));
+    assert(!score_apply_move(&s,score_plan_move(&s,0,0,0,4)));
+    assert(s.tile_generation[tile]==birth && s.lane_generation[0]==lane);
+    assert(!score_remove(&s,2,4)); assert(!score_place(&s,2,4,TILE_NOTE));
+    assert(id(2,4)==tile && s.tile_generation[tile]>birth);
+    birth=s.tile_generation[tile];
+    assert(!score_delete(&s,0)); assert(!score_create(&s,0,0,4));
+    assert(s.lane_generation[0]>birth);
+    assert(!score_place(&s,1,0,TILE_NOTE));
+    assert(id(1,0)==tile && s.tile_generation[tile]>birth);
+
+    // Failed compound edits must roll back births as well as geometry. A
+    // jump needs two births, so exhausting the second must not consume one.
+    base(); s.generation=UINT32_MAX-1; snapshot();
+    unchanged(score_place(&s,1,0,TILE_JUMP));
+    assert(!score_place(&s,1,0,TILE_NOTE));
+    assert(s.tile_generation[id(1,0)]==UINT32_MAX);
+    snapshot(); unchanged(score_place(&s,2,0,TILE_NOTE));
+    unchanged(score_create(&s,10,0,4));
+    value=s.tiles[id(1,0)].value; value.pitch=72;
+    assert(!score_edit(&s,id(1,0),value));
+    assert(!score_apply_move(&s,score_plan_move(&s,1,0,2,0)));
+    assert(!score_remove(&s,2,0)); snapshot();
+    unchanged(score_place(&s,2,0,TILE_NOTE));
+}
 static Input input;
 static void frame(int connected,int held) { editor_update(&e,input_update(&input,connected,(uint16_t)held)); }
 static void tap(int key) { frame(1,key); frame(1,0); }
@@ -132,4 +167,4 @@ static void controls(void) {
     tap(INPUT_DOWN); assert(e.pattern_cursor==4); tap(INPUT_CROSS);
     assert(e.score.tiles[score_at(&e.score,6,1).tile].value.pattern==0);
 }
-int main(void) { model(); controls(); puts("PASS: model transactions, properties, stacks, branches, capacity and input/editor gestures"); }
+int main(void) { model(); generations(); controls(); puts("PASS: model transactions, properties, stacks, branches, capacity and input/editor gestures"); }

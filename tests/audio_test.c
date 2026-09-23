@@ -3,7 +3,7 @@
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>
-static Score score, snapshot;
+static Score score, snapshot, updated;
 static Sequencer seq;
 static Audio audio;
 static Editor editor;
@@ -215,7 +215,151 @@ static void dense_and_rollback(void) {
     for(int i=0;i<3;i++) sequencer_service(&seq,SEQUENCER_HZ/8);
     assert(events[count-1].sound.attack==5);
 }
+static void publish(AudioTime now) {
+    Score *spare=seq.score==&snapshot?&updated:&snapshot;
+    *spare=score; assert(sequencer_resync(&seq,spare,now));
+}
+static Runner *runner(int origin) {
+    for(int i=0;i<SCORE_LANES;i++) if(seq.runners[i].active && seq.runners[i].origin==origin) return &seq.runners[i];
+    return NULL;
+}
+static void live_values(void) {
+    AudioTime step=SEQUENCER_HZ/8;
+    base(2); TileValue v=score_default(TILE_NOTE); v.length=40;
+    put(1,0,v); put(2,0,v);
+    TileValue gate=score_default(TILE_PROBABILITY); gate.chance=100;
+    put(1,1,gate); start();
+    sequencer_service(&seq,step); sequencer_service(&seq,2*step);
+    Runner before=*runner(0); uint32_t random=seq.random;
+    NoteOff saved[SEQUENCER_VOICES]; memcpy(saved,seq.offs,sizeof(saved));
+    v.pitch=72; v.length=5; assert(!score_edit(&score,score_at(&score,2,0).tile,v));
+    assert(!score_set_sound(&score,(SoundSettings){23,41}));
+    assert(!score_set_division(&score,0,32)); publish(2*step+1);
+    assert(!memcmp(runner(0),&before,sizeof(before)) && seq.random==random);
+    assert(!memcmp(saved,seq.offs,sizeof(saved)));
+    sequencer_service(&seq,3*step);
+    assert(count==4 && events[3].at==3*step && events[3].pitch==72);
+    assert(events[3].sound.attack==23 && events[3].sound.release==41);
+    assert(runner(0)->next==3*step+step/2 && runner(0)->lap==2);
+    sequencer_service(&seq,3*step+step/8);
+    assert(off_count==3 && offs[2]==3*step+step/8);
+    sequencer_service(&seq,3*step+step/2);
+    assert(count==5 && events[4].pitch==48 && seq.random!=random);
+    // A previously scheduled two-step gate retains its original deadline.
+    sequencer_service(&seq,4*step);
+    assert(off_count>=4 && offs[3]==4*step);
+}
+static void live_holds(void) {
+    AudioTime step=SEQUENCER_HZ/8;
+    base(2); assert(!score_set_division(&score,0,4)); put(1,0,relative(100,200));
+    assert(!score_create(&score,8,4,1)); put(9,4,score_default(TILE_NOTE));
+    TileId held=score_at(&score,1,0).tile; start();
+    assert(events[0].sound.attack==105);
+    assert(!score_edit(&score,held,relative(200,300))); publish(1);
+    sequencer_service(&seq,step); assert(events[1].sound.attack==205);
+    assert(!score_apply_move(&score,score_plan_move(&score,1,0,2,0))); publish(step+1);
+    sequencer_service(&seq,2*step); assert(events[2].sound.attack==205);
+    // Reusing a held slot in an unvisited step must not inherit engagement.
+    uint32_t birth=score.tile_generation[held];
+    assert(!score_remove(&score,2,0)); put(2,0,relative(900,900));
+    assert(score_at(&score,2,0).tile==held && score.tile_generation[held]!=birth);
+    publish(2*step+1); sequencer_service(&seq,3*step);
+    assert(events[3].sound.attack==5);
+    sequencer_service(&seq,4*step); assert(events[4].sound.attack==905);
+    // Head movement changes lock traversal order without resetting runners.
+    Runner before=*runner(0);
+    assert(!score_apply_move(&score,score_plan_move(&score,0,0,0,8))); publish(4*step+1);
+    assert(!memcmp(&before,runner(0),sizeof(before)) && seq.runners[seq.order[0]].origin==1);
+    sequencer_service(&seq,5*step); assert(events[5].sound.attack==5);
+}
+static void live_lanes(void) {
+    AudioTime step=SEQUENCER_HZ/8;
+    base(4); put(1,0,score_default(TILE_NOTE)); start();
+    sequencer_service(&seq,step); sequencer_service(&seq,2*step);
+    assert(runner(0)->step==3 && runner(0)->playing_step==2);
+    assert(!score_resize(&score,0,2)); publish(2*step+1);
+    assert(runner(0)->step==0 && runner(0)->playing_step==-1 && !runner(0)->lap);
+    assert(runner(0)->next==3*step);
+    sequencer_service(&seq,3*step); assert(count==2 && events[1].at==3*step);
+    // A new non-master waits for the current master's next full lap.
+    assert(!score_create(&score,0,6,1)); put(1,6,score_default(TILE_NOTE)); publish(3*step+1);
+    assert(runner(1)->next==UINT64_MAX);
+    sequencer_service(&seq,4*step); assert(runner(1)->next==5*step);
+    sequencer_service(&seq,5*step); assert(count==4 && runner(1)->lap==1);
+    // Skipped deletion/recreation revisions still create a fresh runner.
+    uint32_t birth=score.lane_generation[1];
+    assert(!score_delete(&score,1)); assert(!score_create(&score,0,6,1));
+    put(1,6,score_default(TILE_NOTE)); assert(score.lane_generation[1]!=birth);
+    publish(5*step+1); assert(runner(1)->next==UINT64_MAX && !runner(1)->lap);
+    // Removing the master promotes a pending lane immediately.
+    assert(!score_delete(&score,0)); publish(5*step+2);
+    assert(seq.count==1 && !runner(0) && runner(1)->next==5*step+2);
+    sequencer_service(&seq,5*step+2); assert(count==5);
+    assert(!score_delete(&score,1)); publish(5*step+3);
+    assert(!seq.count && seq.playing); sequencer_service(&seq,6*step); assert(count==5);
+    assert(!score_create(&score,0,0,1)); put(1,0,score_default(TILE_NOTE)); publish(6*step+1);
+    sequencer_service(&seq,6*step+1); assert(count==6 && runner(0)->lap==1);
+    // A newly inserted head above the master starts without waiting on itself.
+    assert(!score_apply_move(&score,score_plan_move(&score,0,0,0,8))); publish(6*step+2);
+    assert(!score_create(&score,0,0,1)); put(1,0,score_default(TILE_NOTE)); publish(6*step+3);
+    assert(seq.runners[seq.order[0]].origin==1 && runner(1)->next==6*step+3);
+    sequencer_service(&seq,6*step+3); assert(count==7 && runner(0)->next==7*step+1);
+}
+static void live_final_step(void) {
+    AudioTime step=SEQUENCER_HZ/8;
+    base(2); put(1,0,score_default(TILE_NOTE)); start();
+    sequencer_service(&seq,step); assert(runner(0)->lap==1);
+    assert(!score_create(&score,0,4,1)); put(1,4,score_default(TILE_NOTE)); publish(step+1);
+    // The final step has already selected the next lap's participants.
+    sequencer_service(&seq,2*step); assert(count==2 && runner(1)->next==UINT64_MAX);
+    sequencer_service(&seq,3*step); assert(runner(1)->next==4*step);
+    sequencer_service(&seq,4*step); assert(count==4 && events[3].at==4*step);
+}
+static void live_gates(void) {
+    AudioTime step=SEQUENCER_HZ/8;
+    base(1); TileValue v=score_default(TILE_CYCLE); v.period=2; v.pattern=1;
+    put(1,0,v); put(1,1,score_default(TILE_NOTE)); start();
+    assert(count==1 && runner(0)->lap==1);
+    v.period=3; v.pattern=2; assert(!score_edit(&score,score_at(&score,1,0).tile,v)); publish(1);
+    sequencer_service(&seq,step); assert(count==2 && runner(0)->lap==2);
+    sequencer_service(&seq,2*step); assert(count==2 && runner(0)->lap==3);
+    base(1); v=score_default(TILE_PROBABILITY); v.chance=0;
+    put(1,0,v); put(1,1,score_default(TILE_NOTE)); start();
+    uint32_t random=seq.random;
+    v.chance=100; assert(!score_edit(&score,score_at(&score,1,0).tile,v)); publish(1);
+    assert(seq.random==random); sequencer_service(&seq,step);
+    random^=random<<13; random^=random>>17; random^=random<<5;
+    assert(count==1 && events[0].at==step && seq.random==random);
+}
+static void live_branch(void) {
+    AudioTime step=SEQUENCER_HZ/8;
+    base(2); put(1,0,score_default(TILE_JUMP));
+    int branch=score.tiles[score_at(&score,1,0).tile].branch;
+    Lane b=score.lanes[branch]; put(b.x+1,b.y,relative(100,100));
+    start(); sequencer_service(&seq,step);
+    assert(runner(0)->lane==branch && runner(0)->step==1 && runner(0)->held_count==1);
+    assert(!score_delete(&score,branch)); publish(step+1);
+    assert(runner(0)->lane==0 && runner(0)->step==0 && runner(0)->playing_step==-1);
+    assert(!runner(0)->held_count && !runner(0)->lap && runner(0)->next==2*step);
+    sequencer_service(&seq,2*step); assert(runner(0)->playing_lane==0 && runner(0)->playing_step==0);
+}
+static void live_split(void) {
+    base(1); for(int i=0;i<63;i++) put(1,i,relative(1,1));
+    put(1,63,score_default(TILE_NOTE));
+    snapshot=score; sequencer_start(&seq,&snapshot,trace,0);
+    sequencer_service(&seq,0); assert(seq.slicing && !count);
+    TileValue v=score_default(TILE_NOTE); v.pitch=72;
+    assert(!score_edit(&score,score_at(&score,1,63).tile,v)); updated=score;
+    Sequencer before=seq;
+    assert(!sequencer_resync(&seq,&updated,0) && !memcmp(&seq,&before,sizeof(seq)));
+    sequencer_service(&seq,0); assert(!seq.slicing && count==1 && events[0].pitch==48);
+    assert(sequencer_resync(&seq,&updated,0));
+    sequencer_service(&seq,SEQUENCER_HZ/8); assert(seq.slicing);
+    sequencer_service(&seq,SEQUENCER_HZ/8);
+    assert(!seq.slicing && count==2 && events[1].pitch==72 && events[1].sound.attack==68);
+}
 int main(void) {
     timing(); locks(); gates_branches(); voices(); overload(); model_editor(); dense_and_rollback();
-    printf("PASS: sequencer timing, locks, gates, branches, voices, overload and START; Score %zu, Sequencer %zu, Audio %zu bytes\n",sizeof(Score),sizeof(Sequencer),sizeof(Audio));
+    live_values(); live_holds(); live_lanes(); live_final_step(); live_gates(); live_branch(); live_split();
+    printf("PASS: sequencer timing, locks, gates, branches, voices, overload, START and live resync; Score %zu, Sequencer %zu, Audio %zu bytes\n",sizeof(Score),sizeof(Sequencer),sizeof(Audio));
 }

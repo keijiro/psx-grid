@@ -23,7 +23,7 @@ result = subprocess.run(command, cwd=root, stdout=subprocess.PIPE, stderr=subpro
 log = result.stdout.decode(errors='replace')
 (output / f'audio-{configuration}-emulator.log').write_text(log)
 for line in log.splitlines():
-    if line.startswith(('AUDIO ', 'CAPTURE ', 'ENVELOPE ', 'DISPATCH ')):
+    if line.startswith(('AUDIO ', 'CAPTURE ', 'ENVELOPE ', 'DISPATCH ', 'LIVE ')):
         print(line)
 if result.returncode or 'AUDIO FIXTURE COMPLETE' not in log:
     raise SystemExit(f'Fixture failed: exit {result.returncode}; see {output}')
@@ -34,7 +34,7 @@ def fields(prefix):
     match = re.search(r'^'+re.escape(prefix)+r': (.*)$', log, re.MULTILINE)
     assert match, f'Missing measurement: {prefix}'
     return {key:int(value) for key,value in re.findall(r'(\w+)=(\d+)', match[1])}
-for phase in ('C4 loop', '24-note chord'):
+for phase in ('C4 loop', '24-note chord', 'live pitch'):
     timing, dispatch = fields('AUDIO '+phase), fields('DISPATCH '+phase)
     assert timing['skipped']==0 and timing['overloads']==0, (phase, timing)
     assert 0 < dispatch['peak'] <= 4233 and timing['interval'] <= 4233, (phase, dispatch, timing)
@@ -42,7 +42,7 @@ chord = fields('DISPATCH 24-note chord')
 assert chord['count']==24 and chord['span']==0, chord
 loop = fields('DISPATCH C4 loop')
 assert abs(loop['span']-(loop['count']-1)*529200) <= 8467, loop
-for phase in ('stopped', 'final stop'):
+for phase in ('stopped', 'final stop', 'pending stop', 'pending disconnect'):
     state = fields('AUDIO '+phase)
     # ADSR readback can lag in Redux's separate SPU thread. Every left/right
     # volume register at zero establishes silence independently of that value.
@@ -58,4 +58,16 @@ for request,attack,release in envelopes:
 stress = fields('AUDIO 4096 tiles')
 assert stress['cost'] < 65536 and stress['interval'] < 65536, stress
 assert stress['skipped']>0 and stress['overloads']>0, stress
-print('PASS: emulator dispatch, loop duration, envelopes, signal, overload and stop checks')
+for phase,count in (('live pitch',25),('live 4096 tiles',32)):
+    live=fields('LIVE '+phase)
+    assert live['edits']==live['adopted']==count and live['playing']==1, live
+    timing=fields('AUDIO '+phase)
+    assert timing['cost']<65536 and timing['interval']<65536, timing
+registers=fields('LIVE pitch registers')
+assert registers['before']>0 and registers['after']>0 and registers['before']!=registers['after'], registers
+coalesced=fields('LIVE coalesced')
+assert coalesced['pending']==coalesced['deferred']==coalesced['adopted']==coalesced['playing']==1, coalesced
+for phase in ('pending stop','pending disconnect'):
+    state=fields('LIVE '+phase)
+    assert state['pending']==state['unchanged']==1 and state['playing']==0, state
+print('PASS: emulator dispatch, loop duration, envelopes, signal, live publication, overload and pending-stop checks')

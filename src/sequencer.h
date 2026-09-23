@@ -20,10 +20,12 @@ typedef struct {
 typedef struct {
     int origin, lane, step, playing_lane, playing_step;
     uint32_t lap, duration;
+    int active;
     AudioTime next;
-    // Geometry limits a stack to 64 tiles; holding IDs preserves ordered
-    // saturation without storing a second copy of their values.
+    // Geometry limits a stack to 64 tiles. A reached lock reads its current
+    // value until the next step, but never a replacement born in its slot.
     TileId held[SCORE_HEIGHT];
+    uint32_t held_generation[SCORE_HEIGHT];
     int held_count;
 } Runner;
 typedef struct { AudioTime at; uint32_t token; } NoteOff;
@@ -31,6 +33,8 @@ typedef struct {
     const Score *score;
     NoteSink sink;
     Runner runners[SCORE_LANES];
+    // Runner storage stays put across edits; only the traversal order changes.
+    int order[SCORE_LANES];
     NoteOff offs[SEQUENCER_VOICES];
     int count, playing;
     uint32_t random, skipped, overloads;
@@ -40,6 +44,9 @@ typedef struct {
     TileId cursor;
 } Sequencer;
 void sequencer_start(Sequencer *seq, const Score *snapshot, NoteSink sink, AudioTime now);
+// Both scores must remain immutable through this call. Resync is accepted
+// only between complete slices; failure leaves the old score in use.
+int sequencer_resync(Sequencer *seq, const Score *snapshot, AudioTime now);
 void sequencer_stop(Sequencer *seq, AudioTime now);
 void sequencer_service(Sequencer *seq, AudioTime now);
 #endif

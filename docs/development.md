@@ -43,10 +43,11 @@ to a gamepad or keyboard. See [usage.md](usage.md) for the editing walkthrough.
 
 - `src/score.*`: SDK-independent model and edit validation.
 - `src/sequencer.*`: SDK-independent runners, exact absolute deadlines,
-  ordered held locks, generation-tagged gate-offs, and bounded catch-up.
+  live runner reconciliation, ordered held locks, generation-tagged gate-offs,
+  and bounded catch-up.
 - `src/audio.*`: SDK-independent voice allocation and volume envelopes with
   an injected register driver for host tests.
-- `src/audio_psx.c`: Immutable snapshot publication, SPU upload/registers,
+- `src/audio_psx.c`: Double-buffered score publication, SPU upload/registers,
   timer interrupts, lifecycle, and debugger-visible measurements.
 - `scripts/generate-audio.py`: Independent sine ADPCM generation, pitch table,
   and decoded error report (`generated/sine_samples.txt`).
@@ -123,9 +124,12 @@ A completed fixture is not a substitute for the listening/controller walkthrough
 `audio_service_peak`, `audio_interval_peak`, and `audio_dispatch_peak` use
 4,233,600-Hz clock ticks. Voice steals, skipped notes, and catch-up overloads
 have separate counters. Linker maps are emitted beside both executables.
-The mutable editor score, model scratch score, and immutable playback score
-are separate fixed allocations; no interrupt allocates, copies the score,
-logs, renders, or starts DMA. Lifecycle preparation runs on the main thread.
+The mutable editor score, model scratch score, and two playback buffers are
+separate fixed allocations. The main thread prepares score revisions; the
+interrupt adopts them and reconciles playback between complete time slices.
+No interrupt allocates, copies the score, logs, renders, or starts DMA.
+Lifecycle preparation runs on the main thread. Regular platform updates also
+run without input so that coalesced revisions can reach playback.
 
 ## Input fixture
 
