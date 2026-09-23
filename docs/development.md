@@ -11,18 +11,14 @@ Run these commands from the repository root:
 
 ```sh
 ./scripts/setup.sh
-source scripts/env.sh  # zsh
-cmake --preset debug
-cmake --build --preset debug
+./scripts/build.sh
 ./scripts/run.sh
 ```
 
 For a release build:
 
 ```sh
-source scripts/env.sh
-cmake --preset release
-cmake --build --preset release
+./scripts/build.sh release
 ./scripts/run.sh build/release/psx-grid.exe
 ```
 

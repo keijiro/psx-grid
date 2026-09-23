@@ -150,4 +150,4 @@ mkdir -p "${PROJECT_ROOT}/.local/pcsx-redux-data"
   -portable "${PROJECT_ROOT}/.local/pcsx-redux-data" -dumpproto >/dev/null
 
 echo "Setup complete."
-echo "Next: source scripts/env.sh && cmake --preset debug && cmake --build --preset debug"
+echo "Next: ./scripts/build.sh"

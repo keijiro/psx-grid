@@ -25,7 +25,7 @@ if [ ! -f "${BIOS}" ]; then
 fi
 if [ ! -f "${EXE_PATH}" ]; then
   echo "PS-X EXE is missing: ${EXE_PATH}" >&2
-  echo "Run: source scripts/env.sh && cmake --preset debug && cmake --build --preset debug" >&2
+  echo "Run: ./scripts/build.sh" >&2
   exit 1
 fi
 
