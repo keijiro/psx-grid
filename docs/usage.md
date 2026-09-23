@@ -94,7 +94,7 @@ lock uses its updated value on subsequent slices until its step ends. Deleted
 locks stop contributing after publication. Unconfirmed property candidates
 and moves are not published.
 
-Existing regular lanes retain their next deadline and lap count. A division
+Existing regular lanes retain their next deadline and lap count. A tempo or division
 change applies to the next step's duration; it does not move the deadline of
 the current step. Moving a head changes runner order. If the visited branch
 is deleted, its runner returns to step zero of its origin; if its lane is
@@ -114,8 +114,9 @@ The status area shows `PLAYING` or `STOPPED`, with `APPLYING EDITS` while a
 committed revision is waiting for publication. There is no Transport Row or
 playhead.
 
-Tempo is fixed at 120 BPM. A step lasts 2000 divided by the lane division in
-milliseconds: sixteen steps at division 16 make a two-second loop. Notes keep
+Tempo defaults to 120 BPM and can be set from 30 to 300 BPM in the main menu.
+A step lasts 240,000 / BPM / division milliseconds: at 120 BPM, sixteen steps
+at division 16 make a two-second loop. Notes keep
 their written gate lengths and overlap across steps. Release begins at gate-off,
 even if Attack is still in progress. Up to 12 notes share one logical
 sound channel, using a fixed pair of SPU voices per note. Extreme density may steal voices or skip overdue notes.
@@ -126,8 +127,22 @@ to its original regular lane and increments its lap, with no extra empty step.
 Cycle gates select bit zero on the first lap. Probability gates use a repeatable
 random sequence reset at each start.
 
+SELECT opens the main menu with the Jacquard wordmark, `BPM`, and `REVERB`.
+SELECT again or Circle closes it. Opening it discards an unfinished property
+candidate and cancels a move. Playback continues while menus are open.
+BPM uses Left/Right for 1 BPM and Up/Down for 10 BPM. Cross applies; Circle
+returns without applying.
+
+`REVERB` provides `SIZE` (Small, Medium, Large; initially Medium) and `AMOUNT`
+(0–100%; initially 30%). Amount uses Left/Right for 1% and Up/Down for 10%.
+Cross applies each setting and returns to the Reverb menu; Circle discards it.
+The sound remains dry until `SOUND > REVERB` is enabled. This global switch
+immediately affects held and new notes. Amount controls the wet level while
+preserving the dry sound. Changing Size clears the previous reverb tail;
+ordinary stopping lets the tail decay. Reverb settings also apply when stopped.
+
 Open `SOUND` on any regular head to edit the **global** sound through four
-submenus. Cross applies an individual candidate; Circle discards it and returns
+submenus and a `REVERB` on/off field (initially Off). Cross applies an individual candidate; Circle discards it and returns
 to its submenu. `BACK` or Circle returns from a submenu to `SOUND`.
 
 | Submenu | Controls | Range | Initial value |

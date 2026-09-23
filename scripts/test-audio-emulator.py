@@ -24,7 +24,7 @@ result = subprocess.run(command, cwd=root, stdout=subprocess.PIPE, stderr=subpro
 log = result.stdout.decode(errors='replace')
 (output / f'audio-{configuration}-emulator.log').write_text(log)
 for line in log.splitlines():
-    if line.startswith(('AUDIO ', 'CAPTURE ', 'ENVELOPE ', 'DISPATCH ', 'LIVE ', 'WAVE ', 'SYNTH ', 'TRANSIENT ')):
+    if line.startswith(('AUDIO ', 'CAPTURE ', 'ENVELOPE ', 'DISPATCH ', 'LIVE ', 'WAVE ', 'SYNTH ', 'TRANSIENT ', 'TEMPO ', 'REVERB ')):
         print(line)
 if result.returncode or 'AUDIO FIXTURE COMPLETE' not in log:
     raise SystemExit(f'Fixture failed: exit {result.returncode}; see {output}')
@@ -125,3 +125,23 @@ assert transient, 'Missing transient check'
 trials,initial,completed,pending,errors=map(int,transient.groups())
 assert trials==initial==completed==16 and pending>0 and errors==0, transient.groups()
 print('PASS: paired wavetable/mix/sweep/headroom and emulator dispatch, loop duration, envelopes, signal, live publication, overload and pending-stop checks')
+
+tempos=re.findall(r'TEMPO bpm=(\d+) count=(\d+) span=(\d+)',log)
+assert len(tempos)==2, tempos
+for bpm,count,span in tempos:
+    bpm,count,span=map(int,(bpm,count,span))
+    assert count>=3 and abs(span-(count-1)*4233600*60/(bpm*4))<=8467, (bpm,count,span)
+reverbs=re.findall(r'REVERB size=(\d+) base=(\d+) left=(\d+) right=(\d+) send=(\d+) nonzero=(\d+)',log)
+assert len(reverbs)==3, reverbs
+assert len({row[1] for row in reverbs})==3, reverbs
+for row in reverbs:
+    size,base,left,right,send,nonzero=map(int,row)
+    assert 0<base<0x80000 and left==right==16383 and send==0xffffff and nonzero>0, row
+assert re.findall(r'REVERB dry size=(\d+) send=0$',log,re.MULTILINE)==['0','1','2']
+assert re.findall(r'REVERB zero size=(\d+) left=0 right=0 send=16777215$',log,re.MULTILINE)==['0','1','2']
+print('PASS: BPM clock intervals, reverb work memory, live sound send and zero amount')
+
+changes=re.findall(r'REVERB change size=(\d+) ticks=(\d+) cost=(\d+) interval=(\d+) playing=(\d+)',log)
+assert len(changes)==3, changes
+for size,ticks,cost,interval,playing in changes:
+    assert int(cost)<=4233 and int(interval)<=4233 and int(playing)==1, (size,ticks,cost,interval,playing)

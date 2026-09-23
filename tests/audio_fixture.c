@@ -122,7 +122,7 @@ static void synthesis_checks(void) {
     for(int wave=0;wave<WAVE_COUNT;wave++) {
         score_init(&editor.score); score_create(&editor.score,0,0,1);
         score_set_division(&editor.score,0,1);
-        score_set_sound(&editor.score,(SoundSettings){0,5,wave,wave,0,0,0,200});
+        score_set_sound(&editor.score,(SoundSettings){0,5,wave,wave,0,0,0,200,0});
         TileValue note=score_default(TILE_NOTE); note.length=1280;
         for(int i=0;i<SEQUENCER_VOICES;i++) score_place_value(&editor.score,1,i,note);
         audio_platform_update(&editor.score,1,1); frames(12);
@@ -142,7 +142,7 @@ static void synthesis_checks(void) {
     for(int sign=-1;sign<=1;sign+=2) {
         score_init(&editor.score); score_create(&editor.score,0,0,1);
         score_set_division(&editor.score,0,1);
-        score_set_sound(&editor.score,(SoundSettings){0,500,WAVE_SAW,WAVE_SQUARE,100,100,sign*24,200});
+        score_set_sound(&editor.score,(SoundSettings){0,500,WAVE_SAW,WAVE_SQUARE,100,100,sign*24,200,0});
         TileValue note=score_default(TILE_NOTE); note.length=1280;
         for(int i=0;i<SEQUENCER_VOICES;i++) score_place_value(&editor.score,1,i,note);
         audio_platform_update(&editor.score,1,1);
@@ -176,7 +176,7 @@ static void transient_checks(void) {
     for(int trial=0;trial<16;trial++) {
         score_init(&editor.score); score_create(&editor.score,0,0,1);
         score_set_division(&editor.score,0,1);
-        score_set_sound(&editor.score,(SoundSettings){0,5,WAVE_SINE,WAVE_NOISE,0,1,24,1});
+        score_set_sound(&editor.score,(SoundSettings){0,5,WAVE_SINE,WAVE_NOISE,0,1,24,1,0});
         TileValue note=score_default(TILE_NOTE); note.length=1280;
         score_place_value(&editor.score,1,0,note);
         audio_platform_update(&editor.score,1,1);
@@ -199,6 +199,58 @@ static void transient_checks(void) {
         audio_platform_update(&editor.score,0,0); frames(2);
     }
     log_message("TRANSIENT trials=16 initial=%u completed=%u pending=%u errors=%u\n",initial,completed,pending,errors);
+}
+static void menu_audio_checks(void) {
+    for(int bpm=60;bpm<=240;bpm*=4) {
+        score_init(&editor.score); score_create(&editor.score,0,0,1);
+        score_place(&editor.score,1,0,TILE_NOTE);
+        score_set_bpm(&editor.score,bpm);
+        audio_platform_update(&editor.score,1,1); frames(150);
+        log_message("TEMPO bpm=%d count=%u span=%u\n",bpm,
+            (unsigned)audio_note_count,(unsigned)(audio_last_note-audio_first_note));
+        audio_platform_update(&editor.score,0,0); frames(2);
+    }
+    for(int size=0;size<3;size++) {
+        score_init(&editor.score); score_create(&editor.score,0,0,1);
+        score_set_division(&editor.score,0,1);
+        TileValue note=score_default(TILE_NOTE); note.length=1280;
+        score_place_value(&editor.score,1,0,note);
+        SoundSettings sound=editor.score.sound; sound.reverb=1;
+        score_set_sound(&editor.score,sound);
+        score_set_reverb(&editor.score,(ReverbSettings){size,100});
+        audio_platform_update(&editor.score,1,1); frames(60);
+        // Read the effect work area through SPU DMA. Nonzero feedback memory
+        // proves the effect receives samples, beyond register programming.
+        unsigned nonzero=0,base=(unsigned)SPU_REVERB_ADDR*8;
+        for(unsigned address=base;address<0x80000;address+=sizeof(capture)) {
+            unsigned bytes=0x80000-address; if(bytes>sizeof(capture)) bytes=sizeof(capture);
+            SpuSetTransferStartAddr(address); SpuRead(capture,bytes);
+            SpuIsTransferCompleted(SPU_TRANSFER_WAIT);
+            for(unsigned i=0;i<bytes/sizeof(capture[0]);i++) nonzero+=capture[i]!=0;
+        }
+        log_message("REVERB size=%d base=%u left=%u right=%u send=%u nonzero=%u\n",size,base,
+            (unsigned)SPU_REVERB_VOL_L,(unsigned)SPU_REVERB_VOL_R,
+            (unsigned)SPU_REVERB_ON1|((unsigned)SPU_REVERB_ON2<<16),nonzero);
+        sound.reverb=0; score_set_sound(&editor.score,sound);
+        audio_platform_update(&editor.score,1,0); frames(4);
+        log_message("REVERB dry size=%d send=%u\n",size,
+            (unsigned)SPU_REVERB_ON1|((unsigned)SPU_REVERB_ON2<<16));
+        sound.reverb=1; score_set_sound(&editor.score,sound);
+        score_set_reverb(&editor.score,(ReverbSettings){size,0});
+        audio_platform_update(&editor.score,1,0); frames(4);
+        log_message("REVERB zero size=%d left=%u right=%u send=%u\n",size,
+            (unsigned)SPU_REVERB_VOL_L,(unsigned)SPU_REVERB_VOL_R,
+            (unsigned)SPU_REVERB_ON1|((unsigned)SPU_REVERB_ON2<<16));
+        score_set_reverb(&editor.score,(ReverbSettings){(size+1)%3,100});
+        audio_service_peak=audio_interval_peak=0;
+        AudioTime begin=audio_platform_time();
+        audio_platform_update(&editor.score,1,0);
+        unsigned changed=(unsigned)(audio_platform_time()-begin);
+        frames(2);
+        log_message("REVERB change size=%d ticks=%u cost=%u interval=%u playing=%d\n",size,changed,
+            (unsigned)audio_service_peak,(unsigned)audio_interval_peak,audio_platform_playing());
+        audio_platform_update(&editor.score,0,0); frames(2);
+    }
 }
 int main(void) {
     editor_init(&editor); render_init();
@@ -243,7 +295,7 @@ int main(void) {
     for(int i=0;i<4;i++) {
         score_init(&editor.score); score_create(&editor.score,0,0,1);
         score_set_division(&editor.score,0,1);
-        score_set_sound(&editor.score,(SoundSettings){times[i],times[i],WAVE_SINE,WAVE_SINE,0,0,0,200});
+        score_set_sound(&editor.score,(SoundSettings){times[i],times[i],WAVE_SINE,WAVE_SINE,0,0,0,200,0});
         TileValue note=score_default(TILE_NOTE); note.length=5;
         score_place_value(&editor.score,1,0,note); audio_platform_update(&editor.score,1,1);
         uint32_t peak=0,zero=0; AudioTime gate=SEQUENCER_HZ/2;
@@ -259,6 +311,7 @@ int main(void) {
     }
     synthesis_checks();
     transient_checks();
+    menu_audio_checks();
     // Valid worst-density score: 16 disjoint four-step lanes, each with
     // 64-deep stacks, filling all 4096 slots. No allocation or model shortcut
     // is used by playback; construction alone bypasses slow UI transactions.

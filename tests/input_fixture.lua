@@ -7,7 +7,7 @@ local pad = PCSX.SIO0.slots[1].pads[1]
 local buttons = PCSX.CONSTS.PAD.BUTTON
 local previous, frame = 0, 0
 local function held(value)
-    for _,button in ipairs({buttons.RIGHT, buttons.CROSS, buttons.START}) do
+    for _,button in ipairs({buttons.RIGHT, buttons.CROSS, buttons.START, buttons.SELECT}) do
         if value then pad.setOverride(button) else pad.clearOverride(button) end
     end
 end

@@ -21,20 +21,20 @@ void addPrim(uint32_t *ot,void *packet) {
     int w=p->w,h=p->h;
     if(p->code==0x64) {
         SPRT *s=packet; w=s->w; h=s->h;
-        assert(s->u0+w<=256 && s->v0+h<=64);
-        assert(s->clut==((64<<6)|(640>>4)));
+        assert(s->u0+w<=256 && s->v0+h<=96);
+        assert(s->clut==((96<<6)|(640>>4)));
     } else assert(p->code==0x60);
     assert(p->x0>=0 && p->y0>=0 && w>0 && h>0);
     assert(p->x0+w<=320 && p->y0+h<=240);
 }
 int LoadImage(const RECT *r,const uint32_t *data) {
-    assert(r->x==640 && ((r->y==0 && r->w==64 && r->h==64) || (r->y==64 && r->w==16 && r->h==1)));
+    assert(r->x==640 && ((r->y==0 && r->w==64 && r->h==96) || (r->y==96 && r->w==16 && r->h==1)));
     const uint16_t *src=(const uint16_t *)data;
     for(int y=0;y<r->h;y++) for(int x=0;x<r->w;x++) vram[r->y+y][r->x+x]=*src++;
-    if(r->y==64) {
-        assert(vram[64][640]==0);
+    if(r->y==96) {
+        assert(vram[96][640]==0);
         for(int i=1;i<8;i++) {
-            uint16_t rgb=vram[64][640+i]; assert(rgb);
+            uint16_t rgb=vram[96][640+i]; assert(rgb);
             assert((rgb&31)==((rgb>>5)&31) && (rgb&31)==((rgb>>10)&31));
         }
     }
@@ -69,7 +69,7 @@ void DrawOTagEnv(uint32_t *p,DRAWENV *e) {
             if(textured) {
                 int u=s->u0+x,v=s->v0+y;
                 int index=(vram[v][640+u/4]>>((u%4)*4))&15;
-                uint16_t rgb=vram[64][640+index];
+                uint16_t rgb=vram[96][640+index];
                 if(!rgb) continue;
                 assert((rgb&31)==((rgb>>5)&31) && (rgb&31)==((rgb>>10)&31));
                 gray=(rgb&31)*255/31;
@@ -97,7 +97,7 @@ int main(void) {
             e.mode=mode; e.lane=0; e.candidate=mode==EDIT_DIVISION?11:64;
             e.value=score_default(TILE_NOTE); e.value.period=32; e.value.pitch=108;
             e.value.lock_mask=3; e.value.attack=-16000; e.value.release=16000;
-            e.sound_candidate=e.score.sound=(SoundSettings){16000,16000,WAVE_SINE,WAVE_SINE,0,0,0,200};
+            e.sound_candidate=e.score.sound=(SoundSettings){16000,16000,WAVE_SINE,WAVE_SINE,0,0,0,200,0};
             e.playing=1; e.snapshot_dirty=mode%2;
             e.tile_candidate=TILE_RELATIVE; e.source_x=1; e.source_y=0;
             render_frame(&e,1);
@@ -124,18 +124,21 @@ int main(void) {
     e.mode=EDIT_LENGTH; e.lane=0; e.candidate=64; render_frame(&e,1); save("build/tests/resize.pgm");
     e.mode=EDIT_LOCK_ATTACK; e.value=score_default(TILE_RELATIVE); e.value.lock_mask=3; e.value.attack=-16000;
     render_frame(&e,1); save("build/tests/lock.pgm");
-    e.mode=EDIT_SOUND; e.score.sound=(SoundSettings){16000,16000,WAVE_SINE,WAVE_SINE,0,0,0,200};
+    e.mode=EDIT_SOUND; e.score.sound=(SoundSettings){16000,16000,WAVE_SINE,WAVE_SINE,0,0,0,200,0};
     render_frame(&e,1); save("build/tests/sound.pgm");
     static const struct { EditorMode mode; const char *name; } sound_views[]={
-        {EDIT_WAVES,"waves"},{EDIT_AMPLITUDE,"amplitude"},{EDIT_MIX,"mix"},{EDIT_SWEEP,"sweep"},
+        {EDIT_MAIN,"main"},{EDIT_BPM,"bpm"},{EDIT_REVERB,"reverb"},{EDIT_REVERB_SIZE,"reverb-size"},
+        {EDIT_REVERB_AMOUNT,"reverb-amount"},{EDIT_SOUND_REVERB,"reverb-enable"},{EDIT_WAVES,"waves"},{EDIT_AMPLITUDE,"amplitude"},{EDIT_MIX,"mix"},{EDIT_SWEEP,"sweep"},
         {EDIT_WAVE_A,"wave-a"},{EDIT_WAVE_B,"wave-b"},{EDIT_ATTACK,"amp-attack"},
         {EDIT_RELEASE,"amp-release"},{EDIT_MIX_ATTACK,"mix-attack"},
         {EDIT_MIX_RELEASE,"mix-release"},{EDIT_PITCH_SWEEP,"pitch-sweep"},{EDIT_PITCH_DECAY,"pitch-decay"}
     };
-    e.sound_candidate=e.score.sound=(SoundSettings){16000,16000,WAVE_TRIANGLE,WAVE_NOISE,500,500,-24,2000};
+    e.sound_candidate=e.score.sound=(SoundSettings){16000,16000,WAVE_TRIANGLE,WAVE_NOISE,500,500,-24,2000,0};
     e.playing=1; e.snapshot_dirty=1;
     for(unsigned i=0;i<sizeof(sound_views)/sizeof(*sound_views);i++) {
         e.mode=sound_views[i].mode;
+        e.candidate=e.mode==EDIT_BPM?e.score.bpm:e.mode==EDIT_REVERB_SIZE?e.score.reverb.size:
+            e.mode==EDIT_SOUND_REVERB?e.score.sound.reverb:e.score.reverb.amount;
         for(int selected=0;selected<3;selected++) {
             e.selected=selected; render_frame(&e,1);
         }

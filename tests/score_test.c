@@ -187,7 +187,7 @@ static void sound_controls(void) {
         action(ACTION_SOUND); assert(e.mode==EDIT_SOUND);
         tap(INPUT_UP); assert(e.selected==0);
         for(int j=0;j<8;j++) tap(INPUT_DOWN);
-        assert(e.selected==4);
+        assert(e.selected==5);
         tap(INPUT_CROSS); assert(e.mode==EDIT_MENU);
         tap(INPUT_CIRCLE); action(ACTION_SOUND);
         for(unsigned j=0;j<i/2;j++) tap(INPUT_DOWN);
@@ -233,4 +233,40 @@ static void sound_controls(void) {
     assert(e.mode==EDIT_SOUND); tap(INPUT_CIRCLE); assert(e.mode==EDIT_MENU);
     tap(INPUT_CIRCLE); assert(e.mode==EDIT_PLANE);
 }
-int main(void) { model(); generations(); controls(); sound_controls(); puts("PASS: model transactions, properties, stacks, branches, capacity and input/editor gestures"); }
+static void main_controls(void) {
+    editor_init(&e); input_init(&input); frame(1,0);
+    assert(e.score.bpm==120 && e.score.reverb.size==1 && e.score.reverb.amount==30 && !e.score.sound.reverb);
+    tap(INPUT_SELECT); assert(e.mode==EDIT_MAIN);
+    tap(INPUT_CROSS); assert(e.mode==EDIT_BPM && e.candidate==120);
+    tap(INPUT_UP); tap(INPUT_RIGHT); assert(e.candidate==131 && e.score.bpm==120);
+    tap(INPUT_CIRCLE); assert(e.mode==EDIT_MAIN && e.score.bpm==120);
+    tap(INPUT_CROSS); tap(INPUT_RIGHT); tap(INPUT_CROSS);
+    assert(e.mode==EDIT_MAIN && e.score.bpm==121 && e.score.revision==1);
+    tap(INPUT_DOWN); tap(INPUT_CROSS); assert(e.mode==EDIT_REVERB);
+    tap(INPUT_CROSS); tap(INPUT_RIGHT); tap(INPUT_RIGHT); assert(e.candidate==2);
+    tap(INPUT_CROSS); assert(e.mode==EDIT_REVERB && e.score.reverb.size==2);
+    tap(INPUT_DOWN); tap(INPUT_CROSS); tap(INPUT_UP); tap(INPUT_CIRCLE);
+    assert(e.score.reverb.amount==30 && e.mode==EDIT_REVERB);
+    tap(INPUT_DOWN); tap(INPUT_CROSS); tap(INPUT_UP); tap(INPUT_CROSS);
+    assert(e.score.reverb.amount==40);
+    tap(INPUT_SELECT); assert(e.mode==EDIT_MAIN); tap(INPUT_SELECT); assert(e.mode==EDIT_PLANE);
+    assert(!score_create(&e.score,1,1,4)); action(ACTION_SOUND);
+    for(int j=0;j<4;j++) tap(INPUT_DOWN);
+    tap(INPUT_CROSS); assert(e.mode==EDIT_SOUND_REVERB && !e.candidate);
+    tap(INPUT_RIGHT); tap(INPUT_CIRCLE); assert(!e.score.sound.reverb);
+    for(int j=0;j<4;j++) tap(INPUT_DOWN);
+    tap(INPUT_CROSS); tap(INPUT_RIGHT); tap(INPUT_CROSS);
+    assert(e.mode==EDIT_SOUND && e.score.sound.reverb);
+    tap(INPUT_SELECT); tap(INPUT_SELECT);
+    frame(1,INPUT_CROSS); frame(1,INPUT_CROSS|INPUT_RIGHT); assert(e.mode==EDIT_MOVE);
+    frame(1,INPUT_CROSS|INPUT_SELECT); assert(e.mode==EDIT_MAIN && !e.gesture && e.x==1);
+    frame(1,0); assert(e.mode==EDIT_MAIN);
+    s=e.score; snapshot();
+    unchanged(score_set_bpm(&s,29)); unchanged(score_set_bpm(&s,301));
+    unchanged(score_set_reverb(&s,(ReverbSettings){-1,30}));
+    unchanged(score_set_reverb(&s,(ReverbSettings){3,30}));
+    unchanged(score_set_reverb(&s,(ReverbSettings){1,-1}));
+    unchanged(score_set_reverb(&s,(ReverbSettings){1,101}));
+    SoundSettings invalid=s.sound; invalid.reverb=2; unchanged(score_set_sound(&s,invalid));
+}
+int main(void) { model(); generations(); controls(); sound_controls(); main_controls(); puts("PASS: model transactions, properties, stacks, branches, capacity and input/editor gestures"); }

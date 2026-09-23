@@ -41,7 +41,7 @@ static void sweeps(void) {
     for(int note=0;note<=108;note++) for(int depth=-24;depth<=24;depth++)
     for(unsigned d=0;d<sizeof(decays)/sizeof(*decays);d++) {
         NoteSink sink=reset();
-        SoundSettings sound={0,16000,WAVE_SAW,WAVE_TRIANGLE,120,280,depth,decays[d]};
+        SoundSettings sound={0,16000,WAVE_SAW,WAVE_TRIANGLE,120,280,depth,decays[d],0};
         sink.on(sink.context,origin,note,sound);
         AudioTime duration=audio_ms(decays[d]);
         int previous=0;
@@ -87,7 +87,7 @@ static void envelopes(void) {
     const int times[]={0,1,120,500};
     for(int wave=0;wave<5;wave++) for(int a=0;a<4;a++) for(int r=0;r<4;r++) {
         NoteSink sink=reset();
-        SoundSettings sound={0,16000,wave,wave,times[a],times[r],24,2000};
+        SoundSettings sound={0,16000,wave,wave,times[a],times[r],24,2000,0};
         uint32_t token=sink.on(sink.context,0,48,sound);
         AudioTime attack=audio_ms(times[a]), release=audio_ms(times[r]);
         for(int ms=0;ms<=1001;ms++) {
@@ -106,7 +106,7 @@ static void envelopes(void) {
     // Gate duration neither restarts the mix nor the signed pitch envelope.
     for(int gate=1;gate<=1001;gate+=1000) {
         NoteSink sink=reset();
-        SoundSettings sound={100,500,WAVE_NOISE,WAVE_SQUARE,120,280,-24,2000};
+        SoundSettings sound={100,500,WAVE_NOISE,WAVE_SQUARE,120,280,-24,2000,0};
         uint32_t token=sink.on(sink.context,0,48,sound);
         sink.advance(sink.context,audio_ms(gate));
         int before=pitches[0], level=audio.voices[0].level;
@@ -119,7 +119,7 @@ static void envelopes(void) {
         assert(!audio.voices[0].active && !gains[0][0] && !gains[0][1]);
     }
     NoteSink sink=reset();
-    SoundSettings sound={0,0,WAVE_SINE,WAVE_NOISE,0,0,0,0};
+    SoundSettings sound={0,0,WAVE_SINE,WAVE_NOISE,0,0,0,0,0};
     uint32_t token=sink.on(sink.context,0,48,sound);
     sink.off(sink.context,0,token); sink.advance(sink.context,0);
     assert(!started && stopped==1 && !gains[0][0] && !gains[0][1]);
@@ -128,7 +128,7 @@ static void envelopes(void) {
 static unsigned ready_mask;
 static int ready(void *ctx,int slot) { (void)ctx; return (ready_mask>>slot)&1; }
 static void transients(void) {
-    SoundSettings sound={0,1,WAVE_SINE,WAVE_NOISE,0,1,24,1};
+    SoundSettings sound={0,1,WAVE_SINE,WAVE_NOISE,0,1,24,1,0};
     AudioTime origin=UINT64_C(0x100000000)+17;
     for(int delay=1;delay<=20;delay++) {
         NoteSink sink=reset(); audio.driver.ready=ready; ready_mask=0;
@@ -194,7 +194,7 @@ static void snapshots(void) {
     static Score score, updated;
     static Sequencer seq;
     score_init(&score); assert(!score_create(&score,0,0,1));
-    SoundSettings old={0,400,WAVE_SAW,WAVE_NOISE,23,97,-13,777};
+    SoundSettings old={0,400,WAVE_SAW,WAVE_NOISE,23,97,-13,777,0};
     assert(!score_set_sound(&score,old));
     TileValue lock=score_default(TILE_RELATIVE); lock.lock_mask=3; lock.attack=7; lock.release=-19;
     assert(!score_place_value(&score,1,0,lock));
@@ -202,7 +202,7 @@ static void snapshots(void) {
     NoteSink sink=reset(); sequencer_start(&seq,&score,sink,0); sequencer_service(&seq,0);
     SoundSettings resolved=old; resolved.attack=7; resolved.release=381;
     assert(!memcmp(&audio.voices[0].sound,&resolved,sizeof(resolved)));
-    SoundSettings fresh={0,600,WAVE_SQUARE,WAVE_TRIANGLE,0,500,24,1};
+    SoundSettings fresh={0,600,WAVE_SQUARE,WAVE_TRIANGLE,0,500,24,1,0};
     updated=score; assert(!score_set_sound(&updated,fresh));
     assert(sequencer_resync(&seq,&updated,1));
     AudioTime next=SEQUENCER_HZ/8;

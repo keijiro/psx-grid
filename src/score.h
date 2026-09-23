@@ -22,9 +22,14 @@ enum { LOCK_ATTACK=1, LOCK_RELEASE=2 };
 typedef enum { WAVE_SINE, WAVE_TRIANGLE, WAVE_SAW, WAVE_SQUARE, WAVE_NOISE, WAVE_COUNT } Waveform;
 typedef struct {
     int attack, release;
-    int wave_a, wave_b, mix_attack, mix_release, sweep, decay;
+    int wave_a, wave_b, mix_attack, mix_release, sweep, decay, reverb;
 } SoundSettings;
-#define SOUND_DEFAULT ((SoundSettings){5,5,WAVE_SINE,WAVE_SINE,120,280,0,200})
+#define SOUND_DEFAULT ((SoundSettings){5,5,WAVE_SINE,WAVE_SINE,120,280,0,200,0})
+#define SCORE_MIN_BPM 30
+#define SCORE_MAX_BPM 300
+typedef struct { int size, amount; } ReverbSettings;
+#define REVERB_DEFAULT ((ReverbSettings){1,30})
+const char *score_reverb_size(int size);
 const char *score_wave_name(int wave);
 typedef struct { TileKind kind; int pitch, length, period, chance; uint32_t pattern;
     int lock_mask, attack, release;
@@ -35,6 +40,8 @@ typedef struct {
     Lane lanes[SCORE_LANES];
     Tile tiles[SCORE_TILE_CAPACITY + 1];
     SoundSettings sound;
+    int bpm;
+    ReverbSettings reverb;
     uint32_t revision;
     // Pool positions survive moves but can be reused after deletion. Birth
     // generations distinguish those objects across skipped playback revisions.
@@ -48,6 +55,8 @@ typedef struct { int count; TileValue values[SCORE_HEIGHT]; } Clipboard;
 typedef struct { int sx, sy, x, y; ScoreResult result; } MovePlan;
 extern const int score_divisions[SCORE_DIVISIONS];
 void score_init(Score *score);
+ScoreResult score_set_bpm(Score *score, int bpm);
+ScoreResult score_set_reverb(Score *score, ReverbSettings reverb);
 ScoreResult score_set_sound(Score *score, SoundSettings sound);
 Cell score_at(const Score *score, int x, int y);
 Cell score_resolve(const Score *score, int x, int y);

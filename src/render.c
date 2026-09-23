@@ -43,7 +43,7 @@ static void sprite(int depth, int x, int y, int u, int v, int w, int h) {
     SPRT *p = packet(sizeof(SPRT));
     if (!p) return;
     setSprt(p); setXY0(p,x,y); setUV0(p,u,v); setWH(p,w,h);
-    setRGB0(p,128,128,128); setClut(p,640,64);
+    setRGB0(p,128,128,128); setClut(p,640,96);
     addPrim(&buffers[active].ot[depth],p);
 }
 static int glyph(unsigned char ch) { return ch >= 32 && ch <= 126 ? ch-32 : '?'-32; }
@@ -75,10 +75,10 @@ static int follow(int camera, int cursor, int size, int bound) {
 }
 void render_init(void) {
     ResetGraph(0); SetVideoMode(MODE_NTSC);
-    // 4-bit texels occupy 64x64 VRAM words at x=640. CLUT sits immediately
+    // 4-bit texels occupy 64x96 VRAM words at x=640. CLUT sits immediately
     // below; neither overlaps framebuffers (x=0..319, y=0..479), and UVs
     // stay inside one texture page. Index zero alone is transparent.
-    RECT atlas = {640,0,64,64}, clut = {640,64,16,1};
+    RECT atlas = {640,0,64,96}, clut = {640,96,16,1};
     LoadImage(&atlas,ui_pixels); DrawSync(0);
     LoadImage(&clut,ui_clut); DrawSync(0);
     for (int i = 0; i < 2; i++) {
@@ -181,10 +181,21 @@ void render_frame(const Editor *e, int connected) {
     text(8,20,line);
     if(e->mode!=EDIT_PLANE && e->mode!=EDIT_MOVE) {
         EditorAction items[EDITOR_MENU_ITEMS]; int n=editor_menu(e,items);
-        int width=208,height=e->mode==EDIT_MENU?n*16+16:e->mode==EDIT_PICKER?104:e->mode==EDIT_SOUND?112:editor_sound_parent(e->mode)==EDIT_SOUND?88:e->mode==EDIT_PATTERN?112:72;
+        int width=208,height=e->mode==EDIT_MENU?n*16+16:e->mode==EDIT_PICKER?104:e->mode==EDIT_MAIN?120:e->mode==EDIT_REVERB?96:e->mode==EDIT_SOUND?128:editor_sound_parent(e->mode)==EDIT_SOUND?88:e->mode==EDIT_PATTERN?112:72;
         int px=clamp(cx+18,SCREEN_W-width-8),py=clamp(cy+18,192-height);
+        if(e->mode==EDIT_MAIN || e->mode==EDIT_REVERB || e->mode==EDIT_BPM || e->mode==EDIT_REVERB_SIZE || e->mode==EDIT_REVERB_AMOUNT) { px=(SCREEN_W-width)/2; py=(192-height)/2+16; }
         rect(2,px,py,width,height,UI_PANEL); outline(1,px,py,width,height,UI_BORDER);
-        if(e->mode==EDIT_MENU) for(int i=0;i<n;i++) {
+        if(e->mode==EDIT_MAIN) {
+            sprite(0,px+(width-144)/2,py+12,0,64,144,30);
+            snprintf(line,sizeof(line),"%c BPM %d",e->selected==0?'>':' ',e->score.bpm); text(px+12,py+56,line);
+            text(px+12,py+76,e->selected==1?"> REVERB":"  REVERB");
+            text(px+12,py+96,e->selected==2?"> CLOSE":"  CLOSE");
+        } else if(e->mode==EDIT_REVERB) {
+            text(px+8,py+8,"REVERB / GLOBAL");
+            snprintf(line,sizeof(line),"%c SIZE %s",e->selected==0?'>':' ',score_reverb_size(e->score.reverb.size)); text(px+8,py+32,line);
+            snprintf(line,sizeof(line),"%c AMOUNT %d%%",e->selected==1?'>':' ',e->score.reverb.amount); text(px+8,py+52,line);
+            text(px+8,py+76,e->selected==2?"> BACK":"  BACK");
+        } else if(e->mode==EDIT_MENU) for(int i=0;i<n;i++) {
             snprintf(line,sizeof(line),"%c %s",i==e->selected?'>':' ',editor_action_label(items[i])); text(px+6,py+8+i*16,line);
         }
         else if(e->mode==EDIT_PICKER) {
@@ -194,8 +205,8 @@ void render_frame(const Editor *e, int connected) {
             }
         } else if(e->mode==EDIT_SOUND) {
             text(px+8,py+8,"SOUND / GLOBAL");
-            static const char *groups[]={"WAVES","AMPLITUDE","MIX","PITCH","BACK"};
-            for(int i=0;i<5;i++) {
+            static const char *groups[]={"WAVES","AMPLITUDE","MIX","PITCH","REVERB","BACK"};
+            for(int i=0;i<6;i++) {
                 snprintf(line,sizeof(line),"%c %s",e->selected==i?'>':' ',groups[i]); text(px+8,py+28+i*16,line);
             }
         } else if(editor_sound_parent(e->mode)==EDIT_SOUND) {
@@ -223,6 +234,10 @@ void render_frame(const Editor *e, int connected) {
             text(px+8,py+94,e->pattern_cursor==e->value.period?"> APPLY":"  APPLY");
         } else {
             switch(e->mode) {
+            case EDIT_BPM: snprintf(line,sizeof(line),"BPM %d",e->candidate); break;
+            case EDIT_REVERB_SIZE: snprintf(line,sizeof(line),"SIZE %s",score_reverb_size(e->candidate)); break;
+            case EDIT_REVERB_AMOUNT: snprintf(line,sizeof(line),"AMOUNT %d%%",e->candidate); break;
+            case EDIT_SOUND_REVERB: snprintf(line,sizeof(line),"REVERB %s",e->candidate?"ON":"OFF"); break;
             case EDIT_WAVE_A: snprintf(line,sizeof(line),"WAVE A %s",score_wave_name(e->sound_candidate.wave_a)); break;
             case EDIT_WAVE_B: snprintf(line,sizeof(line),"WAVE B %s",score_wave_name(e->sound_candidate.wave_b)); break;
             case EDIT_MIX_ATTACK: snprintf(line,sizeof(line),"MIX ATTACK %d MS",e->sound_candidate.mix_attack); break;
@@ -243,13 +258,13 @@ void render_frame(const Editor *e, int connected) {
             default: snprintf(line,sizeof(line),"CHANCE  %d / 100",e->value.chance); break;
             }
             text(px+8,py+8,line);
-            text(px+8,py+28,e->mode==EDIT_ATTACK || e->mode==EDIT_RELEASE || e->mode==EDIT_LOCK_ATTACK || e->mode==EDIT_LOCK_RELEASE || e->mode==EDIT_MIX_ATTACK || e->mode==EDIT_MIX_RELEASE || e->mode==EDIT_PITCH_DECAY?"L/R 1 MS  U/D 100 MS":(e->mode==EDIT_PITCH || e->mode==EDIT_PITCH_SWEEP)?"L/R NOTE  U/D OCTAVE":e->mode==EDIT_DURATION?"L/R .05  U/D 1 STEP":"D-PAD CHANGE");
+            text(px+8,py+28,e->mode==EDIT_BPM || e->mode==EDIT_REVERB_AMOUNT?"L/R 1  U/D 10":e->mode==EDIT_ATTACK || e->mode==EDIT_RELEASE || e->mode==EDIT_LOCK_ATTACK || e->mode==EDIT_LOCK_RELEASE || e->mode==EDIT_MIX_ATTACK || e->mode==EDIT_MIX_RELEASE || e->mode==EDIT_PITCH_DECAY?"L/R 1 MS  U/D 100 MS":(e->mode==EDIT_PITCH || e->mode==EDIT_PITCH_SWEEP)?"L/R NOTE  U/D OCTAVE":e->mode==EDIT_DURATION?"L/R .05  U/D 1 STEP":"D-PAD CHANGE");
             text(px+8,py+48,"X APPLY  O DISCARD");
         }
     }
     text(8,200,connected?status:"CONNECT PAD 1 / RELEASE BUTTONS");
     text(8,216,e->mode==EDIT_PLANE?"X TAP MENU / HOLD + D-PAD MOVE":e->mode==EDIT_MOVE?"RELEASE X DROP  O CANCEL":"D-PAD SELECT  X OK  O BACK");
-    text(8,228,e->playing?(e->snapshot_dirty?"PLAYING / APPLYING EDITS":"PLAYING / START TO STOP"):"STOPPED / START TO PLAY");
+    text(8,228,e->playing?(e->snapshot_dirty?"PLAYING / APPLYING EDITS":"PLAYING / START TO STOP"):"STOPPED / START PLAY / SELECT MENU");
     DR_TPAGE *page=packet(sizeof(DR_TPAGE));
     if(page) { setDrawTPage(page,0,0,getTPage(0,0,640,0)); addPrim(&buffers[active].ot[7],page); }
     DrawSync(0); VSync(0); PutDispEnv(&buffers[active^1].disp);

@@ -36,7 +36,7 @@ launch targets with `PCSX_REDUX`, `PCSX_REDUX_BIOS`, and `PCSX_REDUX_DATA`.
 When the emulator first asks about automatic updates, complete the prompt.
 Disable automatic updates to retain the pinned version. If macOS blocks the
 application, open it from Finder and approve it. In the emulator, use
-`Configuration > Controls` to assign Port 1's D-pad, Cross, Circle, and START buttons
+`Configuration > Controls` to assign Port 1's D-pad, Cross, Circle, START, and SELECT buttons
 to a gamepad or keyboard. See [usage.md](usage.md) for the editing walkthrough.
 
 ## Structure and Validation

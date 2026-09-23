@@ -41,7 +41,7 @@ for row in rows:
     v = {key:int(value) for key,value in re.findall(r'(\w+)=(\d+)', row)}
     assert v['id'] == (0x73 if device == 'analog' else 0x41), v
     assert v['expected'] == (1 if v['phase'] == 4 else 10 if v['phase'] == 5 else 100), v
-    assert all(v[key] == v['expected'] for key in ('moves', 'presses', 'releases', 'starts')), v
+    assert all(v[key] == v['expected'] for key in ('moves', 'presses', 'releases', 'starts', 'selects')), v
     assert v['overflows'] == 0, v
     if v['phase'] == 4:
         assert v['disconnected'] >= 15 and v['timeouts'] >= 15, v

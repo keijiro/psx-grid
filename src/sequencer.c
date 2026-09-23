@@ -118,9 +118,9 @@ static int slice(Sequencer *s,AudioTime now,int *budget) {
             s->visiting=1; s->held_index=0; s->jump=-1;
             if(r->next==s->slice_at) {
                 r->held_count=0; r->playing_lane=r->lane; r->playing_step=r->step;
-                // A division edit changes the step beginning now, not the
+                // Tempo and division edits change the step beginning now, not the
                 // deadline of a step already sounding or its scheduled gates.
-                r->duration=2*SEQUENCER_HZ/s->score->lanes[r->origin].division;
+                r->duration=(uint32_t)(240u*SEQUENCER_HZ/s->score->bpm)/s->score->lanes[r->origin].division;
                 s->cursor=s->score->lanes[r->lane].tiles[r->step];
             }
         }

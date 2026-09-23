@@ -9,17 +9,17 @@
 volatile unsigned input_fixture_phase, input_fixture_expected;
 static Editor editor;
 static Input input;
-static unsigned moves, presses, releases, starts, disconnected;
+static unsigned moves, presses, releases, starts, selects, disconnected;
 static void drain(void) {
     InputSample sample;
     while(pad_read(&sample)) {
         InputFrame f=input_update(&input,sample.connected,sample.held);
-        moves+=f.dx!=0; presses+=f.cross; releases+=f.cross_released; starts+=f.start;
+        moves+=f.dx!=0; presses+=f.cross; releases+=f.cross_released; starts+=f.start; selects+=f.select;
         disconnected+=!f.connected;
     }
 }
 static void run(unsigned phase) {
-    moves=presses=releases=starts=disconnected=0;
+    moves=presses=releases=starts=selects=disconnected=0;
     unsigned polls=pad_polls,reports=pad_reports,timeouts=pad_timeouts,overflows=pad_overflows;
     input_fixture_expected=0;
     input_fixture_phase=phase;
@@ -32,9 +32,9 @@ static void run(unsigned phase) {
     }
     drain();
     char line[256];
-    snprintf(line,sizeof(line),"INPUT phase=%u id=%u polls=%u reports=%u timeouts=%u overflows=%u expected=%u moves=%u presses=%u releases=%u starts=%u disconnected=%u\n",
+    snprintf(line,sizeof(line),"INPUT phase=%u id=%u polls=%u reports=%u timeouts=%u overflows=%u expected=%u moves=%u presses=%u releases=%u starts=%u selects=%u disconnected=%u\n",
         phase,pad_id,pad_polls-polls,pad_reports-reports,pad_timeouts-timeouts,pad_overflows-overflows,
-        input_fixture_expected,moves,presses,releases,starts,disconnected);
+        input_fixture_expected,moves,presses,releases,starts,selects,disconnected);
     *(const char *volatile *)0x1f802084=line;
 }
 int main(void) {

@@ -26,6 +26,7 @@ static void publish(int connected) {
         if(buttons&PAD_CROSS) held|=INPUT_CROSS;
         if(buttons&PAD_CIRCLE) held|=INPUT_CIRCLE;
         if(buttons&PAD_START) held|=INPUT_START;
+        if(buttons&PAD_SELECT) held|=INPUT_SELECT;
         pad_id=reply[1];
         pad_reports++;
     }

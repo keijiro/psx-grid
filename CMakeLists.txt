@@ -4,7 +4,7 @@ find_package(Python3 REQUIRED COMPONENTS Interpreter)
 set(UI_ATLAS "${CMAKE_CURRENT_BINARY_DIR}/generated/ui_atlas.h")
 add_custom_command(OUTPUT "${UI_ATLAS}"
     COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/scripts/generate-assets.py" "${UI_ATLAS}"
-    DEPENDS scripts/generate-assets.py assets/ui/masks.py
+    DEPENDS scripts/generate-assets.py assets/ui/masks.py assets/ui/jacquard-logo.svg
     VERBATIM)
 set(WAVE_SAMPLES "${CMAKE_CURRENT_BINARY_DIR}/generated/wave_samples.h")
 set(AUDIO_TABLES "${CMAKE_CURRENT_BINARY_DIR}/generated/audio_tables.h")

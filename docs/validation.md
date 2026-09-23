@@ -1,5 +1,23 @@
 # Validation Record
 
+## Main menu, tempo and reverb (2026-09-23)
+
+Host ASan/UBSan checks pass, including menu apply/discard, Select during a
+move, settings bounds, all integer tempos from 30 to 300 BPM, and a live tempo
+change preserving the current gate. The renderer checks 286,984 frames with
+no screen escape or packet overflow (24,788 / 32,768 bytes peak). The Jacquard
+wordmark and main menu were also inspected in a host raster capture.
+
+Debug and Release audio fixtures verify BPM 60/240 timing, all three reverb
+networks writing nonzero SPU work memory, and live bypass/amount changes.
+Changing Size takes about 19 ms on the main thread while audio interrupt
+intervals remain below 0.30 ms. Digital/Debug and analog/Release input fixtures
+verify Select through SIO, including delayed consumption and reconnection.
+Logs are `build/tests/menu-test.log`,
+`build/validation/audio-{debug,release}-emulator.log`, and
+`build/validation/input-{debug-digital,release-analog}-emulator.log`.
+Final listening and physical-console reverb checks remain unperformed.
+
 ## Transient regression (2026-09-23)
 
 After the onset synchronization change, `scripts/test.sh` passes with ASan and

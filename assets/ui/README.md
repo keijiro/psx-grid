@@ -1,7 +1,7 @@
 # UI asset sources
 
 `masks.py` is the editable source of the PSX Grid Bitmap face and icon masks.
-`scripts/generate-assets.py` packs it into a 256 x 64, 4-bit indexed atlas and
+`scripts/generate-assets.py` packs it into a 256 x 96, 4-bit indexed atlas and
 emits glyph advances with the pixel data. CMake regenerates its private header
 when either source changes. The build requires Python 3's standard library.
 Runtime tile values use the separate three-by-five `SMALL_FONT` glyphs, with
@@ -25,3 +25,8 @@ For the optional visual study, install Pillow in a virtual environment and run
 `scripts/appearance-study.py` with that environment's Python. It saves native
 320 x 240 comparisons in `docs/captures` and nearest-neighbor enlargements in
 `build`. Pillow is not needed for game builds or host tests.
+
+`jacquard-logo.svg` is the original Jacquard wordmark copied from the local
+checkout's `Branding/jacquard-logo.svg`. The atlas generator preserves its
+60-unit grid at two pixels per cell, using transparent background and the UI
+ink color. It is covered by the accompanying Jacquard MIT attribution.

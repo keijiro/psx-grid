@@ -45,6 +45,47 @@ static void cancel_move(Editor *e) { e->x=e->source_x; e->y=e->source_y; e->mode
 static void finish(Editor *e,ScoreResult r) { e->message=score_message(r); if(!r) e->mode=EDIT_PLANE; }
 void editor_update(Editor *e,InputFrame f) {
     if(!f.connected) { if(e->gesture || e->mode==EDIT_MOVE) cancel_move(e); return; }
+    if(f.select) {
+        int close=e->mode==EDIT_MAIN;
+        if(e->gesture || e->mode==EDIT_MOVE) cancel_move(e);
+        e->gesture=0; e->mode=close?EDIT_PLANE:EDIT_MAIN; e->selected=0; e->message="";
+        return;
+    }
+    if(e->mode>=EDIT_MAIN) {
+        EditorMode parent=e->mode==EDIT_MAIN?EDIT_PLANE:e->mode==EDIT_SOUND_REVERB?EDIT_SOUND:
+            (e->mode==EDIT_REVERB_SIZE || e->mode==EDIT_REVERB_AMOUNT)?EDIT_REVERB:EDIT_MAIN;
+        if(f.circle) { e->mode=parent; e->selected=0; return; }
+        if(e->mode==EDIT_MAIN || e->mode==EDIT_REVERB) {
+            e->selected=clamp(e->selected+f.dy,0,2);
+            if(f.cross) {
+                if(e->selected==2) e->mode=parent;
+                else if(e->mode==EDIT_MAIN) {
+                    e->mode=e->selected?EDIT_REVERB:EDIT_BPM; e->candidate=e->score.bpm;
+                } else {
+                    e->mode=e->selected?EDIT_REVERB_AMOUNT:EDIT_REVERB_SIZE;
+                    e->candidate=e->selected?e->score.reverb.amount:e->score.reverb.size;
+                }
+                e->selected=0;
+            }
+        } else {
+            int min=e->mode==EDIT_BPM?SCORE_MIN_BPM:0;
+            int max=e->mode==EDIT_BPM?SCORE_MAX_BPM:e->mode==EDIT_REVERB_AMOUNT?100:e->mode==EDIT_REVERB_SIZE?2:1;
+            int step=(e->mode==EDIT_BPM || e->mode==EDIT_REVERB_AMOUNT)?10:1;
+            e->candidate=clamp(e->candidate+f.dx-f.dy*step,min,max);
+            if(f.cross) {
+                if(e->mode==EDIT_BPM) score_set_bpm(&e->score,e->candidate);
+                else if(e->mode==EDIT_SOUND_REVERB) {
+                    SoundSettings sound=e->score.sound; sound.reverb=e->candidate; score_set_sound(&e->score,sound);
+                } else {
+                    ReverbSettings reverb=e->score.reverb;
+                    if(e->mode==EDIT_REVERB_SIZE) reverb.size=e->candidate; else reverb.amount=e->candidate;
+                    score_set_reverb(&e->score,reverb);
+                }
+                e->mode=parent; e->selected=0;
+            }
+        }
+        return;
+    }
     if(e->mode==EDIT_PLANE || e->mode==EDIT_MOVE) {
         // Capture before applying this frame's direction, including simultaneous X.
         if(f.cross && e->mode==EDIT_PLANE) {
@@ -75,10 +116,11 @@ void editor_update(Editor *e,InputFrame f) {
         static const EditorMode groups[]={EDIT_WAVES,EDIT_AMPLITUDE,EDIT_MIX,EDIT_SWEEP};
         static const EditorMode fields[][2]={{EDIT_WAVE_A,EDIT_WAVE_B},{EDIT_ATTACK,EDIT_RELEASE},
             {EDIT_MIX_ATTACK,EDIT_MIX_RELEASE},{EDIT_PITCH_SWEEP,EDIT_PITCH_DECAY}};
-        int root=e->mode==EDIT_SOUND, last=root?4:2;
+        int root=e->mode==EDIT_SOUND, last=root?5:2;
         e->selected=clamp(e->selected+f.dy,0,last);
         if(f.cross) {
             if(e->selected==last) e->mode=editor_sound_parent(e->mode);
+            else if(root && e->selected==4) { e->mode=EDIT_SOUND_REVERB; e->candidate=e->score.sound.reverb; }
             else if(root) e->mode=groups[e->selected];
             else {
                 int group=0; while(groups[group]!=e->mode) group++;

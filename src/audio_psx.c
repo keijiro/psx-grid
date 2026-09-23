@@ -23,6 +23,56 @@ volatile uint32_t audio_dispatch_peak, audio_note_count, audio_first_note, audio
 volatile uint32_t audio_started, audio_control_time, audio_modulation_start;
 static AudioTime read_clock(void);
 
+// Small/medium/large use the documented Room, Studio Medium and Hall networks:
+// https://psx-spx.consoledev.net/soundprocessingunitspu/#spu-reverb-examples
+// Keeping the feedback coefficients together avoids unstable combinations of
+// raw SPU controls. Amount changes only the wet return; dry gain stays fixed.
+static const uint16_t reverb_presets[3][32]={
+    {0x007d,0x005b,0x6d80,0x54b8,0xbed0,0,0,0xba80,
+     0x5800,0x5300,0x04d6,0x0333,0x03f0,0x0227,0x0374,0x01ef,
+     0x0334,0x01b5,0,0,0,0,0,0,0,0,0x01b4,0x0136,0x00b8,0x005c,0x8000,0x8000},
+    {0x00b1,0x007f,0x70f0,0x4fa8,0xbce0,0x4510,0xbef0,0xb4c0,
+     0x5280,0x4ec0,0x0904,0x076b,0x0824,0x065f,0x07a2,0x0616,
+     0x076c,0x05ed,0x05ec,0x042e,0x050f,0x0305,0x0462,0x02b7,
+     0x042f,0x0265,0x0264,0x01b2,0x0100,0x0080,0x8000,0x8000},
+    {0x01a5,0x0139,0x6000,0x5000,0x4c00,0xb800,0xbc00,0xc000,
+     0x6000,0x5c00,0x15ba,0x11bb,0x14c2,0x10bd,0x11bc,0x0dc1,
+     0x11c0,0x0dc3,0x0dc0,0x09c1,0x0bc4,0x07c1,0x0a00,0x06cd,
+     0x09c2,0x05c1,0x05c0,0x041a,0x0274,0x013a,0x8000,0x8000}
+};
+#define REVERB_BASE 0x75000
+_Static_assert(WAVE_SPU_ADDRESS+sizeof(wave_data)<=REVERB_BASE,"Waves overlap reverb work area");
+static int reverb_size=-1, reverb_amount=-1, reverb_enabled=-1;
+static void update_reverb(const Score *score) {
+    if(reverb_size!=score->reverb.size) {
+        static const uint32_t silence[256]={0};
+        // Retire the old tail before changing delay addresses. DMA runs only
+        // on the main thread with timer interrupts live; a size edit must not
+        // stall the sequencer clock or let old buffer contents become noise.
+        SPU_REVERB_VOL_L=SPU_REVERB_VOL_R=0;
+        SPU_CTRL&=~0x80;
+        for(unsigned address=REVERB_BASE;address<0x80000;address+=sizeof(silence)) {
+            SpuSetTransferStartAddr(address); SpuWrite(silence,sizeof(silence));
+            SpuIsTransferCompleted(SPU_TRANSFER_WAIT);
+        }
+        static const unsigned sizes[]={0x26c0,0x4840,0xade0};
+        SpuSetReverbAddr(0x80000-sizes[score->reverb.size]);
+        volatile uint16_t *registers=(volatile uint16_t *)0x1f801dc0;
+        for(int i=0;i<32;i++) registers[i]=reverb_presets[score->reverb.size][i];
+        SPU_CTRL|=0x80;
+        reverb_size=score->reverb.size; reverb_amount=-1;
+    }
+    if(reverb_amount!=score->reverb.amount || reverb_enabled!=score->sound.reverb) {
+        reverb_amount=score->reverb.amount; reverb_enabled=score->sound.reverb;
+        // Sound is global: bypass applies immediately to held notes as well
+        // as new notes. Keep the network running so a bypassed tail decays.
+        SPU_REVERB_ON1=reverb_enabled?0xffff:0;
+        SPU_REVERB_ON2=reverb_enabled?0xff:0;
+        int level=reverb_enabled?reverb_amount*0x3fff/100:0;
+        SPU_REVERB_VOL_L=SPU_REVERB_VOL_R=level;
+    }
+}
+
 static int cached_volume[AUDIO_HARDWARE_VOICES], cached_pitch[SEQUENCER_VOICES];
 static void start_voice(void *ctx,int slot,int bank,SoundSettings sound) {
     (void)ctx;
@@ -117,6 +167,7 @@ static void service(void) {
 }
 void audio_platform_init(void) {
     SpuInit();
+    reverb_size=reverb_amount=reverb_enabled=-1;
     SpuSetCommonMasterVolume(0x3fff,0x3fff);
     SPU_FM_MODE1=SPU_FM_MODE2=SPU_NOISE_MODE1=SPU_NOISE_MODE2=0;
     SPU_REVERB_ON1=SPU_REVERB_ON2=0;
@@ -144,6 +195,7 @@ void audio_platform_init(void) {
     ExitCriticalSection();
 }
 void audio_platform_update(const Score *score,int connected,int start) {
+    update_reverb(score);
     if(!connected || (start && enabled)) {
         EnterCriticalSection();
         if(enabled) { sequencer_stop(&seq,read_clock()); enabled=0; }

@@ -6,7 +6,7 @@ const int score_divisions[] = {1,2,3,4,6,8,12,16,24,32,48,64};
 static Score scratch;
 static uint8_t occupied[SCORE_HEIGHT][SCORE_WIDTH];
 static int valid(const Score *s, int i) { return i >= 0 && i < SCORE_LANES && s->lanes[i].active; }
-void score_init(Score *s) { memset(s,0,sizeof(*s)); s->sound=SOUND_DEFAULT; }
+void score_init(Score *s) { memset(s,0,sizeof(*s)); s->sound=SOUND_DEFAULT; s->bpm=120; s->reverb=REVERB_DEFAULT; }
 TileValue score_default(TileKind k) { TileValue v = {k,48,20,4,50,1,0,0,0}; return v; }
 const char *score_note_name(int p) { static const char *n[]={"C","C#","D","D#","E","F","F#","G","G#","A","A#","B"}; return n[p%12]; }
 static int value_valid(TileValue v) {
@@ -209,7 +209,20 @@ const char *score_wave_name(int wave) {
     static const char *names[]={"SINE","TRIANGLE","SAW","SQUARE","NOISE"};
     return wave>=0 && wave<WAVE_COUNT?names[wave]:"?";
 }
+const char *score_reverb_size(int size) {
+    static const char *names[]={"SMALL","MEDIUM","LARGE"};
+    return size>=0 && size<3?names[size]:"?";
+}
+ScoreResult score_set_bpm(Score *s,int bpm) {
+    if(bpm<SCORE_MIN_BPM || bpm>SCORE_MAX_BPM) return SCORE_INVALID;
+    s->bpm=bpm; s->revision++; return SCORE_OK;
+}
+ScoreResult score_set_reverb(Score *s,ReverbSettings reverb) {
+    if(reverb.size<0 || reverb.size>2 || reverb.amount<0 || reverb.amount>100) return SCORE_INVALID;
+    s->reverb=reverb; s->revision++; return SCORE_OK;
+}
 ScoreResult score_set_sound(Score *s,SoundSettings sound) {
+    if(sound.reverb<0 || sound.reverb>1) return SCORE_INVALID;
     if(sound.attack<0 || sound.attack>SOUND_MAX_MS || sound.release<0 || sound.release>SOUND_MAX_MS) return SCORE_INVALID;
     if(sound.wave_a<0 || sound.wave_a>=WAVE_COUNT || sound.wave_b<0 || sound.wave_b>=WAVE_COUNT ||
         sound.mix_attack<0 || sound.mix_attack>SOUND_MAX_MIX_MS || sound.mix_release<0 || sound.mix_release>SOUND_MAX_MIX_MS ||
