@@ -36,20 +36,19 @@ choice exists over comments that restate what the code visibly does.
 Keep changes coherent: code, comments, and any affected documentation should agree in
 the same edit.
 
-Emulator verification and testing
----------------------------------
+Verification and testing
+------------------------
 
-Proactively delegate emulator-based verification and testing to sub-agents whenever
-practical. Give each sub-agent a bounded task and only the context needed to carry it
-out. Keep repeated emulator interactions, fine-grained tool calls, and inspection of
-verbose output within the delegated task.
+Delegate verification and testing to sub-agents whenever practical to limit context
+growth and cost.
 
-Repeated turns with a large parent context increase cost, and incorporating tool
-output into that context makes subsequent turns still more expensive. Delegation
-should limit this compounding growth: ask sub-agents to return concise findings,
-pass/fail results, and paths to relevant logs or captures rather than raw tool output
-or a transcript of their interactions. When delegation is impractical, keep tool
-output similarly focused and save bulky evidence to files for selective inspection.
+- Give each agent a bounded task and only the necessary context. Start a fresh agent
+  for each independent task; reuse one only when its prior context is needed.
+- Prefer a lighter model capable of the task. With GPT-6 Astra as the main agent,
+  use GPT-5.6 Sol or lighter for sub-agents. Always set their reasoning effort to low.
+- Keep detailed tool work and verbose output within the delegated task. Return
+  concise findings, pass/fail results, and paths to logs or captures. When working
+  without delegation, keep output concise and save bulky evidence to files as well.
 
 Commit messages
 ---------------
