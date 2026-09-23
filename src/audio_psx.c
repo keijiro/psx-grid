@@ -17,6 +17,7 @@ static volatile int replacement_state;
 static int replacement_snapshot;
 static Audio audio;
 static AudioTime clock_ticks;
+static AudioTime service_previous;
 static uint16_t last_counter;
 static volatile int enabled;
 static volatile uint32_t published_revision;
@@ -154,9 +155,8 @@ static void replacement_adopted(Sequencer *next) {
     replacement_state=REPLACE_ADOPTED;
 }
 static void service(void) {
-    static AudioTime previous;
     AudioTime now=read_clock();
-    uint32_t interval=(uint32_t)(now-previous); previous=now;
+    uint32_t interval=(uint32_t)(now-service_previous); service_previous=now;
     if(interval>audio_interval_peak) audio_interval_peak=interval;
     pad_service();
     if(enabled) {
@@ -205,6 +205,40 @@ void audio_platform_init(void) {
     InterruptCallback(IRQ_TIMER0,service);
     TIMER_CTRL(0)=0x0058; // System clock, reset at target, repeating target IRQ.
     last_counter=(uint16_t)TIMER_VALUE(2);
+    service_previous=clock_ticks;
+    ExitCriticalSection();
+}
+void audio_platform_card_stop(void) {
+    EnterCriticalSection();
+    if(enabled) { replacement_adopted(sequencer_stop(seq,read_clock())); enabled=0; }
+    pending_snapshot=-1;
+    // The ordinary Stop deliberately runs a release ramp in later timer
+    // services. A BIOS session has no such services, so silence both halves
+    // of every pair and the wet return before detaching the dispatcher.
+    for(int i=0;i<SEQUENCER_VOICES;i++) volume(NULL,i,0,0);
+    SPU_KEY_OFF1=0xffff; SPU_KEY_OFF2=0xff;
+    SPU_REVERB_ON1=SPU_REVERB_ON2=0;
+    SPU_REVERB_VOL_L=SPU_REVERB_VOL_R=0;
+    SPU_CTRL&=~0x80;
+    audio_init(&audio,(AudioDriver){NULL,start_voice,volume,pitch,flush,ready});
+    for(int i=0;i<AUDIO_HARDWARE_VOICES;i++) cached_volume[i]=-1;
+    TIMER_CTRL(0)=0;
+    IRQ_MASK&=~(1u<<IRQ_TIMER0);
+    IRQ_STAT=(uint16_t)~(1u<<IRQ_TIMER0);
+    ExitCriticalSection();
+}
+void audio_platform_card_resume(const Score *score) {
+    // BIOS work may span arbitrarily many Timer 2 wraps. Discard that
+    // interval instead of turning it into an overdue musical service.
+    reverb_size=reverb_amount=-1;
+    update_reverb(score);
+    EnterCriticalSection();
+    last_counter=(uint16_t)TIMER_VALUE(2);
+    service_previous=clock_ticks;
+    TIMER_RELOAD(0)=8467; TIMER_VALUE(0)=0;
+    IRQ_STAT=(uint16_t)~(1u<<IRQ_TIMER0);
+    IRQ_MASK|=1u<<IRQ_TIMER0;
+    TIMER_CTRL(0)=0x0058;
     ExitCriticalSection();
 }
 void audio_platform_update(const Score *score,int connected,int start) {

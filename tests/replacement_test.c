@@ -183,11 +183,38 @@ static void split_slice_discovers_seam(void) {
     assert(active==&prepared && count(EVENT_ON,SEQUENCER_HZ/8,90)==1);
 }
 
+static void replacement_preempts_pending_lane(void) {
+    Score old,published,incoming; Sequencer current,prepared;
+    score_init(&old); lane(&old,0,0,2,16,0,41);
+    reset_trace(); sequencer_start(&current,&old,trace,0);
+    sequencer_service(&current,0);
+
+    published=old; lane(&published,0,4,1,16,1,52);
+    assert(sequencer_resync(&current,&published,1));
+    int pending=-1;
+    for(int i=0;i<SCORE_LANES;i++)
+        if(current.runners[i].active && i!=current.master)
+            pending=i;
+    assert(pending>=0 && current.runners[pending].next==UINT64_MAX);
+
+    score_init(&incoming); lane(&incoming,0,0,1,16,0,76);
+    incoming.sounds[0].attack=321;
+    sequencer_start(&prepared,&incoming,trace,0);
+    assert(sequencer_replace(&current,&prepared,1));
+    AudioTime step=SEQUENCER_HZ/8,seam=2*step;
+    Sequencer *active=sequencer_service(&current,step);
+    active=service_until(active,&prepared,seam);
+    const Event *adopted=find_note(seam,76);
+    assert(active==&prepared && adopted && adopted->sound.attack==321);
+    assert(count(EVENT_ON,seam,52)==0);
+}
+
 int main(void) {
     mixed_divisions_and_master();
     branch_lap_and_gate_transfer();
     conditional_branch_seams();
     empty_and_stop_adoption();
     split_slice_discovers_seam();
-    puts("PASS: replacement master seams, branches, gates, stop and split slices");
+    replacement_preempts_pending_lane();
+    puts("PASS: replacement seams, branches, gates, pending lanes, stop and split slices");
 }

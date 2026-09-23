@@ -24,8 +24,7 @@ static uint8_t expected[SCORE_FILE_BYTES], actual[SCORE_FILE_BYTES];
 extern volatile uint32_t audio_service_peak, audio_interval_peak, audio_services;
 extern volatile uint32_t audio_dispatch_peak;
 static CardBackend backend;
-static AudioTime io_start, io_ticks;
-static unsigned io_services, services_before;
+static unsigned io_services, services_before, io_polls, polls_before;
 enum { MAIN_STACK_WINDOW=64*1024, MAIN_STACK_MARGIN=2*1024, ISR_STACK_BYTES=4096 };
 static const uint32_t stack_mark=0xa55ac33c;
 static uint32_t *main_stack_low, *main_stack_high, *isr_stack_low;
@@ -69,27 +68,24 @@ static void stack_report(void) {
 }
 static void measured_end(void *context) {
     backend.end(context);
-    io_ticks=audio_platform_time()-io_start;
     io_services=audio_services-services_before;
+    io_polls=pad_polls-polls_before;
 }
 static CardResult measured_begin(void *context) {
-    EnterCriticalSection();
     services_before=audio_services;
-    audio_service_peak=audio_interval_peak=audio_dispatch_peak=0;
-    ExitCriticalSection();
-    io_start=audio_platform_time();
+    polls_before=pad_polls;
     CardResult result=backend.begin(context);
     if(result) {
-        io_ticks=audio_platform_time()-io_start;
         io_services=audio_services-services_before;
+        io_polls=pad_polls-polls_before;
     }
     return result;
 }
 static void report(const char *stage, StorageResult result, AudioTime elapsed) {
     char line[320];
-    snprintf(line,sizeof(line),"STORAGE stage=%s result=%d ticks=%u services=%u cost=%u interval=%u dispatch=%u playing=%d free=%d io_ticks=%u io_services=%u removed=%u\n",
+    snprintf(line,sizeof(line),"STORAGE stage=%s result=%d ticks=%u services=%u cost=%u interval=%u dispatch=%u playing=%d free=%d io_services=%u io_polls=%u removed=%u\n",
         stage,result,(unsigned)elapsed,audio_services,audio_service_peak,audio_interval_peak,
-        audio_dispatch_peak,audio_platform_playing(),storage.free_blocks,(unsigned)io_ticks,io_services,storage_fixture_removed);
+        audio_dispatch_peak,audio_platform_playing(),storage.free_blocks,io_services,io_polls,storage_fixture_removed);
     *(const char *volatile *)0x1f802084=line;
 }
 static void finish(int code) {
@@ -128,17 +124,21 @@ int main(void) {
        (storage_fixture_isr_stack&3) || !stack_fill()) finish(13);
     audio_platform_update(&editor.score,1,1); frames(20);
     storage_fixture_phase=1;
-    AudioTime at=audio_platform_time();
-    StorageResult result=storage_refresh(&storage,1);
+    editor.mode=EDIT_MAIN; editor.selected=2;
+    editor_update(&editor,(InputFrame){.connected=1,.cross=1});
+    AudioTime at=audio_platform_time(); storage_action(1);
+    StorageResult result=storage.slots[0];
     report("refresh",result,audio_platform_time()-at);
     if(result!=STORAGE_EMPTY && result!=STORAGE_SAVED) {
         unsigned reports=pad_reports; frames(20);
         report("error-resume",result,pad_reports-reports);
-        if(storage_fixture_error==1 && pad_reports>reports && audio_platform_playing()) finish(0);
+        if(storage_fixture_error==1 && pad_reports>reports && !audio_platform_playing()) finish(0);
         finish(1);
     }
     if(result==STORAGE_SAVED) {
-        result=storage_load(&storage,1);
+        editor.selected=4;
+        editor_update(&editor,(InputFrame){.connected=1,.cross=1});
+        storage_action(1); result=storage.slots[0];
         score_format_encode(&editor.score,expected,1,1);
         score_format_encode(&storage.incoming,actual,1,1);
         report("restart-load",result,0);
@@ -153,7 +153,7 @@ int main(void) {
     if(strcmp(editor.message,"SAVED")) {
         unsigned reports=pad_reports; frames(20);
         report("error-resume",result,pad_reports-reports);
-        if(storage_fixture_error==1 && pad_reports>reports && audio_platform_playing()) finish(0);
+        if(storage_fixture_error==1 && pad_reports>reports && !audio_platform_playing()) finish(0);
         finish(3);
     }
     editor.selected=4;
@@ -165,18 +165,13 @@ int main(void) {
     score_format_encode(&editor.score,expected,1,1);
     score_format_encode(&storage.incoming,actual,1,1);
     if(result!=STORAGE_SAVED || memcmp(expected,actual,sizeof(expected))) finish(4);
-    if(!editor.load_busy || !audio_platform_replacing()) finish(5);
-    at=audio_platform_time();
-    while(!audio_platform_take_replacement(&editor.score)) {
-        frames(1);
-        if(audio_platform_time()-at>10*SEQUENCER_HZ) finish(6);
-    }
-    report("adopt",STORAGE_SAVED,audio_platform_time()-at);
+    if(editor.load_busy || audio_platform_replacing() || strcmp(editor.message,"LOADED")) finish(5);
+    report("adopt",STORAGE_SAVED,0);
     if(resumed_cross || resumed_start) finish(10);
     storage_fixture_phase=4;
     unsigned reports=pad_reports; frames(20);
     report("resume",STORAGE_SAVED,pad_reports-reports);
-    if(pad_reports==reports || !audio_platform_playing()) finish(7);
+    if(pad_reports==reports || audio_platform_playing()) finish(7);
     if(storage_fixture_error==2 && (resumed_cross!=1 || resumed_start!=1)) finish(11);
     finish(0);
 }

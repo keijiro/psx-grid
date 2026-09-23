@@ -206,10 +206,14 @@ Assignment and sound edits preserve runner positions, laps, and scheduled gates.
 
 ## Saving and loading
 
-Storage has passed host and direct-SIO emulator checks. The default BIOS
-backend still fails card discovery in the pinned emulator. Use the direct-SIO
-verification configuration in [development.md](development.md) for emulator
-testing; physical-card and listening checks remain incomplete.
+The BIOS file path passed normal Save/Load and process-restart persistence
+checks with the bundled OpenBIOS and disposable card images. Its unimplemented
+`_card_clear()` prevents the tested unformatted-card scenario. Emulated card
+removal and recovery passed; physical-card and listening checks remain open.
+An emulator stop after a new save file was written but before the old file was
+removed left two CRC-valid generations, but the next Save reported CARD I/O
+ERROR in the pinned OpenBIOS test. See [validation.md](validation.md) before
+using interrupted-save recovery as a reliability guarantee.
 
 Open the main menu with SELECT. Select SLOT and use Left/Right to choose 01–15;
 this only changes the target. Press Cross on SLOT to check the card in port 1.
@@ -231,14 +235,12 @@ make space. SAVED / CLEANUP PENDING means the new generation is saved, with an
 obsolete generation still occupying a block; another Save retries cleanup.
 
 All controller input, including START, pauses while CHECKING CARD, SAVING, or
-READING. Release every button when access finishes. Playback continues during
-I/O. A ready Load waits for the outgoing master lap while playing; the master
-is the first regular Channel 1 lane in Y/X order, falling back to the first
-regular lane. During WAITING FOR LAP, score edits and further Save/Load actions
-are locked, but START can stop and admit the new score immediately. Once
-adopted, all incoming regular lanes start together and outgoing note tails
-retain their gate deadlines. A changed reverb Size clears its old tail after
-adoption; identical Size retains its delay memory.
+READING. Physical access stops playback and silences the SPU. Release every
+button when access finishes; press START to play again. A successful Load
+replaces the editor score immediately after card access and displays LOADED.
+An empty slot or failed operation also leaves playback stopped. In-memory
+musical replacement retains the master-lap behavior for a future virtual card,
+but is separate from these physical actions.
 
 ## Walkthrough
 

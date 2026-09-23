@@ -12,8 +12,8 @@ configuration = sys.argv[1] if len(sys.argv) > 1 else 'debug'
 scenario = sys.argv[2] if len(sys.argv) > 2 else 'normal'
 if scenario not in ('normal', 'missing', 'unformatted', 'remove', 'held'):
     raise SystemExit('Scenario must be normal, missing, unformatted, remove or held')
-if configuration not in ('debug', 'release', 'storage-direct-debug', 'storage-direct-release'):
-    raise SystemExit('Usage: test-storage-emulator.py [debug|release|storage-direct-debug|storage-direct-release]')
+if configuration not in ('debug', 'release'):
+    raise SystemExit('Usage: test-storage-emulator.py [debug|release]')
 output = root / 'build/validation'
 data = output / ('storage-emulator-' + configuration + '-' + scenario)
 data.mkdir(parents=True, exist_ok=True)
@@ -31,7 +31,9 @@ for sector in range(16, 36):
 (data / 'memcard1.mcd').write_bytes(bytes(len(card)) if scenario == 'unformatted' else card)
 (data / 'memcard2.mcd').write_bytes(card)
 emulator = os.environ.get('PCSX_REDUX', str(root / '.local/PCSX-Redux.app/Contents/MacOS/PCSX-Redux'))
-bios = os.environ.get('PCSX_REDUX_BIOS', str(root / '.local/PCSX-Redux.app/Contents/Resources/share/pcsx-redux/resources/openbios.bin'))
+bios = os.environ.get('PCSX_REDUX_BIOS')
+if not bios:
+    raise SystemExit('Set PCSX_REDUX_BIOS to the BIOS under test')
 command = [emulator, '-portable', str(data), '-no-ui', '-no-gui-log', '-testmode', '-stdout',
            '-interpreter', '-bios', bios, '-exe', str(root / 'build' / configuration / 'storage-fixture.exe'), '-run']
 nm = shutil.which('mipsel-none-elf-nm') or '/opt/homebrew/bin/mipsel-none-elf-nm'
@@ -73,14 +75,14 @@ command.extend(['-dofile', str(script)])
 neutral_command = command[:-2] + ['-dofile', str(neutral_script)]
 if scenario == 'remove':
     with (output / f'storage-{configuration}-remove-seed.log').open('w') as log:
-        seeded = subprocess.run(neutral_command, cwd=root, stdout=log, stderr=subprocess.STDOUT, timeout=90)
+        seeded = subprocess.run(neutral_command, cwd=root, stdout=log, stderr=subprocess.STDOUT, timeout=180)
     assert seeded.returncode == 0, 'Unable to seed the previous valid generation'
     previous = (data / 'memcard1.mcd').read_bytes()
 for run in range(2 if scenario == 'normal' else 1):
     path = output / f'storage-{configuration}-{scenario}-{run}.log'
     with path.open('w') as log:
         try:
-            result = subprocess.run(command, cwd=root, stdout=log, stderr=subprocess.STDOUT, timeout=90)
+            result = subprocess.run(command, cwd=root, stdout=log, stderr=subprocess.STDOUT, timeout=180)
         except subprocess.TimeoutExpired:
             raise SystemExit(f'Fixture timed out; see {path}')
     log = path.read_text()
@@ -93,18 +95,14 @@ for run in range(2 if scenario == 'normal' else 1):
     assert int(stack[1]) < 64 * 1024, 'Main stack exhausted measured window: ' + stack.group(0)
     for row in rows:
         values = {key: int(value) for key, value in re.findall(r'(\w+)=(-?\d+)', row)}
-        # Bound service gaps using only work between backend begin/end; busy
-        # rendering and the warm-up must not supply evidence of I/O continuity.
-        assert values['io_services'] + 2 >= values['io_ticks'] / 4233, row
-        if values['io_ticks'] >= 4233:
-            assert values['io_services'] > 0, row
+        assert values['io_services'] == 0 and values['io_polls'] == 0, row
     if scenario in ('missing', 'unformatted', 'remove'):
         assert 'stage=error-resume' in log and 'stage=adopt' not in log, path
         if scenario in ('missing', 'unformatted'):
             assert f'stage=refresh result={6 if scenario == "missing" else 10} ' in log, path
         for row in rows:
             values = {key: int(value) for key, value in re.findall(r'(\w+)=(-?\d+)', row)}
-            assert values['playing'] == 1 and values['interval'] <= 4233 and values['dispatch'] <= 4233, row
+            assert values['playing'] == 0, row
         if scenario == 'unformatted':
             assert (data / 'memcard1.mcd').read_bytes() == bytes(len(card))
         if scenario == 'remove':
@@ -113,15 +111,14 @@ for run in range(2 if scenario == 'normal' else 1):
             saved = (data / 'memcard1.mcd').read_bytes()
             assert saved[128:256] == previous[128:256] and saved[8192:16384] == previous[8192:16384]
             with (output / f'storage-{configuration}-remove-recovery.log').open('w') as recovery_log:
-                recovered = subprocess.run(neutral_command, cwd=root, stdout=recovery_log, stderr=subprocess.STDOUT, timeout=90)
+                recovered = subprocess.run(neutral_command, cwd=root, stdout=recovery_log, stderr=subprocess.STDOUT, timeout=180)
             recovery = (output / f'storage-{configuration}-remove-recovery.log').read_text()
             assert recovered.returncode == 0 and 'stage=restart-load result=2' in recovery and 'STORAGE FIXTURE COMPLETE' in recovery
         continue
     assert ('stage=restart-load' in log) == bool(run), path
     for row in rows:
         values = {key: int(value) for key, value in re.findall(r'(\w+)=(-?\d+)', row)}
-        assert values['playing'] == 1 and values['services'] > 0, row
-        assert values['cost'] <= 4233 and values['interval'] <= 4233 and values['dispatch'] <= 4233, row
+        assert values['playing'] == 0 and values['services'] > 0, row
     saved = (data / 'memcard1.mcd').read_bytes()
     entries = [saved[i*128:(i+1)*128] for i in range(1, 16) if saved[i*128] == 0x51]
     assert len(entries) == 1 and entries[0][10:30] == f'BIJACQUARD01{run+1:08X}'.encode(), entries
@@ -130,4 +127,4 @@ for run in range(2 if scenario == 'normal' else 1):
     assert entries[0][4:8] == (8192).to_bytes(4, 'little') and entries[0][8:10] == b'\xff\xff'
     assert payload[:4] == b'SC\x11\x01' and payload[4:26] == 'ＪＡＣＱＵＡＲＤ　０１'.encode('shift_jis')
     assert any(payload[96:128]) and any(payload[128:256]), 'Missing palette/icon'
-print(f'PASS: isolated card scenario {scenario}, pad resumption and audio deadline')
+print(f'PASS: isolated card scenario {scenario}, stopped transport and pad resumption')

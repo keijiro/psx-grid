@@ -43,9 +43,8 @@ to a gamepad or keyboard. See [usage.md](usage.md) for the editing walkthrough.
 
 - `src/score.*`: SDK-independent model and transactional edit admission.
 - `src/score_format.*`: Portable v1 encoding, staging decode, and shared sizing.
-- `src/storage.*`: Sector-backed numbered saves, discovery and recovery.
-- `src/card.h`, `src/card_bios.c`, `src/card_psx.c`: Exclusive card backend
-  interface, provisional BIOS handoff, and direct-SIO candidate.
+- `src/storage.*`: Numbered BIOS files, discovery and recovery.
+- `src/card.h`, `src/card_bios.c`: File-level card interface and BIOS backend.
 - `src/sequencer.*`: SDK-independent runners, exact absolute deadlines,
   live runner reconciliation, ordered held locks, generation-tagged gate-offs,
   and bounded catch-up.
@@ -207,45 +206,53 @@ Platform initialization proceeds from rendering (SDK IRQ setup), to audio
 services both audio and deferred pad transfers even when playback is stopped.
 The editor consumes completed pad reports on the main thread; rendering and
 score transactions never run inside the input callbacks. Port 2, rumble and analog-axis editing are not implemented. Port 1 memory-card
-access has host and emulator verification as described below.
+access uses a modal BIOS session as described below.
 
 ## Score storage verification
 
 The [storage design](score-storage-design.md) owns the v1 layout and behavior.
 `./scripts/test.sh` includes golden codec/compatibility cases, exact capacity
-boundaries, in-memory sector failure injection, menu/input checks, and event
+boundaries, in-memory file failure injection, menu/input checks, and event
 traces for replacement seams. The full-pool audio/input and dense renderer
 fixtures still deliberately bypass admission to retain overload coverage.
 
-The default `STORAGE_BIOS_BACKEND=ON` prototype currently fails discovery of
-an inserted card in the pinned emulator. The direct-SIO candidate has passed
-isolated persistence checks; neither is selected as a hardware-verified release
-backend. Build the measured direct-SIO configuration separately:
+The BIOS file path is the sole production card path. The pinned OpenBIOS can
+exercise normal Save/Load and persistence across emulator process restarts.
+It does not implement `_card_clear()`, which blocks the tested unformatted-card
+scenario. Build isolated fixtures with disposable cards:
 
 ```sh
 source scripts/env.sh
-cmake --preset debug -B build/storage-direct-debug -DSTORAGE_FIXTURE=ON -DSTORAGE_BIOS_BACKEND=OFF
-cmake --build build/storage-direct-debug
-python3 scripts/test-storage-emulator.py storage-direct-debug
-python3 scripts/test-storage-emulator.py storage-direct-debug missing
-python3 scripts/test-storage-emulator.py storage-direct-debug unformatted
-python3 scripts/test-storage-emulator.py storage-direct-debug remove
-python3 scripts/test-storage-emulator.py storage-direct-debug held
-cmake --preset release -B build/storage-direct-release -DSTORAGE_FIXTURE=ON -DSTORAGE_BIOS_BACKEND=OFF
-cmake --build build/storage-direct-release
-python3 scripts/test-storage-emulator.py storage-direct-release
+cmake --preset debug -DSTORAGE_FIXTURE=ON -DBIOS_CARD_FIXTURE=ON
+cmake --build build/debug
+python3 scripts/test-card-bios-emulator.py debug
+python3 scripts/test-storage-emulator.py debug
+python3 scripts/test-storage-emulator.py debug missing
+python3 scripts/test-storage-emulator.py debug held
+python3 scripts/test-storage-emulator.py debug remove
+cmake --preset release -DSTORAGE_FIXTURE=ON -DBIOS_CARD_FIXTURE=ON
+cmake --build build/release
+python3 scripts/test-card-bios-emulator.py release
+python3 scripts/test-storage-emulator.py release
 ```
+
+For the unformatted-card case, set `PCSX_REDUX_BIOS` to a BIOS that implements
+`_card_clear()`, then run the `unformatted` scenario. Physical-card behavior
+remains a separate gate.
 
 The runner creates fresh private cards under `build/validation`, saves via the
 application's menu request/coordinator, restarts the executable, and verifies
 content plus the directory generation. Error scenarios check input resumption
-and continued audio; `remove` detaches the card during Save and checks recovery
+and stopped transport; `remove` detaches the card during Save and checks recovery
 of the previous generation, while `held` exercises the release guard with
 Cross/START held across I/O. The normal case
-checks measured service/dispatch deadlines and main/ISR stack watermarks. These scripts never use interactive
+checks zero service/pad polling under BIOS ownership and stack watermarks. These scripts never use interactive
 application cards. The fixture executable must only be used with disposable
-cards: it writes logical slot 01. `STORAGE_FIXTURE=ON` also works with the BIOS
-prototype for reproducing its discovery failure.
+cards: it writes logical slot 01. A fixture timeout is an external test bound;
+it cannot recover a synchronous BIOS call stuck inside the application.
+The isolated card fixture runs before the application fixture, without audio
+or custom pad setup, and records SDK revision and emulator/BIOS hashes beside
+its two runs across an application restart.
 
 The separate replacement fixture exercises pending publication, Stop/disconnect,
 repeated Load, and reverb memory behavior under twelve-note load:

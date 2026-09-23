@@ -39,6 +39,8 @@ uint32_t audio_reverb_mask(const Audio *audio);
 void audio_platform_init(void);
 AudioTime audio_platform_time(void);
 void audio_platform_update(const Score *score, int connected, int start);
+void audio_platform_card_stop(void);
+void audio_platform_card_resume(const Score *score);
 int audio_platform_playing(void);
 int audio_platform_replace(const Score *incoming);
 int audio_platform_take_replacement(Score *score);

@@ -1,9 +1,12 @@
 # Score storage design
 
-Status: implemented; host verification and direct-SIO emulator persistence
-checks passed on 2026-09-23. The BIOS prototype fails card discovery in the
-pinned emulator. Backend selection remains provisional; hardware and listening
-gates are incomplete. Evidence and remaining cases are in [validation.md](validation.md). This design follows the
+Status: BIOS file migration implemented; host, build, and OpenBIOS emulator
+checks completed on 2026-09-23, including Save/Load and persistence across
+process restarts. The prior direct-SIO results remain historical evidence;
+they do not validate this implementation. A simulated interruption after a
+completed write exposes a repeatable next-Save cleanup failure; the
+unformatted-card and hardware gates also remain open.
+Evidence belongs in [validation.md](validation.md). This design follows the
 local Jacquard reference at `~/Projects/jacquard/main` as inspected on
 2026-09-23. Its relevant sources are `ProjectStore.cs`, `JacquardApp.cs`,
 `Core/Model/Score.cs`, and `Core/Sequencer/Sequencer.cs`.
@@ -40,72 +43,35 @@ the [PSX card format](https://psx-spx.consoledev.net/controllersandmemorycards/#
 
 ## Load timing and ownership
 
-Jacquard reads and parses before requesting a switch. While playing, it waits
-for the outgoing master runner to complete a lap and uses that runner's next
-deadline as the seam. Branches and gates make this different from calculating
-`length * step duration` at press time. Every incoming regular lane starts at
-that seam; outgoing lanes must not execute any step at or after it.
+Physical Save, Load, and explicit Slot refresh are modal operations. The busy
+frame is submitted before pad polling is suspended. Transport and SPU output
+stop completely, including Timer 0 service, before the SDK interrupt dispatcher
+is detached. BIOS services own card I/O until the session ends. Input restarts
+with a fresh all-buttons-up guard; transport remains stopped after success or
+failure. The user presses START to resume. Slot selection alone performs no I/O.
+Invalid requests and a score over the one-block limit are rejected before the
+physical handoff.
 
-There is a reference mismatch to resolve deliberately: Jacquard chooses the
-first regular Channel 1 lane in Y/X order, falling back to the first regular
-lane. This project's sequencer currently treats the first Y/X runner as master.
-Adopt Jacquard's rule for both score switching and pending lane starts while
-preserving Y/X execution order for locks. Channel 1 is index zero here.
-Pending lane starts must observe this selected runner's wrap, not the current
-`!runner_index` test, since the master may run after an upper accent lane.
+A successful physical Load decodes into separate staging, restores the SDK, then
+requests and acknowledges the existing stopped-state replacement. It updates the
+editor immediately and reports LOADED. Failed Load leaves the editor score
+untouched. No physical operation promises a continuous playhead, sustained voice,
+or reverb tail.
 
-Replacement lifecycle:
+The musical replacement request remains independent of the card backend. A future
+in-memory source can provide a validated `Score` to
+`audio_platform_replace()` while transport is playing. The main thread prepares
+the spare snapshot; the sequencer adopts it at the actual outgoing master's lap
+seam, including branches and split slices. The first regular Channel 1 lane in
+Y/X order is master, falling back to the first regular lane. Incoming regular
+lanes share that seam, and outgoing steps at or after it do not execute. Stop,
+disconnect, and an outgoing score without regular lanes admit the replacement
+immediately. The source must retain staging until acknowledgement; ordinary edit
+publication and further physical sessions remain locked until then.
 
-1. Capture the selected slot and begin reading. Lock score-changing controls
-   during reading and while waiting, so edits cannot race replacement.
-2. Decode into separate storage, validate the entire score, and prepare the
-   incoming playback state on the main thread. On failure, keep the current
-   score and playback untouched and unlock the editor.
-3. Once ready, arm one pending replacement. Stop or an outgoing score without
-   regular lanes admits it immediately; otherwise wait for the next observed
-   master lap. A slow read simply misses an earlier lap.
-4. At the seam, swap prepared state before evaluating any incoming events.
-   Acknowledge adoption to the main thread, which updates the editor and
-   releases the lock. Keep replacement ownership through this acknowledgement
-   so the normal revision publisher cannot republish the outgoing editor score.
-
-Finish the split slice that discovers the lap before takeover. Once its seam
-is known, process outgoing deadlines strictly below it; if `now` reaches or
-passes it, replacement preempts ordinary slice selection. Merely swapping on
-a later timer callback would let the current `sequencer_service` execute old
-events at the seam before the incoming ones.
-
-Reject repeated Load while busy; changing the chooser must not retarget an
-existing request. All pad controls, including START, are unavailable during
-card access. Once access ends, resume pad input even if the incoming score is
-still waiting for its musical seam. START can then stop playback and admit a
-ready score immediately, as in Jacquard. Actual pad disconnection, detected
-after polling resumes, uses the same stopped-state rule. For an initial
-implementation, disable Save while Load is busy to avoid saving an ambiguous
-outgoing score. Score-changing controls remain locked until adoption.
-The current audio stop/disconnect path clears `pending_snapshot`; a ready
-replacement must have separate ownership and be adopted on that path, not
-discarded with an ordinary pending edit publication.
-
-This needs a distinct replacement operation, not `sequencer_resync`, which
-preserves the identities and positions of edited lanes. Regenerate runtime
-revision/birth bookkeeping on import and reset incoming runners, laps, and
-held locks. Preserve the outgoing voices and their scheduled gate-offs across
-the seam; the existing stop/start path would discard them. New notes naturally
-compete for the existing voice pool. Prepare runner state outside interrupts,
-and retain the bounded slice/tile budgets during takeover.
-Gate-offs live in `Sequencer.offs`, so resetting the whole sequencer is also
-incorrect: retain or transfer that array and the sink/audio allocator state
-while resetting runners, PRNG, and slice traversal state.
-
-The incoming global effect is applied by the first main-thread adoption
-acknowledgement after the note seam. Until that acknowledgement, the outgoing
-network and wet return remain active. Identical Size retains the delay memory;
-a Size change wet-mutes, disables the network, clears its RAM through DMA, and
-restores the incoming network/Amount while incoming notes continue. No reverb
-DMA runs in an interrupt. The post-seam delay includes the remaining main-loop
-work; its duration and audible continuity have not been measured. This is the
-provisional transition policy for the separate listening/platform session.
+The replacement machinery retains pending lane starts, gate and voice ownership,
+and effect adoption. These rules apply to the independent in-memory path; physical
+Load uses its stopped-state case after BIOS ownership has ended.
 
 ## Portable binary payload
 
@@ -279,126 +245,58 @@ independent channel assignment.
 
 ## Card I/O and save integrity
 
-The current pad driver owns SIO0 and resets it on every VBlank. A memory-card
-driver cannot independently use that peripheral. The agreed interaction allows
-all pad input to pause during card access. Give the card exclusive ownership
-for the whole operation, including directory access and save readback, rather
-than interleaving pad packets. Audio playback must continue. Show `READING` or
-`SAVING` before handing over the bus; START and cancellation by pad are also
-unavailable while it belongs to the card. Avoid continuous background card
-scans that would repeatedly suspend input; refresh on explicit storage actions.
+The production backend uses the BIOS card filesystem in port 1. It initializes
+card services for each modal session, enumerates files, opens or creates exact
+one-block files, transfers 8192 bytes, closes handles, and erases only recognized
+obsolete generations. BIOS owns allocation, directory publication and bad-sector
+remapping. The app does not format cards. The custom pad driver operates only
+outside the physical session; there is no direct-sector fallback.
 
-The handoff must cover every pad entry point, not just editor input:
+Filenames remain `BIJACQUARD` plus two decimal slot digits and eight uppercase
+hexadecimal generation digits. The CRC-covered envelope must agree with that
+identity. Discovery tracks the largest recognized filename generation, even if
+its data is incomplete, and chooses the highest valid supported payload. An
+unsupported newer musical schema at or above that payload blocks fallback and
+Save. Equal-generation ties follow BIOS enumeration order, which still needs
+comparison with old directory-order behavior in verification.
 
-1. Stop accepting pad actions after the initiating Save/Load press. Prevent new
-   VBlank polls, finish the current packet with a bounded timeout, then drain
-   pending receive/ACK state and deselect the device before changing owners.
-2. Gate the pad's timer service and replace or dispatch its SIO0 IRQ handler so
-   neither can access card registers. Discard queued input reports and reset
-   input repeat/gesture state. Do not publish a disconnected sample to express
-   this intentional pause: `audio_platform_update` would stop playback.
-3. Run card work while audio timer interrupts remain live. Keep directory
-   scans, parsing, score copies, and CRC work out of interrupt callbacks.
-   Every transfer/wait needs a timeout; a missing or removed card must not
-   leave input disabled indefinitely.
-4. On both success and error, quiesce card callbacks/transfers, clear residual
-   SIO state, restore pad ownership/configuration, and resume fresh polling.
-   Reset the input interpreter and require all buttons to be released before
-   accepting another action. The existing reconnection guard provides this
-   behavior without sending a synthetic disconnection to the audio layer.
+Save encodes an immutable one-block image before card access, preserves the
+latest valid generation, and creates a new generation in a spare block. After
+write and close, it reopens the complete file, checks every byte and decodes
+its CRC and identity. Only then does it retire recognized obsolete one-block
+files for the same slot. A failed cleanup reports SAVED / CLEANUP PENDING; a
+later Save retries safe retirement before allocating. A full card does not
+sacrifice the last valid generation. Unrelated files are never deleted.
 
-Input pressed during the pause is discarded, not replayed after access ends.
-Keep the last observed connection state for audio during the pause; physical
-pad removal cannot be detected until polling resumes. A Load waiting for the
-master lap no longer needs the card bus and must not prolong this input pause.
+The BIOS can publish allocation before the payload is complete. A partial new
+file can therefore remain visible after interruption, but it is invalid until
+its complete payload passes readback and decode. This is a different metadata
+failure window from the former raw directory-entry commit protocol. BIOS file
+creation and deletion do not establish power-loss atomicity for other files.
+Enumeration supplies free-block accounting from file sizes. BIOS errors do not
+reliably distinguish damaged metadata from generic I/O failure, so the UI may
+report CARD I/O ERROR where the old raw scanner reported CARD DAMAGED. The BIOS
+filesystem also cannot promise the old raw scanner's recovery from individually
+damaged directory entries. These limits need explicit card-image and hardware
+verification.
 
-The pinned SDK's `examples/io/pads/spi.h` explicitly excludes coexistence
-between its custom bus driver and BIOS pad/card APIs. Its example also uses
-Timer 2, already owned by this project's audio clock, so it cannot be copied
-unchanged. A custom card backend also needs directory/allocation handling;
-BIOS filesystem calls are not an independent layer that can simply be added
-above an active custom driver. Exclusive ownership makes a temporary handoff
-to BIOS card services an option worth testing first, potentially reusing their
-filesystem handling. It does not establish that disabling polls alone makes
-those services safe: callback/IRQ ownership, SDK/BIOS interrupt dispatch, and
-audio timing must all be verified. If that handoff fails validation, a custom
-card backend can retain the same exclusive-access UI without needing pad/card
-packet interleaving. Transfer card sectors in 128-byte units. Preserve the
-audio service cadence and dispatch deadline, not merely its clock's 15.48 ms
-wrap limit; stopping pad polling does not authorize long interrupt masking.
-
-The memory budget includes the editor score, model scratch, two playback
-snapshots, decoded incoming score, two encoded blocks, directory/remap state,
-and a second prepared sequencer. One `Score` occupies 199,524 bytes; a raw
-score would not fit on an entire card. Final linker-map and stack evidence
-belongs in [validation.md](validation.md#score-storage-2026-09-23), including
-the remaining hardware measurement limits.
-
-Capture a committed score into immutable save data before writing, and hold
-it through verification and cleanup. CRC detects damage but does not
-make an in-place overwrite safe. Prefer writing a new generation to a second
-file, reading it back and validating it, then retiring the old generation.
-Use deterministic slot/generation recovery so an interruption with two files
-does not depend on an assumed atomic rename. Card metadata itself still needs
-failure testing; this is not a claim of hardware-level power-loss atomicity.
-
-Allocation does not proactively reserve a spare block. A blank card may hold
-15 slots, but replacing a saved slot then requires the user to free a block.
-Never delete the latest valid generation to create this space or touch another
-slot. The score's FREE byte count does not describe card allocation.
-
-Filenames are exactly `BIJACQUARD` + two decimal slot digits + eight uppercase
-hexadecimal generation digits (20 characters). The filename identity must match
-the CRC-covered envelope identity. Save uses one more than the largest observed
-recognized generation, including damaged payloads, and refuses counter wrap.
-Recovery selects the highest valid generation, using the lower directory block
-for duplicate generation numbers. A newer unsupported musical format at or
-above the best readable generation prevents fallback and overwrite. A corrupt
-latest payload may fall back to an older valid generation.
-
-The coordinator checks directory checksums, allocated file chains, and sector
-remappings before allocating. Damage to an individual directory entry prevents
-all writes, but read-only recovery can still select an intact older generation
-from an individually valid entry if the card header/remapping table is sound. It writes into a free block, reads and validates
-the complete block, and only then publishes and reads back its one-block
-directory entry. This directory entry plus a matching valid envelope is commit
-evidence; there is no rename dependency. A partial write before publication
-leaves a free block and the old save. After publication, obsolete recognized
-files for that slot are retired. SAVED / CLEANUP PENDING means the new save was
-verified but retirement failed. A subsequent Save first retries retirement
-while retaining the newest validated generation, then allocates its spare.
-An I/O failure during that retry does not report a new successful save.
-
-The platform interface is sector-based so the same allocation/recovery logic
-can use either handoff candidate. `STORAGE_BIOS_BACKEND=ON` currently selects
-the **provisional BIOS prototype**, with bounded event waits and no blocking
-BIOS filesystem calls. `OFF` selects the provisional direct-SIO implementation.
-The direct path has passed emulator persistence checks, but neither has passed
-the complete backend-selection gate. The direct path detects card
-insertion after clearing the flag through the reserved write-test sector; the
-BIOS path checks card presence before sector requests. Neither path formats
-an unformatted card. Main-thread staging and directory handling remain common.
+The asynchronous card and file event waits use the free-running Timer 2 counter
+while Timer 0 audio service is stopped. The platform discards elapsed Timer 2
+time on restoration. BIOS initialization, enumeration, open, close, and erase
+still contain synchronous calls. Their behavior on absent or removed cards must
+be established in a supported BIOS environment; an external fixture timeout
+is only a test bound, not application recovery from a stuck BIOS syscall.
+The bundled OpenBIOS supports the tested normal and removal paths, but its
+unimplemented `_card_clear()` call blocks the tested unformatted-card
+scenario.
 
 ## Implementation gates
 
-1. Validate exclusive SIO handoff with card reads/writes, held buttons, missing
-   cards, and removal while dense audio runs. Check recovery after every error,
-   discarded queued presses, the all-buttons-up guard, START after I/O while
-   waiting for a seam, and delayed pad-disconnect detection. Measure service/
-   dispatch latency and timer wrap safety in the emulator and on hardware.
-2. Add the SDK-independent codec with semantic round trips, fixed golden bytes,
-   older-version migrations, rejected future musical features, truncation,
-   corrupt references/cycles, maximum geometry, and block-size bounds. Check
-   measured versus actual byte counts, exact fits, over-budget transactions,
-   Jump/branch costs, end-marker moves, atomic paste, and reclaimed capacity.
-3. Test replacement seams with mixed divisions, conditional branches, long
-   outgoing notes, held locks, empty scores, Stop, repeated Load, split slices,
-   reverb changes, and pending normal edit publications.
-4. Test write interruption/recovery at each persistence stage, card replacement,
-   full directories, insufficient blocks, and coexistence with unrelated saves.
-   Measure the final RAM/stack budget with incoming state and I/O buffers live.
-
-The verification session added codec/storage/seam fixtures, failure injection,
-builds, and runtime checks. Gate completion and remaining physical-platform
-requirements are recorded in [validation.md](validation.md); emulator success
-does not establish hardware power-loss behavior or audible effect continuity.
+Normal BIOS file Save/Load and process-restart persistence have passed with
+private OpenBIOS card images; emulated removal and recovery also pass. Use a
+BIOS implementing `_card_clear()` for the unformatted-card scenario, then
+check real cards and controllers.
+Record host, platform, restart, removal, listening, and power-interruption
+outcomes in [validation.md](validation.md) without revising historical
+direct-SIO results. Builds and the adapted fixtures alone do not close these
+gates.

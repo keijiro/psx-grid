@@ -1,5 +1,72 @@
 # Validation Record
 
+## Pad-driven storage UI verification (2026-09-23)
+
+The HTTP/Lua procedure in [emulator-automation.md](emulator-automation.md) was
+used with ordinary `psx-grid.exe` builds, PCSX-Redux build 250 and bundled
+OpenBIOS. Application actions passed through emulated SIO pad input; no
+application RAM was modified. Each configuration used private disposable cards.
+This session tested revision `49e4e32d3f0048da51a7741883f67fb1c1d7594c`.
+
+| Configuration / check | Observed result |
+| --- | --- |
+| Direct-SIO Debug: independent saves | Slot 01 saved BPM 120, slot 02 saved BPM 121; 14 then 13 free blocks and two generation-1 directory entries |
+| Direct-SIO Debug: Load after editing | Unsaved BPM 122 changed to BPM 120 when slot 01 was loaded |
+| Direct-SIO Debug: playing Load and Stop | Slot 02 reached WAITING FOR LAP; START stopped playback and adopted BPM 121 with LOADED |
+| Direct-SIO Debug: restart | Fresh executable started empty; slot 02 restored the saved lane and BPM 121 |
+| Direct-SIO Release: save, edit, Load, restart | One saved lane was restored after adding another lane and again after restart; restored plane PNGs exactly matched the pre-save plane |
+| Direct-SIO Release: empty slot | Load reported EMPTY; subsequent Save and Load succeeded in the same session |
+| Direct-SIO Release: missing / unformatted card | Save reported NO CARD / UNFORMATTED; the unformatted image remained unchanged; restarting with a formatted inserted card allowed Save |
+| Direct-SIO Release: held Cross | Save completed with Cross held across I/O; the released capture still showed SAVED |
+| Default BIOS Debug: formatted card | SLOT check and Save reported NO CARD; Load also reported NO CARD, so successful persistence could not be tested |
+| Default BIOS Debug: error recovery | After the errors, closing the menu and creating a lane succeeded; the card image remained unchanged |
+
+The BIOS discovery failure is reproduced through the ordinary UI, not only the
+storage fixture. Reproduction: boot with a formatted private card, SELECT,
+DOWN twice, Cross to check SLOT 01; then DOWN/Cross for Save and DOWN/Cross for
+Load. Allow 600 neutral vsyncs after each operation. Each reports NO CARD.
+No implementation fixes were attempted.
+
+Evidence is under `build/validation/storage-ui-{debug,release,bios}-20260923/`:
+`report.md`, executable hashes and capture records in `result.json`, exploratory
+runners, emulator logs, and visually inspected GPU PNGs. Initial exploratory
+attempts with insufficient I/O settling time or incorrect menu navigation were
+excluded from product verdicts; the final runs corrected only the runners.
+
+These bounded UI checks do not validate physical cards, card-manager rendering,
+audible continuity, console timing, or power-loss behavior. Release missing-card
+and unformatted-card recovery used emulator restarts, not live reinsertion.
+Held-Cross screenshots alone do not prove every release-guard transition.
+Load-time card removal/replacement, all transfer-boundary failures, and the
+remaining physical acceptance work below remain open. The HTTP bridge pauses
+between actions, so these captures are not evidence of uninterrupted audio.
+
+## BIOS card discovery with the audio timer masked (2026-09-23)
+
+A diagnostic Debug fixture compared the BIOS backend with Timer 0 IRQs enabled
+and masked after `pad_suspend()`. Timer 2 remained running for the backend's
+deadline clock. The fixture initialized audio but did not start playback; this
+isolates the periodic audio service interrupt rather than score complexity.
+Each trial used fresh private formatted cards on PCSX-Redux build 250 and its
+bundled OpenBIOS. Diagnostic source and binaries were isolated from the
+application builds.
+
+The enabled baseline returned `STORAGE_NO_CARD` with a BIOS software timeout
+in all three trials. With Timer 0 masked, all three trials progressed to the
+new-card acknowledgment path, then OpenBIOS halted on the unimplemented
+`A0:AF` syscall invoked by `_card_clear()`. The runner's wall-clock timeout
+therefore reflects a BIOS halt, not the backend's own timeout result.
+Instrumented service counts were 170 during baseline ownership and zero
+through `_card_info()` in the masked trials, confirming the timer ISR stopped.
+
+This supports timer-related IRQ interference as a cause of the original
+discovery failure, but does not directly prove that the SDK consumed a card
+ACK interrupt. It also exposes a separate BIOS API compatibility obstacle.
+Masking the timer alone did not complete discovery or establish working BIOS
+Save/Load. No production implementation was changed. Experimental sources,
+runner, executable hashes and logs are retained under
+`build/validation/bios-timer-experiment-20260923/`.
+
 ## HTTP and Lua editor control (2026-09-23)
 
 The ordinary Debug and Release `psx-grid.exe` both pass the new
@@ -722,3 +789,144 @@ Commands and log locations are in [development.md](development.md#input-fixture)
 These tests establish emulated digital and DualShock-mode communication and
 input event delivery. Physical controllers/adapters, the `0x53` analog-joystick
 report type, and subjective interaction latency remain unverified.
+
+## BIOS file migration verification (2026-09-23)
+
+This initial run, before the OpenBIOS follow-up below, checked the BIOS-file
+migration. The host suite ran with
+ASan and UBSan. Debug and Release were built in isolated directories with the
+application and audio, input, storage, BIOS-file, and replacement fixtures.
+The compiler and linker reported no warnings or errors. The MIPS GCC version
+was 16.2.0 and the pinned PSn00bSDK revision was
+`06e65bea3a778b2dae5af77a7935ae3868ddd4d3`.
+
+| Check | Result |
+| --- | --- |
+| `scripts/test.sh` | Pass after correcting storage-test failure injection and an out-of-range BPM in the test data; codec, storage, editor, replacement, render, audio, and input suites completed |
+| Debug and Release builds | Pass for `psx-grid` and all five fixtures; `.elf`, `.exe`, and `.map` produced |
+| Replacement emulator fixture | Pass in Debug and Release, including Stop/disconnect adoption, reverb memory, and twelve-note timing cases |
+| Isolated BIOS-file fixture with bundled OpenBIOS | Refresh reported EMPTY; Save reported CARD I/O ERROR and the fixture failed. The failure was isolated and fixed in the follow-up below |
+| Application storage fixture with bundled OpenBIOS | Failed refresh reported CARD DAMAGED; transport remained stopped, BIOS-ownership audio-service and pad-poll counts were both zero, and service resumed afterward |
+| Alternate BIOS and physical hardware | Unavailable for this run; see the follow-up below for OpenBIOS Save/Load and restart results |
+
+The in-memory card tests now cover v1 recovery, short transfers, write and
+readback errors, close failure, cleanup retry, full cards, corrupt higher
+generations, overflow, newer-schema blocking, enumeration damage, duplicate
+generation order, card-change results at selected read/write/close/erase
+points, and balanced sessions. All 14 unrelated full-card files were compared
+byte for byte after no-space rejection. The host replacement test gained a
+pending-lane seam case, including incoming channel settings at the first note.
+These checks do not exhaust every backend error/result combination or every
+individual `check()` boundary. The separate platform replacement fixture
+covers publication exclusion, acknowledgement, Stop/disconnect, and SPU reverb
+memory in the emulator.
+
+The bundled OpenBIOS was identified as `0b0359a7` with SHA-256
+`713ea2aed58606282b3ff5e91d77f8c5892ea36f5adcd279d2c7dd26604a625d`.
+PCSX-Redux reported changeset
+`c2e2dec197d3eb8f3db2ee63b8037321dbe1085e`. The BIOS-file diagnostic
+used private disposable images and a 30-second external bound; it exited in
+about five seconds. The failed-refresh restoration diagnostic used a separate
+private image and a 45-second bound; it completed in 4.901 seconds. Its audio
+service count rose from 3,968 to 5,343 after restoration, while the recorded
+main and ISR stack peaks were 2,048 and 320 bytes. These measurements cover
+one error path, not successful file access or every failure stage.
+An additional isolated OpenBIOS diagnostic submitted a fresh START directly
+through `input_update()` after the failed refresh. Playback resumed and audio
+service continued (`openbios-start-after-error/run.log`). The direct injection
+does not prove delivery through PCSX's virtual SIO pad; the original fixture
+separately observed pad reports resuming.
+
+Application `_end` was `0x8013fb34` in Debug and `0x8013d244` in Release,
+leaving about 788 and 798 KiB respectively below the 2 MiB RAM top. The build
+emitted per-function stack reports for the replacement fixture only; this is
+not a whole-application call-chain or interrupt-stack proof. The pinned SDK's
+`StopCallback()`/`RestartCallback()` source was reviewed against the handoff,
+but IRQ, DMA, and callback state were not compared before and after access in
+a supported BIOS environment. Synchronous BIOS initialization, enumeration,
+open, close, and erase still lack demonstrated in-application recovery if a
+call does not return; an external fixture timeout only bounds the test run.
+
+Host tests cannot establish BIOS directory behavior, metadata power-loss
+atomicity, real-card replacement handling, acoustic silence, or hardware
+timing. This initial OpenBIOS run stopped before successful Save/Load. The
+subsequent diagnosis, fixes, and emulator results are recorded below. Physical
+power-cut write behavior, actual card/controller electrical behavior, and
+console listening require hardware. Logs,
+environment hashes, disposable images, and
+linker/stack reports are under
+`build/validation/bios-migration-20260923/` (`host-tests-expanded-final.log`,
+`build-*.log`, `build-artifacts-and-memory.log`, `emulator-summary.txt`, and
+`emulator-*.log`).
+
+## BIOS file migration OpenBIOS follow-up (2026-09-23)
+
+The isolated trace showed that an asynchronous OpenBIOS file write returns
+zero when queued and reports completion through the file event. The backend
+had treated that zero as a short write. After accepting the queued result and
+waiting for its event, Save and readback passed. A subsequent Load session
+failed because OpenBIOS's directory enumeration copies a full 20-character
+filename with a terminator that overwrites `DIRENTRY.attr` (see the
+[pinned OpenBIOS source](https://github.com/grumpycoders/pcsx-redux/blob/c2e2dec197d3eb8f3db2ee63b8037321dbe1085e/src/mips/openbios/card/device.c#L538-L560)).
+The backend now uses the enumerated name and size, which storage validates,
+without rejecting that overwritten attribute. Both fixes are in
+`src/card_bios.c`; the traces
+are `openbios-card-transfer-stage/run.log` and
+`openbios-card-list-entry/run.log` in the validation directory above.
+
+| Check with pinned OpenBIOS and private card images | Result |
+| --- | --- |
+| Isolated Debug and Release BIOS-file fixtures | Pass: refresh EMPTY, Save and Load SAVED; a new emulator process discovers the persisted file, saves the next generation, and loads it |
+| Host suite after BIOS backend fixes | `scripts/test.sh` passes with ASan and UBSan (`host-tests-post-bios-fix.log`) |
+| Debug and Release application storage fixtures | Pass: Save, Load, adopt, and resumed service; second process loads the persisted score and saves the next generation |
+| Documented Debug runners | `test-card-bios-emulator.py debug` and `test-storage-emulator.py debug` in normal, held, missing, and remove modes all pass with `scripts/env.sh`'s OpenBIOS path |
+| BIOS ownership and restoration | `io_services=0` and `io_polls=0` during each operation; transport remains stopped, while audio service and pad reports resume afterward |
+| Emulated SPU mute and service restoration | Isolated observer fixture passed: all 24 channel L/R volumes and reverb send/return were zero at BIOS entry and exit; audio service count was unchanged within each session and increased after return |
+| Debug missing-card and held-button cases | Pass: missing card reports NO CARD and resumes services; held Cross/START does not trigger an unintended operation after return |
+| Debug Save-time removal and recovery | Pass: removal reports NO CARD, preserves the previous valid generation, and resumes input/audio service; after reinsertion, a new process loads the old generation and Save/Load succeeds |
+| Debug unformatted-card case | Blocked: this pinned OpenBIOS halts at its unimplemented `A0:AF` `_card_clear()` syscall; the external runner stopped it at 60 seconds |
+| Debug emulator-process interruption after new file write | Fail on follow-up Save: the interrupted card contains CRC-valid generations 1 and 2 and loads on restart, but the next Save returns CARD I/O ERROR after creating generation 3; a second run repeats the failure after creating generation 4 |
+
+The documented Debug runner logs are `official-card-bios-debug.log`,
+`official-storage-debug-normal.log`, `official-storage-debug-held.log`, and
+`official-storage-debug-missing.log`. Their image hashes are in
+`official-card-bios-debug-hashes.txt` and
+`official-storage-debug-hashes.txt`. The remove runner log is
+`official-storage-debug-remove-driver.log`, with detailed seed, removal, and
+recovery runs in `build/validation/storage-debug-remove-*.log`. The earlier
+diagnostic Debug card-file logs are
+`openbios-card-after-attr-fix/run-{0,1}.log`;
+Debug application summaries are `storage-normal-after-attr-fix-driver.log`,
+`storage-held-after-attr-fix-driver.log`, and
+`storage-missing-after-attr-fix-driver.log`. Release summaries are
+`release-openbios-card-summary.log` and
+`release-openbios-storage-summary.log`, with raw runs and environment hashes
+beside them. The unformatted halt is in
+`build/validation/storage-debug-unformatted-0.log`. The isolated SPU observer
+source and log are `spu-card-observer.c` and `spu-card-observer.log` in the
+validation directory; it observed the application's storage fixture through
+the same BIOS backend without editing production code.
+
+The interruption used `SIGKILL` on PCSX after the card image had changed.
+The saved image `simulated-cut/partial-cut-card.mcd` has two allocated files;
+both payloads have matching CRCs and generations 1 and 2. The interruption
+therefore landed after the new file was written and before old-file cleanup,
+not during a partial payload transfer. Restart refresh/Load passed. Follow-up
+Save created generation 3 but returned `STORAGE_IO` (CARD I/O ERROR), leaving
+generations 2 and 3; another run loaded and created generation 4 before the
+same error. This narrows the failure to the final old-generation cleanup or
+its subsequent backend check. The exact OpenBIOS/backend cause remains
+unproven. Evidence is in `simulated-cut/root-cause.txt`,
+`simulated-cut/codec-audit.txt`, `simulated-cut/recovery-repro-{1,2}.log`, and
+the preserved card images there.
+
+These results establish image-backed Save/Load and persistence across PCSX
+process restarts in both configurations. Emulated Save-time removal and
+recovery also pass in Debug. The unformatted-card path needs a BIOS
+implementing `_card_clear()`. Interrupted-save cleanup needs a fix and a
+repeatable passing test. Card-manager interoperability, full-card
+and repeated failure-stage cases, ordinary application UI input after
+restoration, and an emulated PCM output capture remain open. The SPU register
+and service observations support silence during BIOS ownership, but do not
+measure the final audio samples. Emulator tests cannot establish real-card
+electrical behavior, audible console output, or physical power-cut recovery.

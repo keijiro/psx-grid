@@ -9,11 +9,11 @@ typedef enum { STORAGE_UNKNOWN, STORAGE_EMPTY, STORAGE_SAVED, STORAGE_BUSY, STOR
 typedef struct {
     CardBackend card;
     StorageResult slots[STORAGE_SLOTS];
-    int free_blocks, directory_ready;
+    int free_blocks, file_count;
     // The save buffer remains immutable through write, readback and cleanup.
-    // Incoming is staging, then belongs to the replacement request until ack.
-    uint8_t save[SCORE_FILE_BYTES], readback[SCORE_FILE_BYTES], directory[16][128];
-    unsigned broken[20];
+    // Incoming belongs to the replacement request until acknowledgement.
+    uint8_t save[SCORE_FILE_BYTES], readback[SCORE_FILE_BYTES];
+    CardFile files[15];
     Score incoming;
 } Storage;
 void storage_init(Storage *storage,CardBackend backend);

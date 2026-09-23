@@ -3,446 +3,304 @@
 #include <stdio.h>
 #include <string.h>
 
-enum { SECTORS = 1024 };
-
+typedef struct { CardFile info; uint8_t data[SCORE_FILE_BYTES]; } File;
 typedef struct {
-    uint8_t sectors[SECTORS][128];
-    int present, begun, ends;
-    int fail_read_sector, fail_write_sector;
-    int fail_read_skip, fail_write_skip;
-    int fail_begin, fail_read_at;
-    unsigned reads, writes, begins;
+    File files[15];
+    int count, begun, ends, handle, creating;
+    int fail_begin, fail_check, fail_create, fail_read, fail_write, fail_close, fail_erase;
+    int short_read, short_write, reads, fail_read_at, short_read_at;
+    int lists, fail_list_at;
     CardResult failure;
     Score *mutate;
 } MemoryCard;
 
-static uint8_t checksum(const uint8_t *data) {
-    uint8_t value = 0;
-    for (int i = 0; i < 127; i++) value ^= data[i];
-    return value;
-}
-
-static uint32_t crc32(const uint8_t *data, size_t size) {
-    uint32_t value = UINT32_MAX;
-    for (size_t i = 0; i < size; i++) {
-        value ^= i >= 20 && i < 24 ? 0 : data[i];
-        for (int bit = 0; bit < 8; bit++)
-            value = (value >> 1) ^ (0xedb88320u & -(value & 1));
-    }
-    return ~value;
-}
-
-static void put32(uint8_t *data, uint32_t value) {
-    for (int i = 0; i < 4; i++) data[i] = (uint8_t)(value >> (i * 8));
-}
-
-static void set_remap(MemoryCard *card, int index, uint32_t sector) {
-    uint8_t *entry = card->sectors[16 + index];
-    put32(entry, sector);
-    entry[127] = checksum(entry);
-}
-
-static void initialize_card(MemoryCard *card) {
-    memset(card, 0, sizeof(*card));
-    card->present = 1;
-    card->fail_read_sector = card->fail_write_sector = -1;
-    card->failure = CARD_IO;
-    for (int sector = 0; sector < 16; sector++) {
-        if (sector) card->sectors[sector][0] = 0xa0;
-        card->sectors[sector][127] = checksum(card->sectors[sector]);
-    }
-    memcpy(card->sectors[0], "MC", 2);
-    card->sectors[0][127] = checksum(card->sectors[0]);
-    for (int sector = 16; sector < 36; sector++) {
-        memset(card->sectors[sector], 0xff, 4);
-        card->sectors[sector][127] = checksum(card->sectors[sector]);
-    }
-}
-
 static CardResult begin(void *context) {
-    MemoryCard *card = context;
-    card->begins++;
-    if (card->fail_begin) return card->failure;
-    if (!card->present) return CARD_MISSING;
-    assert(!card->begun);
-    card->begun = 1;
+    MemoryCard *c=context;
+    if(c->fail_begin) return c->failure;
+    assert(!c->begun);
+    c->begun=1; c->handle=-1;
     return CARD_OK;
 }
-
 static void end(void *context) {
-    MemoryCard *card = context;
-    assert(card->begun);
-    card->begun = 0;
-    card->ends++;
+    MemoryCard *c=context;
+    assert(c->begun && c->handle==-1);
+    c->begun=0; c->ends++;
 }
-
-static CardResult read_sector(void *context, unsigned sector, uint8_t data[128]) {
-    MemoryCard *card = context;
-    assert(card->begun && sector < SECTORS);
-    card->reads++;
-    if (card->fail_read_at > 0 && card->reads == (unsigned)card->fail_read_at)
-        return card->failure;
-    if ((int)sector == card->fail_read_sector && !card->fail_read_skip--)
-        return card->failure;
-    memcpy(data, card->sectors[sector], 128);
+static CardResult check(void *context) {
+    MemoryCard *c=context;
+    assert(c->begun);
+    return c->fail_check?c->failure:CARD_OK;
+}
+static CardResult list(void *context,int index,CardFile *file) {
+    MemoryCard *c=context;
+    assert(c->begun && c->handle==-1);
+    c->lists++;
+    if(c->lists==c->fail_list_at) return c->failure;
+    if(index>=c->count) return CARD_END;
+    *file=c->files[index].info;
     return CARD_OK;
 }
-
-static CardResult write_sector(void *context, unsigned sector, const uint8_t data[128]) {
-    MemoryCard *card = context;
-    assert(card->begun && sector < SECTORS);
-    card->writes++;
-    if ((int)sector == card->fail_write_sector && !card->fail_write_skip--)
-        return card->failure;
-    memcpy(card->sectors[sector], data, 128);
-    if (card->mutate) {
-        card->mutate->bpm++;
-        card->mutate = NULL;
+static CardResult open_read(void *context,const char *name) {
+    MemoryCard *c=context;
+    assert(c->begun && c->handle==-1);
+    for(int i=0;i<c->count;i++) if(!strcmp(c->files[i].info.name,name)) {
+        c->handle=i; c->creating=0;
+        return CARD_OK;
     }
+    return CARD_IO;
+}
+static CardResult open_create(void *context,const char *name) {
+    MemoryCard *c=context;
+    assert(c->begun && c->handle==-1);
+    if(c->fail_create) return c->failure;
+    if(c->count==15) return CARD_IO;
+    for(int i=0;i<c->count;i++) assert(strcmp(c->files[i].info.name,name));
+    File *f=&c->files[c->count];
+    memset(f,0,sizeof(*f));
+    strcpy(f->info.name,name); f->info.size=SCORE_FILE_BYTES;
+    c->handle=c->count++; c->creating=1;
     return CARD_OK;
 }
-
-static uint32_t card_fingerprint(const MemoryCard *card) {
-    uint32_t value = 2166136261u;
-    for (int sector = 0; sector < SECTORS; sector++)
-        for (int byte = 0; byte < 128; byte++)
-            value = (value ^ card->sectors[sector][byte]) * 16777619u;
-    return value;
+static CardResult read_file(void *context,uint8_t *data,int size) {
+    MemoryCard *c=context;
+    assert(c->begun && c->handle>=0 && !c->creating && size==SCORE_FILE_BYTES);
+    c->reads++;
+    if(c->fail_read || c->reads==c->fail_read_at) return c->failure;
+    int short_read=c->short_read || c->reads==c->short_read_at;
+    memcpy(data,c->files[c->handle].data,short_read?size/2:size);
+    return short_read?CARD_IO:CARD_OK;
 }
-
-static CardBackend backend(MemoryCard *card) {
-    CardBackend result = {card, begin, end, read_sector, write_sector};
-    return result;
+static CardResult write_file(void *context,const uint8_t *data,int size) {
+    MemoryCard *c=context;
+    assert(c->begun && c->handle>=0 && c->creating && size==SCORE_FILE_BYTES);
+    if(c->fail_write) return c->failure;
+    memcpy(c->files[c->handle].data,data,c->short_write?size/16:size);
+    if(c->mutate) { c->mutate->bpm++; c->mutate=NULL; }
+    return c->short_write?CARD_IO:CARD_OK;
 }
-
+static CardResult close_file(void *context) {
+    MemoryCard *c=context;
+    assert(c->begun && c->handle>=0);
+    int creating=c->creating;
+    c->handle=-1;
+    return c->fail_close && creating?c->failure:CARD_OK;
+}
+static CardResult erase_file(void *context,const char *name) {
+    MemoryCard *c=context;
+    assert(c->begun && c->handle==-1);
+    if(c->fail_erase) return c->failure;
+    for(int i=0;i<c->count;i++) if(!strcmp(c->files[i].info.name,name)) {
+        memmove(&c->files[i],&c->files[i+1],(c->count-i-1)*sizeof(File));
+        c->count--;
+        return CARD_OK;
+    }
+    return CARD_IO;
+}
+static CardBackend backend(MemoryCard *c) {
+    return (CardBackend){c,begin,end,check,list,open_read,open_create,
+        read_file,write_file,close_file,erase_file};
+}
 static Score make_score(int bpm) {
-    Score score;
-    score_init(&score);
-    score.bpm = bpm;
-    assert(score_create(&score, 0, 0, 4) == SCORE_OK);
-    assert(score_place(&score, 1, 0, TILE_NOTE) == SCORE_OK);
-    return score;
+    Score s;
+    score_init(&s); s.bpm=bpm;
+    assert(score_create(&s,0,0,4)==SCORE_OK);
+    assert(score_place(&s,1,0,TILE_NOTE)==SCORE_OK);
+    return s;
 }
-
-static StorageResult restart_load(MemoryCard *card, int slot, Score *score) {
-    Storage storage;
-    storage_init(&storage, backend(card));
-    StorageResult result = storage_load(&storage, slot);
-    if (result == STORAGE_SAVED) *score = storage.incoming;
-    assert(!card->begun);
-    return result;
+static void put32(uint8_t *p,uint32_t v) {
+    for(int i=0;i<4;i++) p[i]=(uint8_t)(v>>(8*i));
 }
-
-static void initial_save(MemoryCard *card, int slot, int bpm) {
-    Storage storage;
-    Score score = make_score(bpm);
-    storage_init(&storage, backend(card));
-    assert(storage_save(&storage, slot, &score) == STORAGE_SAVED);
-    assert(!card->begun);
-}
-
-static void metadata_failures(void) {
-    for (int changed = 0; changed < 2; changed++) {
-        for (int read = 1; read <= 37; read++) {
-            MemoryCard card;
-            Storage storage;
-            Score replacement = make_score(202), recovered;
-            initialize_card(&card);
-            initial_save(&card, 1, 101);
-            uint32_t before = card_fingerprint(&card);
-            unsigned ends = (unsigned)card.ends;
-            card.reads = card.writes = 0;
-            card.fail_read_at = read;
-            card.failure = changed ? CARD_CHANGED : CARD_IO;
-            storage_init(&storage, backend(&card));
-            assert(storage_save(&storage, 1, &replacement) ==
-                (changed ? STORAGE_CHANGED : STORAGE_IO));
-            assert(!card.begun && (unsigned)card.ends == ends + 1);
-            assert(card.writes == 0 && card_fingerprint(&card) == before);
-            card.fail_read_at = 0;
-            card.failure = CARD_IO;
-            assert(restart_load(&card, 1, &recovered) == STORAGE_SAVED);
-            assert(recovered.bpm == 101);
-        }
+static uint32_t checksum(const uint8_t *p,size_t n) {
+    uint32_t crc=UINT32_MAX;
+    for(size_t i=0;i<n;i++) {
+        crc^=i>=20 && i<24?0:p[i];
+        for(int b=0;b<8;b++) crc=(crc>>1)^(0xedb88320u&-(crc&1));
     }
-
-    MemoryCard card;
-    Storage storage;
-    Score score = make_score(120);
-    initialize_card(&card);
-    card.fail_begin = 1;
-    card.failure = CARD_CHANGED;
-    storage_init(&storage, backend(&card));
-    assert(storage_save(&storage, 1, &score) == STORAGE_CHANGED);
-    assert(card.begins == 1 && card.ends == 0 && !card.begun);
-    assert(card.reads == 0 && card.writes == 0);
+    return ~crc;
 }
-
-static void remapping(void) {
-    MemoryCard card;
-    Storage storage;
-    Score score = make_score(123), recovered;
-
-    initialize_card(&card);
-    set_remap(&card, 0, 64);
-    storage_init(&storage, backend(&card));
-    assert(storage_save(&storage, 1, &score) == STORAGE_SAVED);
-    assert(!memcmp(card.sectors[36], "SC", 2));
-    assert(memcmp(card.sectors[64], "SC", 2));
-    assert(restart_load(&card, 1, &recovered) == STORAGE_SAVED);
-    assert(recovered.bpm == 123);
-
-    initialize_card(&card);
-    memcpy(card.sectors[36], card.sectors[1], 128);
-    set_remap(&card, 0, 1);
-    storage_init(&storage, backend(&card));
-    assert(storage_save(&storage, 1, &score) == STORAGE_SAVED);
-    assert(card.sectors[1][0] == 0xa0);
-    assert(card.sectors[36][0] == 0x51);
-    assert(restart_load(&card, 1, &recovered) == STORAGE_SAVED);
-    assert(recovered.bpm == 123);
-
-    for (int malformed = 0; malformed < 2; malformed++) {
-        initialize_card(&card);
-        set_remap(&card, 0, malformed ? 16 : 64);
-        if (!malformed) set_remap(&card, 1, 64);
-        uint32_t before = card_fingerprint(&card);
-        card.reads = card.writes = 0;
-        storage_init(&storage, backend(&card));
-        assert(storage_save(&storage, 1, &score) == STORAGE_CARD_DAMAGED);
-        assert(card.writes == 0 && card_fingerprint(&card) == before);
-        assert(!card.begun);
+static void set_newer(File *file) {
+    uint8_t *header=file->data+SCORE_FILE_WRAPPER;
+    header[4]=2;
+    uint32_t bytes=(uint32_t)header[12]|(uint32_t)header[13]<<8|
+        (uint32_t)header[14]<<16|(uint32_t)header[15]<<24;
+    put32(header+20,checksum(header,32+bytes));
+}
+static StorageResult load(MemoryCard *c,Score *score) {
+    Storage s; storage_init(&s,backend(c));
+    StorageResult r=storage_load(&s,1);
+    if(r==STORAGE_SAVED) *score=s.incoming;
+    assert(!c->begun);
+    return r;
+}
+static void save(MemoryCard *c,int bpm) {
+    Storage s; Score score=make_score(bpm);
+    storage_init(&s,backend(c));
+    assert(storage_save(&s,1,&score)==STORAGE_SAVED);
+    assert(!c->begun);
+}
+static void basic_recovery(void) {
+    MemoryCard c={0};
+    Score recovered;
+    c.failure=CARD_IO;
+    save(&c,101);
+    assert(c.count==1 && !strcmp(c.files[0].info.name,"BIJACQUARD0100000001"));
+    assert(load(&c,&recovered)==STORAGE_SAVED && recovered.bpm==101);
+    save(&c,202);
+    assert(c.count==1 && !strcmp(c.files[0].info.name,"BIJACQUARD0100000002"));
+    assert(load(&c,&recovered)==STORAGE_SAVED && recovered.bpm==202);
+    c.files[0].data[600]^=1;
+    assert(load(&c,&recovered)==STORAGE_CORRUPT);
+}
+static void write_failures(void) {
+    for(int failure=0;failure<4;failure++) {
+        MemoryCard c={0};
+        Storage s; Score score=make_score(202), recovered;
+        c.failure=CARD_IO; save(&c,101);
+        c.fail_create=failure==0;
+        c.fail_write=failure==1;
+        c.short_write=failure==2;
+        c.fail_close=failure==3;
+        storage_init(&s,backend(&c));
+        assert(storage_save(&s,1,&score)==STORAGE_IO);
+        c.fail_create=c.fail_write=c.short_write=c.fail_close=0;
+        assert(load(&c,&recovered)==STORAGE_SAVED &&
+            recovered.bpm==(failure==3?202:101));
+        assert(!c.begun);
     }
 }
-
-static void interrupted_payload(void) {
-    for (int sector = 128; sector < 192; sector++) {
-        MemoryCard card;
-        initialize_card(&card);
-        initial_save(&card, 1, 101);
-        Storage storage;
-        Score replacement = make_score(202), recovered;
-        storage_init(&storage, backend(&card));
-        card.fail_write_sector = sector;
-        assert(storage_save(&storage, 1, &replacement) == STORAGE_IO);
-        card.fail_write_sector = -1;
-        assert(restart_load(&card, 1, &recovered) == STORAGE_SAVED);
-        assert(recovered.bpm == 101);
-    }
-    for (int sector = 128; sector < 192; sector++) {
-        MemoryCard card;
-        initialize_card(&card);
-        initial_save(&card, 1, 101);
-        Storage storage;
-        Score replacement = make_score(202), recovered;
-        storage_init(&storage, backend(&card));
-        card.fail_read_sector = sector;
-        assert(storage_save(&storage, 1, &replacement) == STORAGE_IO);
-        card.fail_read_sector = -1;
-        assert(restart_load(&card, 1, &recovered) == STORAGE_SAVED);
-        assert(recovered.bpm == 101);
+static void readback_failures(void) {
+    for(int failure=0;failure<2;failure++) {
+        MemoryCard c={0};
+        Storage s; Score score=make_score(202), recovered;
+        c.failure=CARD_IO; save(&c,101);
+        c.reads=0;
+        if(failure==0) c.fail_read_at=2;
+        else c.short_read_at=2;
+        storage_init(&s,backend(&c));
+        assert(storage_save(&s,1,&score)==STORAGE_IO);
+        assert(c.count==2 && !strcmp(c.files[0].info.name,"BIJACQUARD0100000001"));
+        c.fail_read_at=c.short_read_at=0;
+        assert(load(&c,&recovered)==STORAGE_SAVED && recovered.bpm==202);
+        assert(!c.begun);
     }
 }
-
-static void commit_and_cleanup(void) {
-    MemoryCard card;
-    Storage storage;
-    Score old = make_score(101), replacement = make_score(202), recovered;
-
-    initialize_card(&card);
-    initial_save(&card, 1, 101);
-    storage_init(&storage, backend(&card));
-    card.fail_write_sector = 2;
-    assert(storage_save(&storage, 1, &replacement) == STORAGE_IO);
-    card.fail_write_sector = -1;
-    assert(restart_load(&card, 1, &recovered) == STORAGE_SAVED && recovered.bpm == old.bpm);
-
-    initialize_card(&card);
-    initial_save(&card, 1, 101);
-    storage_init(&storage, backend(&card));
-    card.fail_read_sector = 2;
-    card.fail_read_skip = 1;
-    assert(storage_save(&storage, 1, &replacement) == STORAGE_IO);
-    card.fail_read_sector = -1;
-    assert(restart_load(&card, 1, &recovered) == STORAGE_SAVED && recovered.bpm == replacement.bpm);
-
-    initialize_card(&card);
-    initial_save(&card, 1, 101);
-    storage_init(&storage, backend(&card));
-    card.fail_write_sector = 1;
-    assert(storage_save(&storage, 1, &replacement) == STORAGE_CLEANUP);
-    card.fail_write_sector = -1;
-    assert(restart_load(&card, 1, &recovered) == STORAGE_SAVED && recovered.bpm == replacement.bpm);
-    storage_init(&storage, backend(&card));
-    assert(storage_save(&storage, 1, &replacement) == STORAGE_SAVED);
-
-    initialize_card(&card);
-    initial_save(&card, 1, 101);
-    storage_init(&storage, backend(&card));
-    card.fail_read_sector = 1;
-    card.fail_read_skip = 1;
-    assert(storage_save(&storage, 1, &replacement) == STORAGE_CLEANUP);
-    card.fail_read_sector = -1;
-    assert(restart_load(&card, 1, &recovered) == STORAGE_SAVED && recovered.bpm == replacement.bpm);
-
-    initialize_card(&card);
-    initial_save(&card, 1, 101);
-    storage_init(&storage, backend(&card));
-    card.fail_write_sector = 130;
-    card.failure = CARD_CHANGED;
-    assert(storage_save(&storage, 1, &replacement) == STORAGE_CHANGED);
-    assert(!card.begun);
-    card.fail_write_sector = -1;
-    card.failure = CARD_IO;
-    assert(restart_load(&card, 1, &recovered) == STORAGE_SAVED && recovered.bpm == 101);
-}
-
-static void corrupt_latest_falls_back(void) {
-    MemoryCard card;
-    Storage storage;
-    Score replacement = make_score(202), recovered;
-    initialize_card(&card);
-    initial_save(&card, 1, 101);
-    storage_init(&storage, backend(&card));
-    card.fail_write_sector = 1;
-    assert(storage_save(&storage, 1, &replacement) == STORAGE_CLEANUP);
-    card.fail_write_sector = -1;
-    card.sectors[128 + 4][42] ^= 1;
-    assert(restart_load(&card, 1, &recovered) == STORAGE_SAVED);
-    assert(recovered.bpm == 101);
-}
-
-static void cleanup_retry_discovery(void) {
-    MemoryCard card;
-    Storage storage;
-    Score replacement = make_score(202), recovered;
-    initialize_card(&card);
-    initial_save(&card, 1, 101);
-    storage_init(&storage, backend(&card));
-    card.fail_write_sector = 1;
-    assert(storage_save(&storage, 1, &replacement) == STORAGE_CLEANUP);
-    card.fail_write_sector = -1;
-
-    uint32_t before = card_fingerprint(&card);
-    card.reads = card.writes = 0;
-    storage_init(&storage, backend(&card));
-    card.fail_read_sector = 64;
-    assert(storage_save(&storage, 1, &replacement) == STORAGE_IO);
-    assert(card.writes == 0 && card_fingerprint(&card) == before && !card.begun);
-    card.fail_read_sector = -1;
-    assert(restart_load(&card, 1, &recovered) == STORAGE_SAVED);
-    assert(recovered.bpm == 202);
-
-    storage_init(&storage, backend(&card));
-    assert(storage_save(&storage, 1, &replacement) == STORAGE_SAVED);
-    assert(card.sectors[1][0] == 0x51);
-    assert((card.sectors[2][0] & 0xf0) == 0xa0);
-    assert(restart_load(&card, 1, &recovered) == STORAGE_SAVED);
-    assert(recovered.bpm == 202);
-}
-
-static void directory_damage_and_unrelated_files(void) {
-    MemoryCard card;
-    Storage storage;
-    Score score = make_score(130), recovered;
-    initialize_card(&card);
-    initial_save(&card, 1, 120);
-    card.sectors[15][10] = 'X';
-    storage_init(&storage, backend(&card));
-    assert(storage_refresh(&storage, 1) == STORAGE_SAVED);
-    assert(storage_save(&storage, 1, &score) == STORAGE_CARD_DAMAGED);
-    assert(restart_load(&card, 1, &recovered) == STORAGE_SAVED && recovered.bpm == 120);
-
-    initialize_card(&card);
-    initial_save(&card, 1, 120);
-    uint8_t unrelated[128] = {0};
-    unrelated[0] = 0x51;
-    unrelated[5] = 0x20;
-    unrelated[8] = unrelated[9] = 255;
-    memcpy(unrelated + 10, "BASLUS-OTHER-SAVE", 17);
-    unrelated[127] = checksum(unrelated);
-    memcpy(card.sectors[8], unrelated, 128);
-    storage_init(&storage, backend(&card));
-    assert(storage_save(&storage, 1, &score) == STORAGE_SAVED);
-    assert(!memcmp(card.sectors[8], unrelated, 128));
-}
-
-static void full_card_and_replacement(void) {
-    MemoryCard card;
-    Storage storage;
-    Score score = make_score(140), recovered;
-    initialize_card(&card);
-    for (int block = 1; block < 16; block++) {
-        uint8_t *entry = card.sectors[block];
-        memset(entry, 0, 128);
-        entry[0] = 0x51;
-        entry[5] = 0x20;
-        entry[8] = entry[9] = 255;
-        snprintf((char *)entry + 10, 21, "OTHERFILE%011d", block);
-        entry[127] = checksum(entry);
+static void capacity_and_cleanup(void) {
+    MemoryCard c={0}; Storage s; Score score=make_score(202), recovered;
+    c.failure=CARD_IO; save(&c,101);
+    for(int i=1;i<15;i++) {
+        File *f=&c.files[c.count++];
+        snprintf(f->info.name,sizeof(f->info.name),"OTHER%02d",i);
+        f->info.size=SCORE_FILE_BYTES;
+        memset(f->data,i,sizeof(f->data));
     }
-    storage_init(&storage, backend(&card));
-    assert(storage_save(&storage, 1, &score) == STORAGE_NO_SPACE);
+    File unrelated[14]; memcpy(unrelated,&c.files[1],sizeof(unrelated));
+    storage_init(&s,backend(&c));
+    assert(storage_save(&s,1,&score)==STORAGE_NO_SPACE);
+    assert(c.count==15 && load(&c,&recovered)==STORAGE_SAVED && recovered.bpm==101);
+    assert(!memcmp(unrelated,&c.files[1],sizeof(unrelated)));
+    c.count=1;
+    c.fail_erase=1;
+    storage_init(&s,backend(&c));
+    assert(storage_save(&s,1,&score)==STORAGE_CLEANUP);
+    assert(c.count==2);
+    c.fail_erase=0;
+    assert(load(&c,&recovered)==STORAGE_SAVED && recovered.bpm==202);
+    save(&c,250);
+    assert(c.count==1 && load(&c,&recovered)==STORAGE_SAVED && recovered.bpm==250);
+}
+static void corrupt_higher_and_overflow(void) {
+    MemoryCard c={0}; Storage s; Score score=make_score(202), recovered;
+    c.failure=CARD_IO; save(&c,101);
+    File *partial=&c.files[c.count++];
+    memset(partial,0,sizeof(*partial));
+    strcpy(partial->info.name,"BIJACQUARD0100000009");
+    partial->info.size=SCORE_FILE_BYTES;
+    assert(load(&c,&recovered)==STORAGE_SAVED && recovered.bpm==101);
+    storage_init(&s,backend(&c));
+    assert(storage_save(&s,1,&score)==STORAGE_SAVED);
+    assert(!strcmp(c.files[c.count-1].info.name,"BIJACQUARD010000000A"));
+    strcpy(c.files[c.count-1].info.name,"BIJACQUARD01FFFFFFFF");
+    storage_init(&s,backend(&c));
+    assert(storage_save(&s,1,&score)==STORAGE_GENERATION_FULL);
+}
+static void newer_and_generation_ties(void) {
+    MemoryCard c={0}; Storage s; Score recovered, newer=make_score(202);
+    c.failure=CARD_IO; save(&c,101);
+    File *file=&c.files[c.count++];
+    memset(file,0,sizeof(*file));
+    strcpy(file->info.name,"BIJACQUARD0100000002");
+    file->info.size=SCORE_FILE_BYTES;
+    assert(score_format_encode(&newer,file->data,1,2)==FORMAT_OK);
+    set_newer(file);
+    storage_init(&s,backend(&c));
+    assert(storage_refresh(&s,1)==STORAGE_NEWER);
+    assert(storage_load(&s,1)==STORAGE_NEWER);
+    assert(storage_save(&s,1,&newer)==STORAGE_NEWER);
+    assert(c.count==2 && !c.begun && c.ends==4);
 
-    initialize_card(&card);
-    initial_save(&card, 1, 120);
-    for (int block = 2; block < 16; block++) {
-        uint8_t *entry = card.sectors[block];
-        memset(entry, 0, 128);
-        entry[0] = 0x51;
-        entry[5] = 0x20;
-        entry[8] = entry[9] = 255;
-        snprintf((char *)entry + 10, 21, "OTHERFILE%011d", block);
-        entry[127] = checksum(entry);
+    c.count=0; save(&c,101);
+    c.files[1]=c.files[0]; c.count=2;
+    Score alternate=make_score(202);
+    assert(score_format_encode(&alternate,c.files[1].data,1,1)==FORMAT_OK);
+    assert(load(&c,&recovered)==STORAGE_SAVED && recovered.bpm==101);
+}
+static void directory_and_result_errors(void) {
+    static const struct { CardResult card; StorageResult storage; } cases[]={
+        {CARD_MISSING,STORAGE_NO_CARD},{CARD_TIMEOUT,STORAGE_TIMEOUT},
+        {CARD_CHANGED,STORAGE_CHANGED},{CARD_UNFORMATTED,STORAGE_UNFORMATTED},
+        {CARD_DAMAGED,STORAGE_CARD_DAMAGED},{CARD_IO,STORAGE_IO}
+    };
+    Score score=make_score(120);
+    for(unsigned i=0;i<sizeof(cases)/sizeof(cases[0]);i++) {
+        MemoryCard c={.fail_begin=1,.failure=cases[i].card};
+        Storage s; storage_init(&s,backend(&c));
+        assert(storage_save(&s,1,&score)==cases[i].storage);
+        assert(!c.begun && !c.ends);
     }
-    storage_init(&storage, backend(&card));
-    assert(storage_save(&storage, 1, &score) == STORAGE_NO_SPACE);
-    assert(restart_load(&card, 1, &recovered) == STORAGE_SAVED && recovered.bpm == 120);
-
-    initialize_card(&card);
-    storage_init(&storage, backend(&card));
-    card.present = 0;
-    assert(storage_save(&storage, 1, &score) == STORAGE_NO_CARD);
-    card.present = 1;
-    assert(storage_save(&storage, 1, &score) == STORAGE_SAVED);
+    MemoryCard c={.failure=CARD_CHANGED,.fail_list_at=1}; Storage s;
+    storage_init(&s,backend(&c));
+    assert(storage_refresh(&s,1)==STORAGE_CHANGED && !c.begun && c.ends==1);
+    memset(&c,0,sizeof(c));
+    c.count=1; strcpy(c.files[0].info.name,"OTHER");
+    c.files[0].info.size=SCORE_FILE_BYTES+1;
+    storage_init(&s,backend(&c));
+    assert(storage_refresh(&s,1)==STORAGE_CARD_DAMAGED && !c.begun && c.ends==1);
 }
-
-static void newer_and_immutable_snapshot(void) {
-    MemoryCard card;
-    Storage storage;
-    Score original = make_score(120), recovered;
-    initialize_card(&card);
-    storage_init(&storage, backend(&card));
-    card.mutate = &original;
-    assert(storage_save(&storage, 1, &original) == STORAGE_SAVED);
-    assert(original.bpm == 121);
-    assert(restart_load(&card, 1, &recovered) == STORAGE_SAVED && recovered.bpm == 120);
-
-    /* A committed unsupported envelope at the newest generation blocks both
-       fallback and overwrite, preserving its possible musical meaning. */
-    uint8_t block[SCORE_FILE_BYTES];
-    for (int i = 0; i < 64; i++) memcpy(block + i * 128, card.sectors[64 + i], 128);
-    uint8_t *envelope = block + SCORE_FILE_WRAPPER;
-    envelope[4] = 2;
-    size_t payload = (size_t)envelope[12] | (size_t)envelope[13] << 8 |
-        (size_t)envelope[14] << 16 | (size_t)envelope[15] << 24;
-    put32(envelope + 20, crc32(envelope, 32 + payload));
-    for (int i = 0; i < 64; i++) memcpy(card.sectors[64 + i], block + i * 128, 128);
-    storage_init(&storage, backend(&card));
-    assert(storage_refresh(&storage, 1) == STORAGE_NEWER);
-    assert(storage_load(&storage, 1) == STORAGE_NEWER);
-    assert(storage_save(&storage, 1, &original) == STORAGE_NEWER);
+static void card_change_during_operations(void) {
+    for(int operation=0;operation<4;operation++) {
+        MemoryCard c={0}; Storage s; Score score=make_score(202), recovered;
+        c.failure=CARD_IO; save(&c,101); c.failure=CARD_CHANGED;
+        if(operation==0) { c.reads=0; c.fail_read_at=1; }
+        if(operation==1) c.fail_write=1;
+        if(operation==2) c.fail_close=1;
+        if(operation==3) c.fail_erase=1;
+        int ends=c.ends;
+        storage_init(&s,backend(&c));
+        assert(storage_save(&s,1,&score)==STORAGE_CHANGED);
+        assert(!c.begun && c.ends==ends+1);
+        c.fail_read_at=c.fail_write=c.fail_close=c.fail_erase=0;
+        assert(load(&c,&recovered)==STORAGE_SAVED);
+        assert(recovered.bpm==(operation>=2?202:101));
+    }
 }
-
+static void session_failures(void) {
+    MemoryCard c={0}; Storage s; Score score=make_score(202);
+    c.failure=CARD_CHANGED; c.fail_begin=1;
+    storage_init(&s,backend(&c));
+    assert(storage_save(&s,1,&score)==STORAGE_CHANGED && !c.begun && !c.ends);
+    c.fail_begin=0; c.fail_check=1;
+    assert(storage_save(&s,1,&score)==STORAGE_CHANGED && !c.begun && c.ends==1);
+}
 int main(void) {
-    metadata_failures();
-    remapping();
-    interrupted_payload();
-    commit_and_cleanup();
-    corrupt_latest_falls_back();
-    cleanup_retry_discovery();
-    directory_damage_and_unrelated_files();
-    full_card_and_replacement();
-    newer_and_immutable_snapshot();
-    puts("storage tests passed");
+    basic_recovery();
+    write_failures();
+    readback_failures();
+    capacity_and_cleanup();
+    corrupt_higher_and_overflow();
+    newer_and_generation_ties();
+    directory_and_result_errors();
+    card_change_during_operations();
+    session_failures();
+    puts("storage_test: passed");
+    return 0;
 }
