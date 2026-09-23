@@ -176,12 +176,15 @@ void render_frame(const Editor *e, int connected) {
     char line[64];
     snprintf(line,sizeof(line),"PSX GRID   %03d,%02d",e->x,e->y); text(8,8,line);
     Cell cell=score_at(&e->score,e->x,e->y);
-    if(cell.lane>=0) snprintf(line,sizeof(line),"LANE %02d  DIV 1/%d",cell.lane+1,score_division(&e->score,cell.lane));
+    if(cell.lane>=0) snprintf(line,sizeof(line),"LANE %02d  CH %d  DIV 1/%d",cell.lane+1,score_channel(&e->score,cell.lane)+1,score_division(&e->score,cell.lane));
     else snprintf(line,sizeof(line),"PITCH AND GATE SCORE");
     text(8,20,line);
     if(e->mode!=EDIT_PLANE && e->mode!=EDIT_MOVE) {
         EditorAction items[EDITOR_MENU_ITEMS]; int n=editor_menu(e,items);
         int width=208,height=e->mode==EDIT_MENU?n*16+16:e->mode==EDIT_PICKER?104:e->mode==EDIT_MAIN?120:e->mode==EDIT_REVERB?96:e->mode==EDIT_SOUND?128:editor_sound_parent(e->mode)==EDIT_SOUND?88:e->mode==EDIT_PATTERN?112:72;
+        int sound_property=e->mode==EDIT_SOUND_REVERB ||
+            (editor_sound_parent(e->mode)!=EDIT_MENU && editor_sound_parent(e->mode)!=EDIT_SOUND);
+        if(sound_property) height+=16;
         int px=clamp(cx+18,SCREEN_W-width-8),py=clamp(cy+18,192-height);
         if(e->mode==EDIT_MAIN || e->mode==EDIT_REVERB || e->mode==EDIT_BPM || e->mode==EDIT_REVERB_SIZE || e->mode==EDIT_REVERB_AMOUNT) { px=(SCREEN_W-width)/2; py=(192-height)/2+16; }
         rect(2,px,py,width,height,UI_PANEL); outline(1,px,py,width,height,UI_BORDER);
@@ -204,14 +207,15 @@ void render_frame(const Editor *e, int connected) {
                 snprintf(line,sizeof(line),"%c %s",k==(int)e->tile_candidate?'>':' ',score_tile_label((TileKind)k)); text(px+8,py+8+k*16,line);
             }
         } else if(e->mode==EDIT_SOUND) {
-            text(px+8,py+8,"SOUND / GLOBAL");
+            snprintf(line,sizeof(line),"SOUND CH %d",e->sound_channel+1); text(px+8,py+8,line);
             static const char *groups[]={"WAVES","AMPLITUDE","MIX","PITCH","REVERB","BACK"};
             for(int i=0;i<6;i++) {
                 snprintf(line,sizeof(line),"%c %s",e->selected==i?'>':' ',groups[i]); text(px+8,py+28+i*16,line);
             }
         } else if(editor_sound_parent(e->mode)==EDIT_SOUND) {
-            const SoundSettings *s=&e->score.sound;
-            text(px+8,py+8,e->mode==EDIT_WAVES?"WAVES":e->mode==EDIT_AMPLITUDE?"AMPLITUDE":e->mode==EDIT_MIX?"MIX":"PITCH");
+            const SoundSettings *s=&e->score.sounds[e->sound_channel];
+            snprintf(line,sizeof(line),"%s CH %d",e->mode==EDIT_WAVES?"WAVES":e->mode==EDIT_AMPLITUDE?"AMPLITUDE":e->mode==EDIT_MIX?"MIX":"PITCH",e->sound_channel+1);
+            text(px+8,py+8,line);
             for(int i=0;i<2;i++) {
                 char marker=e->selected==i?'>':' ';
                 if(e->mode==EDIT_WAVES) snprintf(line,sizeof(line),"%c WAVE %c %s",marker,'A'+i,score_wave_name(i?s->wave_b:s->wave_a));
@@ -233,6 +237,10 @@ void render_frame(const Editor *e, int connected) {
             }
             text(px+8,py+94,e->pattern_cursor==e->value.period?"> APPLY":"  APPLY");
         } else {
+            if(sound_property) {
+                snprintf(line,sizeof(line),"SOUND CH %d",e->sound_channel+1); text(px+8,py+8,line);
+                py+=16;
+            }
             switch(e->mode) {
             case EDIT_BPM: snprintf(line,sizeof(line),"BPM %d",e->candidate); break;
             case EDIT_REVERB_SIZE: snprintf(line,sizeof(line),"SIZE %s",score_reverb_size(e->candidate)); break;
@@ -251,6 +259,7 @@ void render_frame(const Editor *e, int connected) {
             case EDIT_LOCK_ATTACK: snprintf(line,sizeof(line),"ATTACK %+d MS %s",e->value.attack,e->value.lock_mask&LOCK_ATTACK?"":"OFF"); break;
             case EDIT_LOCK_RELEASE: snprintf(line,sizeof(line),"RELEASE %+d MS %s",e->value.release,e->value.lock_mask&LOCK_RELEASE?"":"OFF"); break;
             case EDIT_LENGTH: snprintf(line,sizeof(line),"LANE LENGTH  %d",e->candidate); break;
+            case EDIT_CHANNEL: snprintf(line,sizeof(line),"CHANNEL %d",e->candidate+1); break;
             case EDIT_DIVISION: snprintf(line,sizeof(line),"DIVISION  1/%d",score_divisions[e->candidate]); break;
             case EDIT_PITCH: snprintf(line,sizeof(line),"PITCH  %s%d",score_note_name(e->value.pitch),e->value.pitch/12); break;
             case EDIT_DURATION: snprintf(line,sizeof(line),"NOTE LENGTH  %d.%02d",e->value.length/20,e->value.length%20*5); break;

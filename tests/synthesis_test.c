@@ -194,25 +194,28 @@ static void snapshots(void) {
     static Score score, updated;
     static Sequencer seq;
     score_init(&score); assert(!score_create(&score,0,0,1));
-    SoundSettings old={0,400,WAVE_SAW,WAVE_NOISE,23,97,-13,777,0};
-    assert(!score_set_sound(&score,old));
+    SoundSettings old={0,400,WAVE_SAW,WAVE_NOISE,23,97,-13,777,1};
+    assert(!score_set_sound(&score,0,old));
     TileValue lock=score_default(TILE_RELATIVE); lock.lock_mask=3; lock.attack=7; lock.release=-19;
     assert(!score_place_value(&score,1,0,lock));
     assert(!score_place_value(&score,1,1,score_default(TILE_NOTE)));
     NoteSink sink=reset(); sequencer_start(&seq,&score,sink,0); sequencer_service(&seq,0);
     SoundSettings resolved=old; resolved.attack=7; resolved.release=381;
     assert(!memcmp(&audio.voices[0].sound,&resolved,sizeof(resolved)));
+    assert(audio_reverb_mask(&audio)==3);
     SoundSettings fresh={0,600,WAVE_SQUARE,WAVE_TRIANGLE,0,500,24,1,0};
-    updated=score; assert(!score_set_sound(&updated,fresh));
+    updated=score; assert(!score_set_sound(&updated,7,fresh));
+    assert(!score_set_channel(&updated,0,7));
     assert(sequencer_resync(&seq,&updated,1));
     AudioTime next=SEQUENCER_HZ/8;
     sequencer_service(&seq,next);
     fresh.attack=7; fresh.release=581;
     assert(!memcmp(&audio.voices[0].sound,&resolved,sizeof(resolved)));
+    assert(audio_reverb_mask(&audio)==3);
     assert(!memcmp(&captured[0],&resolved,sizeof(resolved)));
     assert(!memcmp(&captured[1],&fresh,sizeof(fresh)));
     sink.stop(sink.context,next); sink.advance(sink.context,next+audio_ms(5));
-    assert(audio.idle_mask==AUDIO_IDLE_MASK && stopped==3);
+    assert(audio.idle_mask==AUDIO_IDLE_MASK && stopped==3 && !audio_reverb_mask(&audio));
     puts("PASS: amplitude locks preserve synthesis fields; sounding notes retain complete settings snapshots");
 }
 int main(void) { sweeps(); envelopes(); transients(); snapshots(); }

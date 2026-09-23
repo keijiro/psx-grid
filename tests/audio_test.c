@@ -70,7 +70,7 @@ static void locks(void) {
     assert(count==1 && events[0].sound.attack==35 && seq.runners[0].held_count==1);
     uint32_t random=seq.random; sequencer_service(&seq,1); assert(seq.random==random);
     // Snapshot values and base are immutable after committed editor changes.
-    assert(!score_set_sound(&score,(SoundSettings){999,999,WAVE_SINE,WAVE_SINE,0,0,0,200,0}));
+    assert(!score_set_sound(&score,0,(SoundSettings){999,999,WAVE_SINE,WAVE_SINE,0,0,0,200,0}));
     assert(!score_remove(&score,1,0)); sequencer_service(&seq,SEQUENCER_HZ/8);
     assert(events[1].sound.attack==35);
 }
@@ -138,7 +138,7 @@ static void voices(void) {
     sink.off(sink.context,audio_ms(8000),long_note);
     sink.advance(sink.context,audio_ms(24000)); assert(!audio.voices[0].active && !levels[0]);
     // Sequencer gate-offs carry the release captured at note-on.
-    base(2); score.sound=(SoundSettings){0,500,WAVE_SINE,WAVE_SINE,0,0,0,200,0}; put(1,0,score_default(TILE_NOTE)); put(2,0,relative(0,-500));
+    base(2); score.sounds[0]=(SoundSettings){0,500,WAVE_SINE,WAVE_SINE,0,0,0,200,0}; put(1,0,score_default(TILE_NOTE)); put(2,0,relative(0,-500));
     snapshot=score; sequencer_start(&seq,&snapshot,sink,0); sequencer_service(&seq,0);
     sequencer_service(&seq,SEQUENCER_HZ/8); assert(audio.voices[0].end==SEQUENCER_HZ/8+audio_ms(500));
     sequencer_stop(&seq,SEQUENCER_HZ/8); sequencer_service(&seq,SEQUENCER_HZ/8+audio_ms(5)); assert(!audio.voices[0].active);
@@ -158,8 +158,8 @@ static void model_editor(void) {
     assert(!score_apply_move(&score,score_plan_move(&score,1,0,3,0))); assert(score_at(&score,3,0).tile==id);
     snapshot=score; v.attack=16001; assert(score_edit(&score,id,v)==SCORE_INVALID && !memcmp(&score,&snapshot,sizeof(score)));
     v=relative(1,2); v.lock_mask=0; assert(score_edit(&score,id,v)==SCORE_INVALID);
-    assert(score_set_sound(&score,(SoundSettings){-1,0,WAVE_SINE,WAVE_SINE,0,0,0,200,0})==SCORE_INVALID);
-    assert(score_set_sound(&score,(SoundSettings){0,16001,WAVE_SINE,WAVE_SINE,0,0,0,200,0})==SCORE_INVALID);
+    assert(score_set_sound(&score,0,(SoundSettings){-1,0,WAVE_SINE,WAVE_SINE,0,0,0,200,0})==SCORE_INVALID);
+    assert(score_set_sound(&score,0,(SoundSettings){0,16001,WAVE_SINE,WAVE_SINE,0,0,0,200,0})==SCORE_INVALID);
     editor_init(&editor); assert(!score_create(&editor.score,0,0,2)); assert(!score_place(&editor.score,1,0,TILE_RELATIVE));
     editor.x=1; editor.y=0; editor.target=score_at(&editor.score,1,0).tile;
     editor.value=score_default(TILE_RELATIVE); editor.mode=EDIT_LOCK_ATTACK_ENABLE;
@@ -175,9 +175,9 @@ static void model_editor(void) {
         assert(!memcmp(&editor.score,&snapshot,sizeof(snapshot)));
     }
     editor.mode=EDIT_ATTACK; editor.sound_candidate=(SoundSettings){0,0,WAVE_SINE,WAVE_SINE,0,0,0,200,0};
-    editor_update(&editor,(InputFrame){.connected=1,.dy=-1,.cross=1}); assert(editor.score.sound.attack==100);
+    editor_update(&editor,(InputFrame){.connected=1,.dy=-1,.cross=1}); assert(editor.score.sounds[0].attack==100);
     editor.mode=EDIT_RELEASE; editor.sound_candidate=(SoundSettings){9,16000,WAVE_SINE,WAVE_SINE,0,0,0,200,0};
-    editor_update(&editor,(InputFrame){.connected=1,.circle=1}); assert(editor.score.sound.release==0);
+    editor_update(&editor,(InputFrame){.connected=1,.circle=1}); assert(editor.score.sounds[0].release==0);
     Input input; input_init(&input); input_update(&input,1,0);
     assert(input_update(&input,1,INPUT_START).start);
     for(int i=0;i<90;i++) assert(!input_update(&input,1,INPUT_START).start);
@@ -234,7 +234,7 @@ static void live_values(void) {
     Runner before=*runner(0); uint32_t random=seq.random;
     NoteOff saved[SEQUENCER_VOICES]; memcpy(saved,seq.offs,sizeof(saved));
     v.pitch=72; v.length=5; assert(!score_edit(&score,score_at(&score,2,0).tile,v));
-    assert(!score_set_sound(&score,(SoundSettings){23,41,WAVE_SINE,WAVE_SINE,0,0,0,200,0}));
+    assert(!score_set_sound(&score,0,(SoundSettings){23,41,WAVE_SINE,WAVE_SINE,0,0,0,200,0}));
     assert(!score_set_division(&score,0,32)); publish(2*step+1);
     assert(!memcmp(runner(0),&before,sizeof(before)) && seq.random==random);
     assert(!memcmp(saved,seq.offs,sizeof(saved)));
@@ -359,6 +359,64 @@ static void live_split(void) {
     sequencer_service(&seq,SEQUENCER_HZ/8);
     assert(!seq.slicing && count==2 && events[1].pitch==72 && events[1].sound.attack==68);
 }
+static void channels(void) {
+    AudioTime step=SEQUENCER_HZ/8;
+    base(2); assert(!score_set_division(&score,0,4)); put(1,0,relative(100,200));
+    for(int i=1;i<3;i++) {
+        assert(!score_create(&score,0,4*i,1)); put(1,4*i,score_default(TILE_NOTE));
+    }
+    SoundSettings second={20,30,WAVE_SQUARE,WAVE_NOISE,12,34,-5,67,1};
+    assert(!score_set_sound(&score,7,second)); assert(!score_set_channel(&score,2,7));
+    start(); assert(count==2 && events[0].sound.attack==105);
+    assert(!memcmp(&events[1].sound,&second,sizeof(second)));
+    sequencer_service(&seq,step); assert(count==4 && events[2].sound.attack==105);
+    assert(!memcmp(&events[3].sound,&second,sizeof(second)));
+    Runner saved=*runner(0); NoteOff gates[SEQUENCER_VOICES]; memcpy(gates,seq.offs,sizeof(gates));
+    assert(!score_set_channel(&score,0,7)); publish(step+1);
+    assert(!memcmp(&saved,runner(0),sizeof(saved)) && !memcmp(gates,seq.offs,sizeof(gates)));
+    sequencer_service(&seq,2*step);
+    assert(events[4].sound.attack==5 && events[5].sound.attack==120 && events[5].sound.release==230);
+    assert(events[5].sound.wave_a==WAVE_SQUARE && events[5].sound.reverb);
+    assert(!memcmp(&score.sounds[7],&second,sizeof(second)));
+    sequencer_service(&seq,4*step);
+    assert(events[count-1].sound.attack==20);
+
+    base(1); assert(!score_set_channel(&score,0,7)); assert(!score_set_sound(&score,7,second));
+    put(1,0,score_default(TILE_JUMP)); int branch=score.tiles[score_at(&score,1,0).tile].branch;
+    Lane b=score.lanes[branch]; assert(!score_resize(&score,branch,1));
+    put(b.x+1,b.y,score_default(TILE_JUMP));
+    int child=score.tiles[score_at(&score,b.x+1,b.y).tile].branch;
+    b=score.lanes[child]; put(b.x+1,b.y,relative(100,200)); put(b.x+1,b.y+1,score_default(TILE_NOTE));
+    start(); sequencer_service(&seq,step); sequencer_service(&seq,2*step);
+    assert(count==1 && events[0].sound.attack==120 && events[0].sound.wave_a==WAVE_SQUARE);
+
+    // A budget boundary must retain every working channel, and publication
+    // must wait until even the later runners have consumed the old bank.
+    base(1); for(int i=0;i<63;i++) put(1,i,relative(1,1)); put(1,63,score_default(TILE_NOTE));
+    assert(!score_create(&score,8,0,1)); put(9,0,score_default(TILE_NOTE));
+    assert(!score_create(&score,16,0,1)); put(17,0,score_default(TILE_NOTE));
+    assert(!score_set_channel(&score,2,7)); assert(!score_set_sound(&score,7,second));
+    snapshot=score; sequencer_start(&seq,&snapshot,trace,0); sequencer_service(&seq,0);
+    assert(seq.slicing && count==0);
+    assert(!score_set_channel(&score,0,7)); second.attack=200;
+    assert(!score_set_sound(&score,7,second)); updated=score;
+    Sequencer before=seq; assert(!sequencer_resync(&seq,&updated,0) && !memcmp(&before,&seq,sizeof(seq)));
+    sequencer_service(&seq,0); sequencer_service(&seq,0);
+    assert(!seq.slicing && count==3 && events[0].sound.attack==68 && events[1].sound.attack==68 && events[2].sound.attack==20);
+    assert(sequencer_resync(&seq,&updated,1));
+    for(int i=0;i<3;i++) sequencer_service(&seq,step);
+    assert(count==6 && events[3].sound.attack==263 && events[4].sound.attack==5 && events[5].sound.attack==263);
+
+    score_init(&score); count=off_count=slot=0;
+    for(int i=0;i<SCORE_LANES;i++) {
+        assert(!score_create(&score,0,3*i,1)); assert(!score_set_channel(&score,i,i%SCORE_CHANNELS));
+        SoundSettings sound=SOUND_DEFAULT; sound.attack=10+i%SCORE_CHANNELS;
+        assert(!score_set_sound(&score,i%SCORE_CHANNELS,sound)); put(1,3*i,score_default(TILE_NOTE));
+    }
+    start(); assert(seq.count==SCORE_LANES && count==SCORE_LANES);
+    for(int i=0;i<SCORE_LANES;i++) assert(events[i].sound.attack==10+i%SCORE_CHANNELS);
+    puts("PASS: channel isolation, shared held locks, reassignment continuity, nested branches, split publication and 16 lanes");
+}
 static void tempo_changes(void) {
     for(int bpm=SCORE_MIN_BPM;bpm<=SCORE_MAX_BPM;bpm++) {
         base(1); put(1,0,score_default(TILE_NOTE)); assert(!score_set_bpm(&score,bpm));
@@ -375,7 +433,7 @@ static void tempo_changes(void) {
     sequencer_service(&seq,old+old/2); assert(count==3 && offs[1]==old+old/2);
 }
 int main(void) {
-    tempo_changes(); timing(); locks(); gates_branches(); voices(); overload(); model_editor(); dense_and_rollback();
+    channels(); tempo_changes(); timing(); locks(); gates_branches(); voices(); overload(); model_editor(); dense_and_rollback();
     live_values(); live_holds(); live_lanes(); live_final_step(); live_gates(); live_branch(); live_split();
     printf("PASS: sequencer timing, locks, gates, branches, voices, overload, START and live resync; Score %zu, Sequencer %zu, Audio %zu bytes\n",sizeof(Score),sizeof(Sequencer),sizeof(Audio));
 }

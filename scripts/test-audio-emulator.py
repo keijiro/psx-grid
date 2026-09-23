@@ -24,7 +24,7 @@ result = subprocess.run(command, cwd=root, stdout=subprocess.PIPE, stderr=subpro
 log = result.stdout.decode(errors='replace')
 (output / f'audio-{configuration}-emulator.log').write_text(log)
 for line in log.splitlines():
-    if line.startswith(('AUDIO ', 'CAPTURE ', 'ENVELOPE ', 'DISPATCH ', 'LIVE ', 'WAVE ', 'SYNTH ', 'TRANSIENT ', 'TEMPO ', 'REVERB ')):
+    if line.startswith(('AUDIO ', 'CAPTURE ', 'ENVELOPE ', 'DISPATCH ', 'LIVE ', 'WAVE ', 'SYNTH ', 'TRANSIENT ', 'TEMPO ', 'REVERB ', 'CHANNEL ', 'RAM ')):
         print(line)
 if result.returncode or 'AUDIO FIXTURE COMPLETE' not in log:
     raise SystemExit(f'Fixture failed: exit {result.returncode}; see {output}')
@@ -47,7 +47,7 @@ for phase in ('stopped', 'final stop', 'pending stop', 'pending disconnect'):
     state = fields('AUDIO '+phase)
     # ADSR readback can lag in Redux's separate SPU thread. Every left/right
     # volume register at zero establishes silence independently of that value.
-    assert state['vol']==state['volumes']==0, state
+    assert state['vol']==state['volumes']==state['send']==0, state
 for pitch in (0,4,9):
     match = re.search(r'CAPTURE C'+str(pitch)+r' peak=(\d+)', log)
     assert match and 0 < int(match[1]) < 32767
@@ -136,12 +136,46 @@ assert len(reverbs)==3, reverbs
 assert len({row[1] for row in reverbs})==3, reverbs
 for row in reverbs:
     size,base,left,right,send,nonzero=map(int,row)
-    assert 0<base<0x80000 and left==right==16383 and send==0xffffff and nonzero>0, row
-assert re.findall(r'REVERB dry size=(\d+) send=0$',log,re.MULTILINE)==['0','1','2']
-assert re.findall(r'REVERB zero size=(\d+) left=0 right=0 send=16777215$',log,re.MULTILINE)==['0','1','2']
-print('PASS: BPM clock intervals, reverb work memory, live sound send and zero amount')
+    assert 0<base<0x80000 and left==right==16383 and send==3 and nonzero>0, row
+assert re.findall(r'REVERB held size=(\d+) send=3$',log,re.MULTILINE)==['0','1','2']
+assert re.findall(r'REVERB zero size=(\d+) left=0 right=0 send=3$',log,re.MULTILINE)==['0','1','2']
+print('PASS: BPM clock intervals, reverb work memory, captured pair send and zero amount')
 
 changes=re.findall(r'REVERB change size=(\d+) ticks=(\d+) cost=(\d+) interval=(\d+) playing=(\d+)',log)
 assert len(changes)==3, changes
 for size,ticks,cost,interval,playing in changes:
     assert int(cost)<=4233 and int(interval)<=4233 and int(playing)==1, (size,ticks,cost,interval,playing)
+
+# Read both halves of every logical pair from the actual SPU send registers.
+# Channel edits affect future starts while captured held/releasing settings
+# remain unchanged. Retirement and both lifecycle paths must clear old sends.
+for wet in (0,1):
+    rows=re.findall(r'^CHANNEL wet='+str(wet)+r' phase=(\w+) (.*)$',log,re.MULTILINE)
+    assert len(rows)==8, rows
+    states={phase:{key:int(value) for key,value in re.findall(r'(\w+)=(\d+)',values)}
+            for phase,values in rows}
+    other=0 if wet else 12
+    for phase in ('held','edited','release'):
+        state=states[phase]
+        assert state['send']==(3 if wet else 12) and state['count']==2, (wet,phase,state)
+        assert state['a']>0 and state['b']==512 and state['wave_a']!=state['wave_b'], (wet,phase,state)
+    for phase in ('retired','completed'):
+        assert states[phase]['send']==other and states[phase]['a']==0 and states[phase]['b']==512, (wet,phase,states[phase])
+    for phase in ('reuse','restart'):
+        state=states[phase]
+        assert state['send']==(0 if wet else 15) and state['a']==state['b']==512, (wet,phase,state)
+    assert states['reuse']['count']==3 and states['restart']['count']==2, states
+    assert states['stopped']['send']==states['stopped']['a']==states['stopped']['b']==0, states
+    assert all(state['left']==state['right']==16383 for state in states.values()), states
+match=re.search(r'^CHANNEL tail nonzero=(\d+) send=0 left=16383$',log,re.MULTILINE)
+assert match and int(match[1])>0, 'Dry reuse must preserve existing wet feedback'
+print('PASS: mixed-channel SPU sends, captured hold/release, reuse in both directions, wet feedback and stop/disconnect/restart')
+
+capacity=re.search(r'^CHANNEL capacity lanes=16 channels=8 pairs=12 send=(\d+)$',log,re.MULTILINE)
+assert capacity and int(capacity[1])==0xcccccc, 'Expected twelve mixed pairs across eight channels'
+for phase,count in (('channel capacity first',12),('channel capacity',24)):
+    state,dispatch=fields('AUDIO '+phase),fields('DISPATCH '+phase)
+    assert state['skipped']==state['steals']==state['overloads']==0, (phase,state)
+    assert state['cost']<=4233 and state['interval']<=4233, (phase,state)
+    assert dispatch['count']==count and 0<dispatch['peak']<=4233, (phase,dispatch)
+print('PASS: eight-channel sixteen-lane first/second-lap capacity and dispatch deadline')

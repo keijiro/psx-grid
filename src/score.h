@@ -4,6 +4,7 @@
 #define SCORE_WIDTH 128
 #define SCORE_HEIGHT 64
 #define SCORE_LANES 16
+#define SCORE_CHANNELS 8
 #define SCORE_STEPS 64
 #define SCORE_INITIAL_LENGTH 16
 #define SCORE_TILE_CAPACITY 4096
@@ -35,11 +36,12 @@ typedef struct { TileKind kind; int pitch, length, period, chance; uint32_t patt
     int lock_mask, attack, release;
 } TileValue;
 typedef struct { TileValue value; TileId next; int branch; } Tile;
-typedef struct { int active, x, y, length, division; TileId source, tiles[SCORE_STEPS]; } Lane;
+// Only regular lanes own a channel index; branches resolve it through source.
+typedef struct { int active, x, y, length, division, channel; TileId source, tiles[SCORE_STEPS]; } Lane;
 typedef struct {
     Lane lanes[SCORE_LANES];
     Tile tiles[SCORE_TILE_CAPACITY + 1];
-    SoundSettings sound;
+    SoundSettings sounds[SCORE_CHANNELS];
     int bpm;
     ReverbSettings reverb;
     uint32_t revision;
@@ -57,11 +59,13 @@ extern const int score_divisions[SCORE_DIVISIONS];
 void score_init(Score *score);
 ScoreResult score_set_bpm(Score *score, int bpm);
 ScoreResult score_set_reverb(Score *score, ReverbSettings reverb);
-ScoreResult score_set_sound(Score *score, SoundSettings sound);
+ScoreResult score_set_sound(Score *score, int channel, SoundSettings sound);
 Cell score_at(const Score *score, int x, int y);
 Cell score_resolve(const Score *score, int x, int y);
 TileValue score_default(TileKind kind);
 ScoreResult score_edit(Score *score, TileId id, TileValue value);
+int score_channel(const Score *score, int lane);
+ScoreResult score_set_channel(Score *score, int lane, int channel);
 int score_division(const Score *score, int lane);
 ScoreResult score_set_division(Score *score, int lane, int division);
 ScoreResult score_can_create(const Score *score, int x, int y, int length);

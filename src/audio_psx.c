@@ -42,7 +42,7 @@ static const uint16_t reverb_presets[3][32]={
 };
 #define REVERB_BASE 0x75000
 _Static_assert(WAVE_SPU_ADDRESS+sizeof(wave_data)<=REVERB_BASE,"Waves overlap reverb work area");
-static int reverb_size=-1, reverb_amount=-1, reverb_enabled=-1;
+static int reverb_size=-1, reverb_amount=-1;
 static void update_reverb(const Score *score) {
     if(reverb_size!=score->reverb.size) {
         static const uint32_t silence[256]={0};
@@ -62,13 +62,9 @@ static void update_reverb(const Score *score) {
         SPU_CTRL|=0x80;
         reverb_size=score->reverb.size; reverb_amount=-1;
     }
-    if(reverb_amount!=score->reverb.amount || reverb_enabled!=score->sound.reverb) {
-        reverb_amount=score->reverb.amount; reverb_enabled=score->sound.reverb;
-        // Sound is global: bypass applies immediately to held notes as well
-        // as new notes. Keep the network running so a bypassed tail decays.
-        SPU_REVERB_ON1=reverb_enabled?0xffff:0;
-        SPU_REVERB_ON2=reverb_enabled?0xff:0;
-        int level=reverb_enabled?reverb_amount*0x3fff/100:0;
+    if(reverb_amount!=score->reverb.amount) {
+        reverb_amount=score->reverb.amount;
+        int level=reverb_amount*0x3fff/100;
         SPU_REVERB_VOL_L=SPU_REVERB_VOL_R=level;
     }
 }
@@ -124,6 +120,13 @@ static void flush(void *ctx,uint32_t starts,uint32_t stops) {
         starts&=~(1u<<i); stops|=1u<<i; audio.voices[i].active=0; audio.idle_mask|=1u<<i;
         volume(NULL,i,0,0); late_starts++;
     }
+    // Flush is the sole runtime send-mask writer. Captured settings survive
+    // holds and release ramps; rejected starts and retired pairs contribute
+    // no bits. Recompute before key-on so reuse replaces both halves together.
+    // The main thread changes only the shared network and its wet return.
+    uint32_t sends=audio_reverb_mask(&audio);
+    SPU_REVERB_ON1=sends&0xffff;
+    SPU_REVERB_ON2=sends>>16;
     if(stops) SpuSetKey(0,hardware_mask(stops));
     if(starts) {
         SpuSetKey(1,hardware_mask(starts));
@@ -167,7 +170,7 @@ static void service(void) {
 }
 void audio_platform_init(void) {
     SpuInit();
-    reverb_size=reverb_amount=reverb_enabled=-1;
+    reverb_size=reverb_amount=-1;
     SpuSetCommonMasterVolume(0x3fff,0x3fff);
     SPU_FM_MODE1=SPU_FM_MODE2=SPU_NOISE_MODE1=SPU_NOISE_MODE2=0;
     SPU_REVERB_ON1=SPU_REVERB_ON2=0;
@@ -207,13 +210,18 @@ void audio_platform_update(const Score *score,int connected,int start) {
         snapshots[0]=*score;
         sequencer_start(&seq,&snapshots[0],audio_sink(&audio),0);
         EnterCriticalSection();
-        AudioTime now=read_clock();
         // Restart discards release tails. Zero their registers before reuse;
         // the regular stop path, in contrast, always completes its 5 ms ramp.
         for(int i=0;i<SEQUENCER_VOICES;i++) { audio.voices[i].active=0; volume(NULL,i,0,0); }
         SPU_KEY_OFF1=0xffff; SPU_KEY_OFF2=0xff;
-        audio.starts=audio.stops=0;
+        // Let interrupt flush retire every old send, including unused pairs.
+        // New starts remove their own stop bits through the normal allocator.
+        audio.starts=0; audio.stops=AUDIO_IDLE_MASK;
         audio.idle_mask=AUDIO_IDLE_MASK; audio.allocation_time=UINT64_MAX;
+        // Begin the timeline after restart preparation. Charging register
+        // cleanup to the first dispatch can drop an otherwise timely chord
+        // when all 16 runners begin together.
+        AudioTime now=read_clock();
         for(int i=0;i<seq.count;i++) seq.runners[i].next=now;
         audio_started=(uint32_t)now;
         audio_dispatch_peak=audio_note_count=audio_first_note=audio_last_note=late_starts=0;

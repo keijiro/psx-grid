@@ -1,5 +1,107 @@
 # Validation Record
 
+## Eight shared channels (2026-09-23)
+
+### Host model, playback and UI
+
+`./scripts/test.sh` passes with ASan and UBSan. Channel acceptance cases cover
+all eight defaults and assignment endpoints, invalid edits without mutation,
+shared and unused sound retention, nested branch inheritance, moving a Jump
+subtree, selector bounds/cancel, shared Sound and Reverb targets, and START /
+SELECT candidate handling. Sequencer checks exercise isolated sounds/locks,
+shared held locks across divisions, held-lock reassignment without runner or
+gate changes, nested branches, publication during a split slice, and 16 lanes
+using all eight channels. The synthesis driver retains a wet note's complete
+captured settings while future notes adopt a different dry channel.
+
+The renderer checks **295,187 frames**, with **24,848 / 32,768 bytes** peak
+packet usage and no overflow or screen escape. The channel-8 head menu,
+selector, Sound/submenu/property headings, Reverb editor, and inherited branch
+status were visually inspected in a [host raster contact sheet](captures/host-channels.png).
+These captures replay GPU packets; they do not establish actual GPU behavior.
+The full host log is `build/tests/channel-host.log`.
+
+### SPU and publication
+
+Both Debug and Release build with `AUDIO_FIXTURE=ON`. Expanded PCSX-Redux
+checks inspect the actual hardware pair-send masks for contrasting sounds on
+wet/dry channels, publication while notes are held, release retention,
+retirement, dry-to-wet and wet-to-dry slot reuse, stop, disconnect, and restart.
+A new dry note leaves nonzero Hall feedback memory and the wet return enabled;
+this establishes register/memory behavior, not the audible tail's quality.
+Channel assignment followed by a destination sound edit also passes the
+pending-publication coalescing case. Dense traversal uses all eight channels.
+
+Digital and analog input fixtures pass in both Debug and Release, including
+START/SELECT, delayed consumption, reconnection, and overloaded playback.
+Logs are `build/validation/channel-final-{debug,release}.log` and
+`build/validation/channel-input-{debug,release}-{digital,analog}.log`;
+the runners also retain their full raw logs under the usual audio/input names.
+
+### Capacity and timing
+
+The capacity fixture runs 16 regular lanes across eight channels with 12
+simultaneous notes, then checks the next lap after those notes retire. Both
+builds dispatch 12 notes per lap with zero steals, skips, or overloads and
+read back the expected alternating wet/dry pair mask `0xCCCCCC`. The separate
+4,096-tile case deliberately overloads the shared 12-note pool; it rejects
+late starts, remains bounded, accepts revisions, and clears sends/volumes on
+stop. Capacity limits do not imply that arbitrary dense scores meet 1 ms.
+
+| Measurement | Debug | Release |
+| --- | ---: | ---: |
+| C4 service cost | 0.167 ms | 0.167 ms |
+| C4 service interval | 0.299 ms | 0.298 ms |
+| Swept 12-note chord service cost, maximum | 0.599 ms | 0.599 ms |
+| Swept 12-note chord dispatch, maximum | 0.672 ms | 0.737 ms |
+| 16-lane / eight-channel service cost | 0.723 ms | 0.723 ms |
+| 16-lane / eight-channel service interval | 0.729 ms | 0.728 ms |
+| 16-lane / eight-channel dispatch | 0.744 ms | 0.803 ms |
+| Dense service cost, including live edits | 1.785 ms | 1.419 ms |
+| Dense service interval, including live edits | 1.791 ms | 1.425 ms |
+| Ordinary revision copy, maximum | 19.042 ms | 19.009 ms |
+| Dense revision copy, maximum | 25.453 ms | 25.385 ms |
+
+An earlier capacity run exposed phase-sensitive first-chord rejection in
+Debug. After the deadline-path fixes, capacity service cost decreased from
+3,632 to 3,060 ticks in Debug and from 3,415 to 3,060 in Release. The table
+records the final implementation; sampled ordinary dispatches meet the
+4,233-tick (1 ms) limit. Dense work remains below the 65,536-tick clock-wrap
+bound. Ordinary and dense publications are adopted 25/25 and 32/32 times.
+
+### Memory
+
+MIPS target-compiler sizes, compared with the pre-channel `HEAD` headers:
+
+| Allocation | Before | After | Increase |
+| --- | ---: | ---: | ---: |
+| Score | 199,208 | 199,524 | 316 bytes |
+| Sequencer | 7,288 | 7,536 | 248 bytes |
+| Editor, including its Score | 201,696 | 202,016 | 320 bytes |
+
+The editor score, model scratch score, and two publication snapshots total
+four Score copies. Their increase plus the Sequencer is **1,512 bytes**;
+including the editor's channel-target field makes **1,516 bytes**. Target
+measurements are in `build/validation/channel-ram/{before,after}.txt`.
+Host pointer/alignment sizes differ and are not the console RAM estimate.
+
+### Remaining manual checks
+
+The [channel walkthrough](usage.md#channel-walkthrough) remains unverified by
+listening or an interactive controller pass. A fresh computer-use attempt
+could bind and capture the idle Redux application, so the historical
+`Invalid app` error did not recur. However, menu interactions failed with
+`windowNotFoundAtPosition`; rebinding and launching the editor directly also
+produced `procNotFound`, without a controllable editor window. The launch log
+is `build/validation/channel-ui.log`. Host raster inspection and headless SIO
+injection do not establish actual display interaction or controller feel.
+
+Contrasting sounds, shared editing, branch inheritance, and mixed dry/wet
+audio have automated coverage above; subjective listening and physical-console
+SPU/display/controller checks remain unperformed. Earlier global-bypass
+results below describe the previous implementation and do not apply to the
+new per-note channel sends.
+
 ## Main menu, tempo and reverb (2026-09-23)
 
 Host ASan/UBSan checks pass, including menu apply/discard, Select during a

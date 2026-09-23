@@ -181,7 +181,7 @@ static void sound_controls(void) {
     };
     editor_init(&e); input_init(&input); frame(1,0);
     SoundSettings initial=SOUND_DEFAULT;
-    assert(!memcmp(&initial,&e.score.sound,sizeof(initial)));
+    assert(!memcmp(&initial,&e.score.sounds[0],sizeof(initial)));
     assert(!score_create(&e.score,1,1,4));
     for(unsigned i=0;i<sizeof(cases)/sizeof(*cases);i++) {
         action(ACTION_SOUND); assert(e.mode==EDIT_SOUND);
@@ -216,17 +216,17 @@ static void sound_controls(void) {
         assert(!memcmp(&before,&e.score,sizeof(before)));
         if(i%2) tap(INPUT_DOWN);
         tap(INPUT_CROSS);
-        assert(!memcmp(&e.sound_candidate,&e.score.sound,sizeof(initial)));
+        assert(!memcmp(&e.sound_candidate,&e.score.sounds[0],sizeof(initial)));
         *value=cases[i].max;
         SoundSettings expected=e.sound_candidate;
         tap(INPUT_CROSS); assert(e.mode==EDIT_PLANE);
-        assert(!memcmp(&expected,&e.score.sound,sizeof(expected)));
+        assert(!memcmp(&expected,&e.score.sounds[0],sizeof(expected)));
         assert(e.score.revision==before.revision+1);
         s=e.score;
         for(int boundary=0;boundary<2;boundary++) {
-            SoundSettings invalid=s.sound;
+            SoundSettings invalid=s.sounds[0];
             *(int *)((char *)&invalid+cases[i].offset)=boundary?cases[i].max+1:cases[i].min-1;
-            snapshot(); unchanged(score_set_sound(&s,invalid));
+            snapshot(); unchanged(score_set_sound(&s,0,invalid));
         }
     }
     action(ACTION_SOUND); tap(INPUT_CROSS); tap(INPUT_CIRCLE);
@@ -235,7 +235,7 @@ static void sound_controls(void) {
 }
 static void main_controls(void) {
     editor_init(&e); input_init(&input); frame(1,0);
-    assert(e.score.bpm==120 && e.score.reverb.size==1 && e.score.reverb.amount==30 && !e.score.sound.reverb);
+    assert(e.score.bpm==120 && e.score.reverb.size==1 && e.score.reverb.amount==30 && !e.score.sounds[0].reverb);
     tap(INPUT_SELECT); assert(e.mode==EDIT_MAIN);
     tap(INPUT_CROSS); assert(e.mode==EDIT_BPM && e.candidate==120);
     tap(INPUT_UP); tap(INPUT_RIGHT); assert(e.candidate==131 && e.score.bpm==120);
@@ -253,10 +253,10 @@ static void main_controls(void) {
     assert(!score_create(&e.score,1,1,4)); action(ACTION_SOUND);
     for(int j=0;j<4;j++) tap(INPUT_DOWN);
     tap(INPUT_CROSS); assert(e.mode==EDIT_SOUND_REVERB && !e.candidate);
-    tap(INPUT_RIGHT); tap(INPUT_CIRCLE); assert(!e.score.sound.reverb);
+    tap(INPUT_RIGHT); tap(INPUT_CIRCLE); assert(!e.score.sounds[0].reverb);
     for(int j=0;j<4;j++) tap(INPUT_DOWN);
     tap(INPUT_CROSS); tap(INPUT_RIGHT); tap(INPUT_CROSS);
-    assert(e.mode==EDIT_SOUND && e.score.sound.reverb);
+    assert(e.mode==EDIT_SOUND && e.score.sounds[0].reverb);
     tap(INPUT_SELECT); tap(INPUT_SELECT);
     frame(1,INPUT_CROSS); frame(1,INPUT_CROSS|INPUT_RIGHT); assert(e.mode==EDIT_MOVE);
     frame(1,INPUT_CROSS|INPUT_SELECT); assert(e.mode==EDIT_MAIN && !e.gesture && e.x==1);
@@ -267,6 +267,67 @@ static void main_controls(void) {
     unchanged(score_set_reverb(&s,(ReverbSettings){3,30}));
     unchanged(score_set_reverb(&s,(ReverbSettings){1,-1}));
     unchanged(score_set_reverb(&s,(ReverbSettings){1,101}));
-    SoundSettings invalid=s.sound; invalid.reverb=2; unchanged(score_set_sound(&s,invalid));
+    SoundSettings invalid=s.sounds[0]; invalid.reverb=2; unchanged(score_set_sound(&s,0,invalid));
 }
-int main(void) { model(); generations(); controls(); sound_controls(); main_controls(); puts("PASS: model transactions, properties, stacks, branches, capacity and input/editor gestures"); }
+static void channels(void) {
+    base(); SoundSettings initial=SOUND_DEFAULT;
+    for(int ch=0;ch<SCORE_CHANNELS;ch++) {
+        assert(!memcmp(&s.sounds[ch],&initial,sizeof(initial)));
+        assert(!score_set_channel(&s,0,ch)); assert(score_channel(&s,0)==ch);
+    }
+    snapshot();
+    unchanged(score_set_channel(&s,-1,0)); unchanged(score_set_channel(&s,SCORE_LANES,0));
+    unchanged(score_set_channel(&s,1,0)); unchanged(score_set_channel(&s,0,-1));
+    unchanged(score_set_channel(&s,0,SCORE_CHANNELS));
+    unchanged(score_set_sound(&s,-1,initial)); unchanged(score_set_sound(&s,SCORE_CHANNELS,initial));
+    assert(score_channel(&s,-1)==-1 && score_channel(&s,SCORE_LANES)==-1 && score_channel(&s,1)==-1);
+    assert(!score_place(&s,1,0,TILE_JUMP)); int branch=s.tiles[id(1,0)].branch;
+    Lane b=s.lanes[branch]; assert(!score_place(&s,b.x+1,b.y,TILE_JUMP));
+    int child=s.tiles[id(b.x+1,b.y)].branch;
+    assert(score_channel(&s,branch)==7 && score_channel(&s,child)==7);
+    snapshot(); unchanged(score_set_channel(&s,branch,1)); unchanged(score_set_channel(&s,child,1));
+    assert(!score_create(&s,40,0,4)); int other=score_at(&s,40,0).lane;
+    assert(!score_set_channel(&s,other,2));
+    assert(!score_apply_move(&s,score_plan_move(&s,1,0,41,0)));
+    assert(score_channel(&s,branch)==2 && score_channel(&s,child)==2);
+    SoundSettings custom=initial; custom.wave_a=WAVE_NOISE; custom.reverb=1;
+    assert(!score_set_sound(&s,2,custom)); assert(!score_set_channel(&s,0,2));
+    assert(!memcmp(&s.sounds[score_channel(&s,0)],&s.sounds[score_channel(&s,other)],sizeof(custom)));
+    assert(!score_delete(&s,other)); assert(!score_delete(&s,0));
+    assert(!memcmp(&s.sounds[2],&custom,sizeof(custom)));
+    assert(!score_create(&s,0,0,4)); assert(score_channel(&s,0)==0);
+    assert(!score_set_channel(&s,0,2)); assert(!memcmp(&s.sounds[2],&custom,sizeof(custom)));
+
+    editor_init(&e); input_init(&input); frame(1,0);
+    assert(!score_create(&e.score,1,1,4)); assert(!score_create(&e.score,20,1,4));
+    action(ACTION_CHANNEL); before=e.score;
+    tap(INPUT_LEFT); tap(INPUT_DOWN); assert(e.candidate==0);
+    for(int i=0;i<10;i++) tap(INPUT_UP);
+    tap(INPUT_RIGHT); assert(e.candidate==7);
+    tap(INPUT_START); assert(e.mode==EDIT_CHANNEL);
+    assert(!memcmp(&before,&e.score,sizeof(before)));
+    tap(INPUT_CIRCLE); tap(INPUT_CIRCLE); assert(e.mode==EDIT_PLANE);
+    assert(!memcmp(&before,&e.score,sizeof(before)));
+    action(ACTION_CHANNEL); tap(INPUT_UP); tap(INPUT_CROSS);
+    assert(score_channel(&e.score,0)==1 && e.score.revision==before.revision+1);
+    assert(!score_set_channel(&e.score,1,1));
+    action(ACTION_SOUND); assert(e.sound_channel==1);
+    tap(INPUT_CROSS); tap(INPUT_CROSS); assert(e.mode==EDIT_WAVE_A);
+    tap(INPUT_RIGHT); tap(INPUT_CROSS); assert(e.score.sounds[1].wave_a==WAVE_TRIANGLE);
+    assert(!memcmp(&e.score.sounds[0],&initial,sizeof(initial)));
+    e.x=20; action(ACTION_SOUND); assert(e.sound_channel==1);
+    tap(INPUT_CROSS); tap(INPUT_CROSS); assert(e.sound_candidate.wave_a==WAVE_TRIANGLE);
+    tap(INPUT_SELECT); assert(e.mode==EDIT_MAIN); tap(INPUT_SELECT);
+    action(ACTION_SOUND); for(int i=0;i<4;i++) tap(INPUT_DOWN);
+    tap(INPUT_CROSS); tap(INPUT_RIGHT); tap(INPUT_CROSS);
+    assert(e.score.sounds[1].reverb && !e.score.sounds[0].reverb);
+    tap(INPUT_SELECT); tap(INPUT_SELECT);
+    action(ACTION_CHANNEL); tap(INPUT_RIGHT); tap(INPUT_CROSS);
+    action(ACTION_SOUND); tap(INPUT_CROSS); tap(INPUT_CROSS);
+    assert(e.sound_channel==2 && !memcmp(&e.sound_candidate,&initial,sizeof(initial)));
+    tap(INPUT_SELECT); tap(INPUT_SELECT);
+    action(ACTION_CHANNEL); before=e.score; tap(INPUT_RIGHT); tap(INPUT_SELECT);
+    assert(e.mode==EDIT_MAIN && !memcmp(&before,&e.score,sizeof(before)));
+    puts("PASS: eight channels, transactional validation, nested inheritance, retention and shared editor targets");
+}
+int main(void) { model(); generations(); controls(); sound_controls(); main_controls(); channels(); puts("PASS: model transactions, properties, stacks, branches, capacity and input/editor gestures"); }

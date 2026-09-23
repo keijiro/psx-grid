@@ -103,11 +103,11 @@ static void tile_event(Sequencer *s,Runner *r,TileId t,AudioTime now) {
         uint32_t draw=random_next(s);
         if(v.chance==0 || (v.chance<100 && draw%100>=(unsigned)v.chance)) { s->cursor=0; return; }
     }
-    if(v.kind==TILE_RELATIVE) { lock(&s->working,v); r->held[r->held_count]=t; r->held_generation[r->held_count++]=s->score->tile_generation[t]; }
+    if(v.kind==TILE_RELATIVE) { lock(&s->working[s->score->lanes[r->origin].channel],v); r->held[r->held_count]=t; r->held_generation[r->held_count++]=s->score->tile_generation[t]; }
     if(v.kind==TILE_JUMP) s->jump=s->score->tiles[t].branch;
     if(v.kind==TILE_NOTE) {
         if(now-s->slice_at>SEQUENCER_HZ/1000) { s->skipped++; return; }
-        uint32_t token=s->sink.on(s->sink.context,s->slice_at,v.pitch,s->working);
+        uint32_t token=s->sink.on(s->sink.context,s->slice_at,v.pitch,s->working[s->score->lanes[r->origin].channel]);
         if(token) s->offs[token&31]=(NoteOff){s->slice_at+(AudioTime)(r->duration/20)*v.length,token};
     }
 }
@@ -147,7 +147,7 @@ static int slice(Sequencer *s,AudioTime now,int *budget) {
                 int h=s->held_index++;
                 TileId t=r->held[h];
                 if(r->held_generation[h]==s->score->tile_generation[t] && s->score->tiles[t].value.kind==TILE_RELATIVE)
-                    lock(&s->working,s->score->tiles[t].value);
+                    lock(&s->working[s->score->lanes[r->origin].channel],s->score->tiles[t].value);
             }
         }
         s->visiting=0; s->runner_index++;
@@ -163,7 +163,12 @@ void sequencer_service(Sequencer *s,AudioTime now) {
             if(at>now) break;
             if(work++==SEQUENCER_BUDGET) { s->overloads++; break; }
             offs_until(s,at);
-            s->slice_at=at; s->working=s->score->sound; s->slicing=1; s->runner_index=s->visiting=0;
+            // A split slice retains the whole bank, including locks from earlier
+            // runners. Branch traversal always uses the regular origin's channel.
+            // Typed copies avoid the SDK's bytewise memcpy in this deadline
+            // path now that the bank contains eight complete sounds.
+            for(int i=0;i<SCORE_CHANNELS;i++) s->working[i]=s->score->sounds[i];
+            s->slice_at=at; s->slicing=1; s->runner_index=s->visiting=0;
         }
         // Both time slices and tile visits are bounded. Dense stacks resume
         // from this exact cursor on later interrupts, including held-lock

@@ -6,7 +6,7 @@ const int score_divisions[] = {1,2,3,4,6,8,12,16,24,32,48,64};
 static Score scratch;
 static uint8_t occupied[SCORE_HEIGHT][SCORE_WIDTH];
 static int valid(const Score *s, int i) { return i >= 0 && i < SCORE_LANES && s->lanes[i].active; }
-void score_init(Score *s) { memset(s,0,sizeof(*s)); s->sound=SOUND_DEFAULT; s->bpm=120; s->reverb=REVERB_DEFAULT; }
+void score_init(Score *s) { memset(s,0,sizeof(*s)); for(int i=0;i<SCORE_CHANNELS;i++) s->sounds[i]=SOUND_DEFAULT; s->bpm=120; s->reverb=REVERB_DEFAULT; }
 TileValue score_default(TileKind k) { TileValue v = {k,48,20,4,50,1,0,0,0}; return v; }
 const char *score_note_name(int p) { static const char *n[]={"C","C#","D","D#","E","F","F#","G","G#","A","A#","B"}; return n[p%12]; }
 static int value_valid(TileValue v) {
@@ -31,6 +31,17 @@ int score_division(const Score *s, int i) {
         i=owner(s,s->lanes[i].source);
     }
     return 16;
+}
+int score_channel(const Score *s,int i) {
+    for(int n=0;n<SCORE_LANES && valid(s,i);n++) {
+        if(!s->lanes[i].source) return s->lanes[i].channel;
+        i=owner(s,s->lanes[i].source);
+    }
+    return -1;
+}
+ScoreResult score_set_channel(Score *s,int i,int channel) {
+    if(!valid(s,i) || s->lanes[i].source || channel<0 || channel>=SCORE_CHANNELS) return SCORE_INVALID;
+    s->lanes[i].channel=channel; s->revision++; return SCORE_OK;
 }
 ScoreResult score_set_division(Score *s,int i,int d) {
     if(!valid(s,i) || s->lanes[i].source) return SCORE_INVALID;
@@ -90,7 +101,7 @@ static int new_lane(Score *s,int x,int y,int n,TileId source) {
     for(int i=0;i<SCORE_LANES;i++) if(!valid(s,i)) {
         Lane *l=&s->lanes[i]; memset(l,0,sizeof(*l));
         s->lane_generation[i]=++s->generation;
-        l->active=1; l->x=x; l->y=y; l->length=n; l->division=16; l->source=source; return i;
+        l->active=1; l->x=x; l->y=y; l->length=n; l->division=16; l->channel=source?-1:0; l->source=source; return i;
     }
     return -1;
 }
@@ -221,11 +232,12 @@ ScoreResult score_set_reverb(Score *s,ReverbSettings reverb) {
     if(reverb.size<0 || reverb.size>2 || reverb.amount<0 || reverb.amount>100) return SCORE_INVALID;
     s->reverb=reverb; s->revision++; return SCORE_OK;
 }
-ScoreResult score_set_sound(Score *s,SoundSettings sound) {
+ScoreResult score_set_sound(Score *s,int channel,SoundSettings sound) {
+    if(channel<0 || channel>=SCORE_CHANNELS) return SCORE_INVALID;
     if(sound.reverb<0 || sound.reverb>1) return SCORE_INVALID;
     if(sound.attack<0 || sound.attack>SOUND_MAX_MS || sound.release<0 || sound.release>SOUND_MAX_MS) return SCORE_INVALID;
     if(sound.wave_a<0 || sound.wave_a>=WAVE_COUNT || sound.wave_b<0 || sound.wave_b>=WAVE_COUNT ||
         sound.mix_attack<0 || sound.mix_attack>SOUND_MAX_MIX_MS || sound.mix_release<0 || sound.mix_release>SOUND_MAX_MIX_MS ||
         sound.sweep<-SOUND_MAX_SWEEP || sound.sweep>SOUND_MAX_SWEEP || sound.decay<0 || sound.decay>SOUND_MAX_DECAY_MS) return SCORE_INVALID;
-    s->sound=sound; s->revision++; return SCORE_OK;
+    s->sounds[channel]=sound; s->revision++; return SCORE_OK;
 }

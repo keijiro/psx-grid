@@ -41,9 +41,9 @@ the lane by one step. Occupied cells are never overwritten.
 | Note | Pitch C0–C9, initially C4; length 0.25–64 steps, initially 1 |
 | Cycle gate | Period 2–32, initially 4; pattern with only lap 1 enabled |
 | Probability gate | Chance 0–100%, initially 50% |
-| Regular head (`L`) | Length, step division, global Sound settings, delete lane |
+| Regular head (`L`) | Length, step division, channel, shared Sound settings, delete lane |
 | Relative Lock | Separate Attack/Release enable switches and signed millisecond offsets; both disabled initially |
-| Branch head (`B`) | Length, delete lane; division inherited from its source |
+| Branch head (`B`) | Length, delete lane; division and channel inherited from its source |
 | Jump | Copy stack, delete tile; destination is its own branch |
 
 New notes remember the pitch and length of the last confirmed note placement
@@ -77,8 +77,8 @@ Collision, boundary, and capacity failures leave the score unchanged. Shortening
 a lane cannot discard occupied trailing steps.
 
 Division denominators are `1, 2, 3, 4, 6, 8, 12, 16, 24, 32, 48, 64`, initially
-16. Auditioning, effects, channel/tempo selection, absolute locks,
-saving, loading, and undo are outside this milestone.
+16. Auditioning, the Channel Panel (including Solo, Mute, and Swap),
+absolute locks, saving, loading, and undo are outside this milestone.
 
 ## Playback and sound
 
@@ -87,8 +87,8 @@ property edit or move. It never repeats while held. Playback starts at step
 zero with lap zero on every regular lane; branches have no independent runner.
 Stopping silences voices with a short ramp. Starting again restarts the score.
 
-Committed score and global sound edits are published during playback, after
-any time slice already being processed has finished. Notes, gates, jumps, and
+Committed score, channel assignment, and channel sound edits are published
+during playback, after any time slice already being processed has finished. Notes, gates, jumps, and
 new locks use the updated contents when their steps are next read; a held
 lock uses its updated value on subsequent slices until its step ends. Deleted
 locks stop contributing after publication. Unconfirmed property candidates
@@ -118,8 +118,9 @@ Tempo defaults to 120 BPM and can be set from 30 to 300 BPM in the main menu.
 A step lasts 240,000 / BPM / division milliseconds: at 120 BPM, sixteen steps
 at division 16 make a two-second loop. Notes keep
 their written gate lengths and overlap across steps. Release begins at gate-off,
-even if Attack is still in progress. Up to 12 notes share one logical
-sound channel, using a fixed pair of SPU voices per note. Extreme density may steal voices or skip overdue notes.
+even if Attack is still in progress. All eight channels share a pool of up to
+12 notes, using a fixed pair of SPU voices per note. Extreme density may steal
+voices or skip overdue notes.
 
 A reached Jump selects the next step from its branch, after finishing the
 current stack. The last reached Jump wins. Any terminator returns the runner
@@ -136,14 +137,28 @@ returns without applying.
 `REVERB` provides `SIZE` (Small, Medium, Large; initially Medium) and `AMOUNT`
 (0–100%; initially 30%). Amount uses Left/Right for 1% and Up/Down for 10%.
 Cross applies each setting and returns to the Reverb menu; Circle discards it.
-The sound remains dry until `SOUND > REVERB` is enabled. This global switch
-immediately affects held and new notes. Amount controls the wet level while
-preserving the dry sound. Changing Size clears the previous reverb tail;
+Each channel remains dry until its `SOUND > REVERB` is enabled. This setting
+is captured by future notes after publication; held notes and release tails
+keep their captured send choice. Dry notes do not mute wet notes or the shared
+effect tail. Global Amount controls the wet return while preserving dry sound.
+Changing Size clears the previous reverb tail;
 ordinary stopping lets the tail decay. Reverb settings also apply when stopped.
 
-Open `SOUND` on any regular head to edit the **global** sound through four
-submenus and a `REVERB` on/off field (initially Off). Cross applies an individual candidate; Circle discards it and returns
-to its submenu. `BACK` or Circle returns from a submenu to `SOUND`.
+Open `CHANNEL` on a regular head to select channel 1–8 (initially 1).
+Left/Down decrements and Right/Up increments, stopping at either endpoint.
+Cross applies; Circle discards. Selection does not copy or reset sounds.
+All eight configurations persist even when no lane uses them. Branches,
+including nested branches, inherit their origin regular lane's channel;
+moving a Jump subtree to another lane changes that inheritance. The plane
+status shows the effective channel on heads, steps, tiles, and branches.
+
+Open `SOUND` on a regular head to edit its channel's shared sound through four
+submenus and a `REVERB` on/off field (initially Off). Cross applies an individual
+candidate; Circle discards it and returns to its submenu. `BACK` or Circle returns from a submenu to `SOUND`.
+Headings retain the channel number throughout editing. Heads assigned to the
+same channel edit the same settings; changing assignment and reopening Sound
+shows the destination channel's settings. Lane divisions, lengths, positions,
+and lap counts remain independent.
 
 | Submenu | Controls | Range | Initial value |
 | --- | --- | --- | --- |
@@ -172,17 +187,20 @@ All settings are captured at note-on. Published edits affect future notes;
 existing notes keep their complete sound. Automated synthesis checks and
 remaining listening/controller checks are recorded in [validation.md](validation.md).
 
-Relative Locks affect only Amp Attack and Amp Release, adding signed offsets from -16,000 to +16,000 ms. Enable a target
-before changing its offset. Enabled zero is distinct from disabled; disabling
+Relative Locks affect only Amp Attack and Amp Release, adding signed offsets
+from -16,000 to +16,000 ms. Enable a target before changing its offset. Enabled zero is distinct from disabled; disabling
 clears the offset. Both targets may be enabled in one tile (`A` and `R` labels).
 
 Runners execute by their original heads, top to bottom, then left to right.
-Within each stack, locks affect notes below them and subsequent lower runners.
+Within each stack, locks affect notes below them and subsequent lower runners
+on the same channel. Other channels are unaffected.
 Each addition clamps immediately to 0–16,000 ms. The reached locks remain held
 until that runner's next step; an empty step clears them. Faster lower lanes
-hear a slower upper lane's held locks. Notes already sounding retain their
-original Attack and Release, and the global base settings never accumulate
-lock changes.
+on the same channel hear a slower upper lane's held locks. Notes already
+sounding retain their original Attack and Release, and base channel settings never accumulate
+lock changes. After a published channel reassignment, still-held locks apply
+to the new channel on the next slice and stop contributing to the old one.
+Assignment and sound edits preserve runner positions, laps, and scheduled gates.
 
 ## Walkthrough
 
@@ -214,3 +232,28 @@ The source marker is clamped to a viewport edge when it scrolls out of view.
    step empty to hear the lock expire back to the base settings.
 5. Try Cycle and Probability Gates above the lock, then a Jump to a branch.
    Stop/start to compare the same seeded traversal.
+
+## Channel walkthrough
+
+1. Create two regular lanes and put notes in both. Leave the first on channel
+   1 and use the second head's `CHANNEL` selector to assign channel 8.
+2. Set channel 1's Wave A/B to Sine and channel 8's Wave A/B to Square. Start
+   playback and compare the two sounds. While playing, change the second
+   lane's assignment and confirm that its next notes change without restarting.
+3. Assign both heads to channel 8. Edit Amp Release through one head and
+   reopen Sound through the other; both should show the same value. Cancel
+   a channel candidate and verify that its assignment remains unchanged.
+4. Add a Jump and a nested Jump. Inspect the branch status for `CH 8`, then
+   move the first Jump to a lane on channel 1 and check both descendants.
+5. On channel 8, put an enabled +100 ms Attack lock above a note in a slow
+   lane. Compare a faster lane on channel 8 with one on channel 1. Reassign
+   the slow lane while its lock is held; the lock should follow its channel
+   on the next slice, without changing notes already sounding.
+6. Enable Reverb only on channel 8, set global Amount to an audible level,
+   and play both channels. Toggle that channel's Reverb during a long note:
+   the held note keeps its send, future notes use the new setting, and dry
+   notes should not cut off the existing wet tail. Stop and listen to the
+   shared tail decay.
+
+This listening/controller walkthrough complements the automated checks;
+completion and any remaining gaps are recorded in [validation.md](validation.md).

@@ -40,7 +40,7 @@ typedef struct {
     int count, playing;
     uint32_t random, skipped, overloads;
     AudioTime slice_at;
-    SoundSettings working;
+    SoundSettings working[SCORE_CHANNELS];
     int slicing, runner_index, visiting, held_index, jump;
     TileId cursor;
 } Sequencer;

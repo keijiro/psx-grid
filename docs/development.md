@@ -104,14 +104,29 @@ provenance and licensing live with the [editable sources](../assets/ui/README.md
 Visual study results and remaining acceptance checks are in
 [validation.md](validation.md).
 
+## Channel model
+
+The score contains eight shared sound configurations, independently of its
+16 lane slots and 12-note voice pool. Regular lanes store zero-based channel
+indices; branch channel lookup follows Jump ancestry. Assignments and sound
+edits use the same revision/publication boundary as tile edits. The sequencer
+resolves playback from each runner's regular origin and maintains a working
+sound bank per slice, with ordered Relative Locks confined to that channel.
+The editor captures the selected channel when opening Sound; tempo and reverb
+Size/Amount remain global. See [usage.md](usage.md) for selection and editing.
+
 ## Synthesis contract
 
 Each logical note owns a fixed pair of hardware voices throughout its lifetime.
 The portable driver passes a root bank and captured wave choices at start,
 then paired gains and a shared pitch register without retriggering. Flush masks
 use logical slots; the platform expands them to hardware pairs. Gate tokens and
-pending gate-offs address logical notes. Relative Locks change only amplitude
-attack/release; the remaining captured settings pass through unchanged.
+pending gate-offs address logical notes. Each note also captures its reverb
+send for both hardware voices. One shared network uses global Size/Amount;
+channel sound publication affects future notes, while held/releasing notes
+retain their sends and the shared wet return remains independent of them.
+Relative Locks change only amplitude attack/release; the remaining captured
+settings pass through unchanged.
 
 Asset generation retains ten octave-root banks and selects one bank for the
 whole clamped sweep trajectory. Generated control tables implement normalized
@@ -141,6 +156,9 @@ python3 scripts/test-audio-emulator.py release
 The runner uses PCSX-Redux's headless test mode in isolated directories under
 `build/validation`. It logs service cost/intervals, actual key-on lateness,
 SPU decoded-buffer peaks, envelope register timing, and dense-score overload.
+Channel checks read the actual pair-send registers during mixed wet/dry
+playback, publication, release, reuse, stop, disconnect, and restart. They
+also check 16 runners with 12 simultaneous notes across all eight channels.
 The fixture's exit port is emulator-specific; use `psx-grid.exe` on hardware.
 A completed fixture is not a substitute for the listening/controller walkthrough.
 

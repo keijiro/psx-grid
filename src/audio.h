@@ -33,6 +33,7 @@ typedef struct {
 AudioTime audio_ms(int ms);
 void audio_init(Audio *audio, AudioDriver driver);
 NoteSink audio_sink(Audio *audio);
+uint32_t audio_reverb_mask(const Audio *audio);
 // Platform lifecycle and live publication. Call update regularly on the main
 // thread, even without input, to publish edits coalesced behind a pending score.
 void audio_platform_init(void);

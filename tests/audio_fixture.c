@@ -29,11 +29,12 @@ static void report(const char *phase) {
         audio_skipped_notes,audio_overloads,SPU_CH_ADSR_VOL(0),SPU_CH_VOL_L(0),
         audio_dispatch_peak,audio_note_count,audio_last_note-audio_first_note};
     unsigned volumes=0;
+    unsigned sends=(unsigned)SPU_REVERB_ON1|((unsigned)SPU_REVERB_ON2<<16);
     for(int i=0;i<AUDIO_HARDWARE_VOICES;i++) volumes|=SPU_CH_VOL_L(i)|SPU_CH_VOL_R(i);
     audio_service_peak=audio_interval_peak=0;
     ExitCriticalSection();
-    log_message("AUDIO %s: calls=%u cost=%u interval=%u steals=%u skipped=%u overloads=%u env=%u vol=%u volumes=%u\n",
-        phase,(unsigned)v[0],(unsigned)v[1],(unsigned)v[2],(unsigned)v[3],(unsigned)v[4],(unsigned)v[5],(unsigned)v[6],(unsigned)v[7],volumes);
+    log_message("AUDIO %s: calls=%u cost=%u interval=%u steals=%u skipped=%u overloads=%u env=%u vol=%u volumes=%u send=%u\n",
+        phase,(unsigned)v[0],(unsigned)v[1],(unsigned)v[2],(unsigned)v[3],(unsigned)v[4],(unsigned)v[5],(unsigned)v[6],(unsigned)v[7],volumes,sends);
     log_message("DISPATCH %s: peak=%u count=%u span=%u\n",phase,(unsigned)v[8],(unsigned)v[9],(unsigned)v[10]);
 }
 static void frames(int count) {
@@ -92,19 +93,18 @@ static void stop_pending(int disconnect) {
 }
 static void coalesce_revision(void) {
     int pending=0,deferred=0;
-    TileId tile=editor.score.lanes[0].tiles[0];
     for(int i=0;i<32 && !pending;i++) {
-        TileValue value=editor.score.tiles[tile].value;
-        value.pitch=value.pitch==48?55:48;
-        score_edit(&editor.score,tile,value);
+        int channel=(editor.score.lanes[0].channel+1)%SCORE_CHANNELS;
+        score_set_channel(&editor.score,0,channel);
         audio_platform_update(&editor.score,1,0);
         uint16_t mask=IRQ_MASK;
         IRQ_MASK=mask&~(1u<<IRQ_TIMER0);
         uint32_t before=audio_platform_revision();
         pending=before!=editor.score.revision;
         if(pending) {
-            value.pitch=value.pitch==48?55:48;
-            score_edit(&editor.score,tile,value);
+            SoundSettings sound=editor.score.sounds[channel];
+            sound.reverb=!sound.reverb;
+            score_set_sound(&editor.score,channel,sound);
             audio_platform_update(&editor.score,1,0);
             deferred=audio_platform_revision()==before;
         }
@@ -122,7 +122,7 @@ static void synthesis_checks(void) {
     for(int wave=0;wave<WAVE_COUNT;wave++) {
         score_init(&editor.score); score_create(&editor.score,0,0,1);
         score_set_division(&editor.score,0,1);
-        score_set_sound(&editor.score,(SoundSettings){0,5,wave,wave,0,0,0,200,0});
+        score_set_sound(&editor.score,0,(SoundSettings){0,5,wave,wave,0,0,0,200,0});
         TileValue note=score_default(TILE_NOTE); note.length=1280;
         for(int i=0;i<SEQUENCER_VOICES;i++) score_place_value(&editor.score,1,i,note);
         audio_platform_update(&editor.score,1,1); frames(12);
@@ -142,7 +142,7 @@ static void synthesis_checks(void) {
     for(int sign=-1;sign<=1;sign+=2) {
         score_init(&editor.score); score_create(&editor.score,0,0,1);
         score_set_division(&editor.score,0,1);
-        score_set_sound(&editor.score,(SoundSettings){0,500,WAVE_SAW,WAVE_SQUARE,100,100,sign*24,200,0});
+        score_set_sound(&editor.score,0,(SoundSettings){0,500,WAVE_SAW,WAVE_SQUARE,100,100,sign*24,200,0});
         TileValue note=score_default(TILE_NOTE); note.length=1280;
         for(int i=0;i<SEQUENCER_VOICES;i++) score_place_value(&editor.score,1,i,note);
         audio_platform_update(&editor.score,1,1);
@@ -176,7 +176,7 @@ static void transient_checks(void) {
     for(int trial=0;trial<16;trial++) {
         score_init(&editor.score); score_create(&editor.score,0,0,1);
         score_set_division(&editor.score,0,1);
-        score_set_sound(&editor.score,(SoundSettings){0,5,WAVE_SINE,WAVE_NOISE,0,1,24,1,0});
+        score_set_sound(&editor.score,0,(SoundSettings){0,5,WAVE_SINE,WAVE_NOISE,0,1,24,1,0});
         TileValue note=score_default(TILE_NOTE); note.length=1280;
         score_place_value(&editor.score,1,0,note);
         audio_platform_update(&editor.score,1,1);
@@ -200,6 +200,95 @@ static void transient_checks(void) {
     }
     log_message("TRANSIENT trials=16 initial=%u completed=%u pending=%u errors=%u\n",initial,completed,pending,errors);
 }
+static unsigned reverb_mask(void) {
+    return (unsigned)SPU_REVERB_ON1|((unsigned)SPU_REVERB_ON2<<16);
+}
+static void channel_sample(int wet,const char *phase) {
+    EnterCriticalSection();
+    unsigned mask=reverb_mask(),a=SPU_CH_VOL_L(0),b=SPU_CH_VOL_L(2);
+    unsigned wave_a=SPU_CH_LOOP_ADDR(0),wave_b=SPU_CH_LOOP_ADDR(2);
+    unsigned count=audio_note_count,left=SPU_REVERB_VOL_L,right=SPU_REVERB_VOL_R;
+    ExitCriticalSection();
+    log_message("CHANNEL wet=%d phase=%s send=%u a=%u b=%u wave_a=%u wave_b=%u count=%u left=%u right=%u\n",
+        wet,phase,mask,a,b,wave_a,wave_b,count,left,right);
+}
+static void channel_wait(int ms) {
+    while(audio_platform_time()-audio_started<audio_ms(ms)) {}
+}
+static void channel_checks(void) {
+    log_message("RAM score=%u sequencer=%u editor=%u\n",
+        (unsigned)sizeof(Score),(unsigned)sizeof(Sequencer),(unsigned)sizeof(Editor));
+    for(int wet=0;wet<=1;wet++) {
+        score_init(&editor.score);
+        for(int i=0;i<2;i++) {
+            score_create(&editor.score,i*6,0,4);
+            score_set_division(&editor.score,i,4);
+            score_set_channel(&editor.score,i,i);
+            SoundSettings sound=SOUND_DEFAULT;
+            sound.attack=0; sound.release=400; sound.reverb=i?!wet:wet;
+            sound.mix_attack=sound.mix_release=0;
+            sound.wave_a=sound.wave_b=i?WAVE_SQUARE:WAVE_SAW;
+            score_set_sound(&editor.score,i,sound);
+            TileValue note=score_default(TILE_NOTE); note.length=i?1280:8;
+            score_place_value(&editor.score,i*6+1,0,note);
+            if(!i) score_place_value(&editor.score,3,0,note);
+        }
+        score_set_reverb(&editor.score,(ReverbSettings){2,100});
+        audio_platform_update(&editor.score,1,1);
+        channel_wait(100); channel_sample(wet,"held");
+        SoundSettings sound=editor.score.sounds[0];
+        sound.reverb=!wet; sound.release=0;
+        score_set_sound(&editor.score,0,sound);
+        audio_platform_update(&editor.score,1,0);
+        channel_wait(150); channel_sample(wet,"edited");
+        channel_wait(300); channel_sample(wet,"release");
+        channel_wait(700); channel_sample(wet,"retired");
+        channel_wait(1100); channel_sample(wet,"reuse");
+        // A dry replacement must not erase the shared effect's feedback
+        // memory or mute its return. This is a device-memory check, not proof
+        // of the subjective decay heard at the final output.
+        if(wet) {
+            unsigned nonzero=0,base=(unsigned)SPU_REVERB_ADDR*8;
+            for(unsigned address=base;address<0x80000;address+=sizeof(capture)) {
+                unsigned bytes=0x80000-address; if(bytes>sizeof(capture)) bytes=sizeof(capture);
+                SpuSetTransferStartAddr(address); SpuRead(capture,bytes);
+                SpuIsTransferCompleted(SPU_TRANSFER_WAIT);
+                for(unsigned i=0;i<bytes/sizeof(capture[0]);i++) nonzero+=capture[i]!=0;
+            }
+            log_message("CHANNEL tail nonzero=%u send=%u left=%u\n",nonzero,reverb_mask(),(unsigned)SPU_REVERB_VOL_L);
+        }
+        channel_wait(1300); channel_sample(wet,"completed");
+        audio_platform_update(&editor.score,wet?0:1,wet?0:1);
+        // Trial zero exercises transport stop; trial one disconnects.
+        frames(2); channel_sample(wet,"stopped");
+        audio_platform_update(&editor.score,1,1); frames(4);
+        channel_sample(wet,"restart");
+        audio_platform_update(&editor.score,0,0); frames(2);
+    }
+    score_init(&editor.score);
+    for(int i=0;i<SCORE_LANES;i++) {
+        score_create(&editor.score,i*6,0,1);
+        score_set_channel(&editor.score,i,i%SCORE_CHANNELS);
+        score_set_division(&editor.score,i,1);
+        SoundSettings sound=SOUND_DEFAULT; sound.reverb=i%2;
+        sound.attack=sound.release=sound.mix_attack=sound.mix_release=0;
+        sound.wave_a=sound.wave_b=i%WAVE_COUNT;
+        score_set_sound(&editor.score,i%SCORE_CHANNELS,sound);
+        TileValue note=score_default(TILE_NOTE); note.length=10;
+        if(i<SEQUENCER_VOICES) score_place_value(&editor.score,i*6+1,0,note);
+    }
+    audio_service_peak=audio_interval_peak=0;
+    audio_platform_update(&editor.score,1,1); channel_wait(100);
+    report("channel capacity first");
+    channel_wait(2100);
+    unsigned active=0;
+    for(int i=0;i<AUDIO_HARDWARE_VOICES;i+=2)
+        active+=SPU_CH_VOL_L(i)+SPU_CH_VOL_L(i+1)==AUDIO_LEVEL;
+    log_message("CHANNEL capacity lanes=%d channels=%d pairs=%u send=%u\n",
+        SCORE_LANES,SCORE_CHANNELS,active,reverb_mask());
+    report("channel capacity");
+    audio_platform_update(&editor.score,0,0); frames(2);
+}
 static void menu_audio_checks(void) {
     for(int bpm=60;bpm<=240;bpm*=4) {
         score_init(&editor.score); score_create(&editor.score,0,0,1);
@@ -215,8 +304,8 @@ static void menu_audio_checks(void) {
         score_set_division(&editor.score,0,1);
         TileValue note=score_default(TILE_NOTE); note.length=1280;
         score_place_value(&editor.score,1,0,note);
-        SoundSettings sound=editor.score.sound; sound.reverb=1;
-        score_set_sound(&editor.score,sound);
+        SoundSettings sound=editor.score.sounds[0]; sound.reverb=1;
+        score_set_sound(&editor.score,0,sound);
         score_set_reverb(&editor.score,(ReverbSettings){size,100});
         audio_platform_update(&editor.score,1,1); frames(60);
         // Read the effect work area through SPU DMA. Nonzero feedback memory
@@ -231,11 +320,11 @@ static void menu_audio_checks(void) {
         log_message("REVERB size=%d base=%u left=%u right=%u send=%u nonzero=%u\n",size,base,
             (unsigned)SPU_REVERB_VOL_L,(unsigned)SPU_REVERB_VOL_R,
             (unsigned)SPU_REVERB_ON1|((unsigned)SPU_REVERB_ON2<<16),nonzero);
-        sound.reverb=0; score_set_sound(&editor.score,sound);
+        sound.reverb=0; score_set_sound(&editor.score,0,sound);
         audio_platform_update(&editor.score,1,0); frames(4);
-        log_message("REVERB dry size=%d send=%u\n",size,
+        log_message("REVERB held size=%d send=%u\n",size,
             (unsigned)SPU_REVERB_ON1|((unsigned)SPU_REVERB_ON2<<16));
-        sound.reverb=1; score_set_sound(&editor.score,sound);
+        sound.reverb=1; score_set_sound(&editor.score,0,sound);
         score_set_reverb(&editor.score,(ReverbSettings){size,0});
         audio_platform_update(&editor.score,1,0); frames(4);
         log_message("REVERB zero size=%d left=%u right=%u send=%u\n",size,
@@ -295,7 +384,7 @@ int main(void) {
     for(int i=0;i<4;i++) {
         score_init(&editor.score); score_create(&editor.score,0,0,1);
         score_set_division(&editor.score,0,1);
-        score_set_sound(&editor.score,(SoundSettings){times[i],times[i],WAVE_SINE,WAVE_SINE,0,0,0,200,0});
+        score_set_sound(&editor.score,0,(SoundSettings){times[i],times[i],WAVE_SINE,WAVE_SINE,0,0,0,200,0});
         TileValue note=score_default(TILE_NOTE); note.length=5;
         score_place_value(&editor.score,1,0,note); audio_platform_update(&editor.score,1,1);
         uint32_t peak=0,zero=0; AudioTime gate=SEQUENCER_HZ/2;
@@ -312,6 +401,7 @@ int main(void) {
     synthesis_checks();
     transient_checks();
     menu_audio_checks();
+    channel_checks();
     // Valid worst-density score: 16 disjoint four-step lanes, each with
     // 64-deep stacks, filling all 4096 slots. No allocation or model shortcut
     // is used by playback; construction alone bypasses slow UI transactions.
@@ -319,7 +409,7 @@ int main(void) {
     TileId id=1;
     for(int i=0;i<16;i++) {
         Lane *lane=&editor.score.lanes[i];
-        *lane=(Lane){.active=1,.x=i*6,.y=0,.length=4,.division=64};
+        *lane=(Lane){.active=1,.x=i*6,.y=0,.length=4,.division=64,.channel=i%SCORE_CHANNELS};
         editor.score.lane_generation[i]=++editor.score.generation;
         for(int j=0;j<4;j++) {
             lane->tiles[j]=id;

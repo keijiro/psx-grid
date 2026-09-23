@@ -140,3 +140,10 @@ static void stop(void *ctx,AudioTime now) {
 }
 void audio_init(Audio *a,AudioDriver driver) { memset(a,0,sizeof(*a)); a->driver=driver; a->idle_mask=AUDIO_IDLE_MASK; a->allocation_time=UINT64_MAX; }
 NoteSink audio_sink(Audio *a) { return (NoteSink){a,on,off,stop,advance}; }
+
+uint32_t audio_reverb_mask(const Audio *a) {
+    uint32_t mask=0;
+    for(int i=0;i<SEQUENCER_VOICES;i++)
+        if(a->voices[i].active && a->voices[i].sound.reverb) mask|=3u<<(i*2);
+    return mask;
+}
