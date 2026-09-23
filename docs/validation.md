@@ -930,3 +930,20 @@ restoration, and an emulated PCM output capture remain open. The SPU register
 and service observations support silence during BIOS ownership, but do not
 measure the final audio samples. Emulator tests cannot establish real-card
 electrical behavior, audible console output, or physical power-cut recovery.
+
+## Repeated Slot 01 Loads with OpenBIOS (2026-09-23)
+
+A private copy of a formatted card reproduced the reported failure through the
+Debug application's storage menu: Loads 1–4 displayed LOADED, while Load 5
+displayed CARD I/O ERROR. An instrumented disposable build reached card
+discovery on the fifth Load and failed when opening the file completion event.
+Each Load reads the selected file twice, so the failure followed eight prior
+file event allocations. The original and fixed UI captures and logs are under
+`build/validation/repeated-slot1-load/`.
+
+After the event-handle fix, the same Debug UI sequence displayed LOADED on all
+12 Loads. The isolated BIOS file fixture now performs 12 consecutive Loads;
+both Debug and Release passed on a fresh card and again after an emulator
+restart. `scripts/test.sh` also passed with ASan and UBSan. The fixture logs
+are under `build/validation/card-file-{debug,release}/`, with run summaries
+beside the UI captures. All emulator runs used private card images.

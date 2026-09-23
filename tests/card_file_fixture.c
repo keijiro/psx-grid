@@ -30,8 +30,13 @@ int main(void) {
     result=storage_save(&storage,1,&score);
     report("save",result);
     if(result!=STORAGE_SAVED) finish(2);
-    result=storage_load(&storage,1);
-    report("load",result);
-    if(result!=STORAGE_SAVED || storage.incoming.bpm!=score.bpm) finish(3);
+    for(int i=0;i<12;i++) {
+        result=storage_load(&storage,1);
+        if(result!=STORAGE_SAVED || storage.incoming.bpm!=score.bpm) {
+            report("load",result);
+            finish(3);
+        }
+    }
+    report("load-12",result);
     finish(0);
 }

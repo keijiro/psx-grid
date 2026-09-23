@@ -6,6 +6,7 @@
 
 enum { EVENT_COUNT=8, WAIT_TICKS=5*4233600 };
 static const unsigned specs[4]={EvSpIOE,EvSpTIMOUT,EvSpNEW,EvSpERROR};
+// BIOS event handles have their high bit set, so only -1 denotes no event.
 static int events[EVENT_COUNT], file_event=-1, fd=-1, owned, started, poisoned, initialized;
 static struct DIRENTRY directory_entry;
 
@@ -15,7 +16,7 @@ static struct DIRENTRY directory_entry;
 static uint16_t tick(void) { return (uint16_t)TIMER_VALUE(2); }
 static void drain(void) {
     for(int i=0;i<EVENT_COUNT;i++) TestEvent(events[i]);
-    if(file_event>=0) TestEvent(file_event);
+    if(file_event!=-1) TestEvent(file_event);
 }
 static CardResult wait_card(int file,int hardware) {
     int offset=hardware?0:4;
@@ -25,7 +26,7 @@ static CardResult wait_card(int file,int hardware) {
         if(TestEvent(events[offset+2])) return CARD_CHANGED;
         if(TestEvent(events[offset+3])) return CARD_IO;
         if(TestEvent(events[offset+1])) return CARD_MISSING;
-        if(file>=0) {
+        if(file!=-1) {
             if(TestEvent(file)) return CARD_OK;
         } else if(TestEvent(events[offset])) return CARD_OK;
         uint16_t now=tick();
@@ -69,7 +70,7 @@ static void end(void *context) {
     // a BIOS handle; do not let close issue another transfer to a new card.
     if(poisoned && started) { StopCARD(); started=0; }
     if(fd>=0) { close(fd); fd=-1; }
-    if(file_event>=0) { CloseEvent(file_event); file_event=-1; }
+    if(file_event!=-1) { CloseEvent(file_event); file_event=-1; }
     if(started) StopCARD();
     for(int i=0;i<EVENT_COUNT;i++) if(events[i]!=-1) {
         CloseEvent(events[i]); events[i]=-1;
@@ -84,7 +85,6 @@ static CardResult begin(void *context) {
     poisoned=started=0;
     for(int i=0;i<EVENT_COUNT;i++) {
         events[i]=OpenEvent(i<4?HwCARD:SwCARD,specs[i%4],EvMdNOINTR,NULL);
-        // Valid BIOS event handles have their high bit set; only -1 fails.
         if(events[i]==-1) { end(NULL); return CARD_IO; }
         EnableEvent(events[i]);
     }
@@ -172,7 +172,7 @@ static CardResult close_file(void *context) {
     int handle=fd;
     fd=-1;
     if(poisoned && started) { StopCARD(); started=0; }
-    if(file_event>=0) { CloseEvent(file_event); file_event=-1; }
+    if(file_event!=-1) { CloseEvent(file_event); file_event=-1; }
     int result=close(handle);
     if(result<0) return CARD_IO;
     if(poisoned) return CARD_IO;
