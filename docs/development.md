@@ -176,6 +176,12 @@ No interrupt allocates, copies the score, logs, renders, or starts DMA.
 Lifecycle preparation runs on the main thread. Regular platform updates also
 run without input so that coalesced revisions can reach playback.
 
+## HTTP and Lua editor control
+
+For pad-driven checks of the ordinary editor without computer-use, see
+[emulator-automation.md](emulator-automation.md). It includes a reproducible
+web/Lua smoke runner, GPU capture commands, and pinned-version limitations.
+
 ## Input fixture
 
 `AUDIO_FIXTURE=ON` also builds `input-fixture.exe`. After the builds above, run:

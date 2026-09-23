@@ -1,5 +1,35 @@
 # Validation Record
 
+## HTTP and Lua editor control (2026-09-23)
+
+The ordinary Debug and Release `psx-grid.exe` both pass the new
+`scripts/test-web-emulator.py` smoke test on pinned PCSX-Redux build 250 and
+bundled OpenBIOS, macOS 27.0 / Apple Silicon. Independent reruns and visual
+review confirm that headless HTTP/Lua control can exercise the real editor
+without computer-use or application-memory input injection.
+
+Both configurations produce the same seven GPU PNG images: empty plane,
+ground menu, cancelled menu, new lane, main menu, playback started, and playback
+stopped. The [ground menu](captures/web-ground-menu.png),
+[new lane](captures/web-new-lane.png), and [main menu](captures/web-main-menu.png)
+are retained here. The complete captures, executable hashes, input/frame
+records and logs are under `build/validation/web-{debug,release}/`.
+
+HTTP pause/resume, frame-counted pad press/release, capture dimensions,
+menu-image change and exact cancellation restoration pass. Each scheduled
+command advances 16 vsync events (4 held, 12 neutral), then releases input and
+pauses. An invalid button request is rejected and subsequent valid scheduling
+still works. The disposable sessions are cleaned up after the run.
+
+This resolves access for the tested **emulated editor** interactions; it does
+not repair native computer-use binding. The historical blockers below remain
+accurate records, but no longer imply that all automated editor interaction
+must wait for computer-use. The full channel/sound/storage walkthrough,
+continuous-audio listening, controller feel and hardware acceptance remain
+unverified by this bounded smoke test. Reproduction, exploratory commands,
+capability boundaries and pinned API differences are in
+[emulator-automation.md](emulator-automation.md).
+
 ## Score storage (2026-09-23)
 
 ### Scope and result
