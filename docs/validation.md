@@ -1,9 +1,24 @@
 # Validation Record
 
-## Wavetable verification (2026-09-23)
+## Transient regression (2026-09-23)
+
+After the onset synchronization change, `scripts/test.sh` passes with ASan and
+UBSan. New host cases cover delayed playback, independent pairs, stealing,
+stale gate-offs, zero release, and stopping while playback is still pending.
+Both Debug and Release builds and `scripts/test-audio-emulator.py` pass.
+Each emulator run checks 16 starts with Mix Attack 0 ms and Mix Release 1 ms:
+all retain the initial Wave B gain and complete the release, with zero register
+trajectory errors. The fixture observes pending SPU key-ons in both builds.
+Sweep comparisons now use elapsed time from the acknowledged playback onset
+and verify matching pitch within each pair rather than across independent pairs.
+Logs are `build/validation/audio-{debug,release}-emulator.log`.
+These automated checks inspect registers and control timing, not final output.
+The user also confirmed the fix on physical hardware on 2026-09-23.
+
+## Initial wavetable verification (2026-09-23)
 
 The paired wavetable path was checked separately from the earlier sine player.
-The current host log is `build/validation/wavetable-host-tests.log`; asset and
+The baseline host log is `build/validation/wavetable-host-tests.log`; asset and
 trajectory reports are generated at `build/generated/wave_samples.txt`.
 The tests use production model, sequencer, synthesis, and rendering code with
 AddressSanitizer and UndefinedBehaviorSanitizer.

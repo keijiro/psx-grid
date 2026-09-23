@@ -18,7 +18,7 @@ static int level_at(const AudioVoice *v,AudioTime now) {
     return level<AUDIO_LEVEL?level:AUDIO_LEVEL-1;
 }
 static int pitch_at(const AudioVoice *v,AudioTime now) {
-    AudioTime elapsed=now-v->start;
+    AudioTime elapsed=v->waiting?0:now-v->modulation_start;
     uint32_t duration=(uint32_t)audio_ms(v->sound.decay);
     if(!v->sound.sweep || !duration || elapsed>=duration) return v->base_pitch;
     // Two radix-256 divisions normalize absolute time to Q16 without a
@@ -41,7 +41,7 @@ static int pitch_at(const AudioVoice *v,AudioTime now) {
     return (int)((value+128)>>8);
 }
 static int mix_at(const AudioVoice *v,AudioTime now) {
-    AudioTime elapsed=now-v->start;
+    AudioTime elapsed=v->waiting?0:now-v->modulation_start;
     uint32_t attack=(uint32_t)audio_ms(v->sound.mix_attack), release=(uint32_t)audio_ms(v->sound.mix_release);
     if(attack && elapsed<attack) return (uint32_t)elapsed*AUDIO_LEVEL/attack;
     if(release && elapsed<attack+release) return (attack+release-(uint32_t)elapsed)*AUDIO_LEVEL/release;
@@ -53,6 +53,13 @@ static void advance(void *ctx,AudioTime now) {
     for(int i=0;i<SEQUENCER_VOICES;i++) {
         AudioVoice *v=&a->voices[i];
         if(!v->active) continue;
+        // Redux can defer key-on until its mixer runs. Hold the initial mix
+        // and pitch through the first observed attack so a brief Wave B
+        // transient cannot expire before playback. Keep score/gate timing
+        // separate: waiting must never postpone a release or a stop ramp.
+        if(v->waiting && !(a->starts&(1u<<i)) && a->driver.ready(a->driver.context,i)) {
+            v->waiting=0; v->modulation_start=now;
+        }
         v->level=level_at(v,now);
         if(a->starts&(1u<<i)) a->driver.start(a->driver.context,i,v->bank,v->sound);
         int b=v->level*mix_at(v,now)/AUDIO_LEVEL;
@@ -101,7 +108,8 @@ static uint32_t on(void *ctx,AudioTime now,int pitch,SoundSettings sound) {
     AudioVoice *v=&a->voices[slot];
     uint32_t generation=(v->generation+1)&0x07ffffffu;
     if(!generation) generation=1;
-    v->start=now; v->generation=generation; v->sound=sound;
+    v->start=v->modulation_start=now; v->generation=generation; v->sound=sound;
+    v->waiting=a->driver.ready!=NULL;
     v->active=1; v->releasing=0; v->level=0; v->pitch=pitch;
     v->bank=audio_banks[pitch*49+(sound.decay?sound.sweep:0)+24];
     v->base_pitch=(int)((audio_pitch[v->bank*109+pitch]+128)>>8);

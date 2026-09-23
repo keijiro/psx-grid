@@ -111,7 +111,7 @@ static void driver_pitch(void *ctx,int voice,int pitch) { (void)ctx; assert(pitc
 static void driver_volume(void *ctx,int voice,int a,int b) { (void)ctx; assert(a>=0 && b>=0 && a+b<=AUDIO_LEVEL); levels[voice]=a+b; }
 static void driver_flush(void *ctx,uint32_t on,uint32_t off_bits) { (void)ctx; assert(!(on&off_bits)); starts+=(on!=0); stops+=(off_bits!=0); }
 static void voices(void) {
-    audio_init(&audio,(AudioDriver){NULL,driver_start,driver_volume,driver_pitch,driver_flush}); NoteSink sink=audio_sink(&audio);
+    audio_init(&audio,(AudioDriver){NULL,driver_start,driver_volume,driver_pitch,driver_flush,NULL}); NoteSink sink=audio_sink(&audio);
     uint32_t tokens[SEQUENCER_VOICES];
     for(int i=0;i<SEQUENCER_VOICES;i++) tokens[i]=sink.on(sink.context,0,48+i,(SoundSettings){100,200,WAVE_SINE,WAVE_SINE,0,0,0,200});
     sink.advance(sink.context,audio_ms(50)); assert(levels[0]>=255 && levels[0]<=256 && starts==1);

@@ -24,7 +24,7 @@ result = subprocess.run(command, cwd=root, stdout=subprocess.PIPE, stderr=subpro
 log = result.stdout.decode(errors='replace')
 (output / f'audio-{configuration}-emulator.log').write_text(log)
 for line in log.splitlines():
-    if line.startswith(('AUDIO ', 'CAPTURE ', 'ENVELOPE ', 'DISPATCH ', 'LIVE ', 'WAVE ', 'SYNTH ')):
+    if line.startswith(('AUDIO ', 'CAPTURE ', 'ENVELOPE ', 'DISPATCH ', 'LIVE ', 'WAVE ', 'SYNTH ', 'TRANSIENT ')):
         print(line)
 if result.returncode or 'AUDIO FIXTURE COMPLETE' not in log:
     raise SystemExit(f'Fixture failed: exit {result.returncode}; see {output}')
@@ -101,7 +101,7 @@ for sign in (-1,1):
         def mix(at): return max(0,min(at/.1,(.2-at)/.1,1))*512
         expected_gain=mix(t)
         assert abs(b-expected_gain)<=2, (sign,ms,t,b,expected_gain)
-    assert int(rows[-2][2])==base, rows
+    assert int(rows[-1][1])>=846720 and int(rows[-1][2])==base, rows
 # Each chord starts all twelve pairs in one flush and stays within the same
 # deadline even while both control envelopes update every service.
 chord_reports=re.findall(r'^(?:AUDIO|DISPATCH) (?:wave|sweep) chord: (.*)$',log,re.MULTILINE)
@@ -120,4 +120,8 @@ assert len(sweep_stops)==2, sweep_stops
 for line in sweep_stops:
     values={k:int(v) for k,v in re.findall(r'(\w+)=(\d+)',line)}
     assert values['vol']==values['volumes']==0, values
+transient=re.search(r'TRANSIENT trials=(\d+) initial=(\d+) completed=(\d+) pending=(\d+) errors=(\d+)',log)
+assert transient, 'Missing transient check'
+trials,initial,completed,pending,errors=map(int,transient.groups())
+assert trials==initial==completed==16 and pending>0 and errors==0, transient.groups()
 print('PASS: paired wavetable/mix/sweep/headroom and emulator dispatch, loop duration, envelopes, signal, live publication, overload and pending-stop checks')

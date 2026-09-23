@@ -15,12 +15,14 @@ typedef struct {
     void (*volume)(void *context, int slot, int a, int b);
     void (*pitch)(void *context, int slot, int value);
     void (*flush)(void *context, uint32_t starts, uint32_t stops);
+    // Optional: both voices have begun playback after the latest key-on.
+    int (*ready)(void *context, int slot);
 } AudioDriver;
 typedef struct {
-    AudioTime start, release_at, end;
+    AudioTime start, release_at, end, modulation_start;
     uint32_t generation;
     SoundSettings sound;
-    int active, releasing, level, release_level, pitch, bank, base_pitch;
+    int active, releasing, waiting, level, release_level, pitch, bank, base_pitch;
 } AudioVoice;
 typedef struct {
     AudioVoice voices[SEQUENCER_VOICES];

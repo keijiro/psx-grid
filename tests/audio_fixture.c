@@ -12,7 +12,7 @@
 extern volatile uint32_t audio_service_peak, audio_interval_peak, audio_services;
 extern volatile uint32_t audio_voice_steals, audio_skipped_notes, audio_overloads;
 extern volatile uint32_t audio_dispatch_peak, audio_note_count, audio_first_note, audio_last_note;
-extern volatile uint32_t audio_started, audio_control_time;
+extern volatile uint32_t audio_started, audio_control_time, audio_modulation_start;
 static Editor editor;
 static uint32_t capture[256];
 static void log_message(const char *format,...) {
@@ -146,19 +146,21 @@ static void synthesis_checks(void) {
         TileValue note=score_default(TILE_NOTE); note.length=1280;
         for(int i=0;i<SEQUENCER_VOICES;i++) score_place_value(&editor.score,1,i,note);
         audio_platform_update(&editor.score,1,1);
-        const int times[]={2,25,50,100,150,199,202};
+        const int times[]={2,25,50,100,150,199,250};
         // Formatting diagnostics on the main thread takes long enough to
         // miss envelope phases in Debug. Buffer readback until sampling ends.
         unsigned samples[7][5];
         for(int j=0;j<7;j++) {
             while(audio_platform_time()-audio_started<audio_ms(times[j])) {}
             EnterCriticalSection();
-            unsigned elapsed=audio_control_time-audio_started;
+            unsigned elapsed=audio_control_time-audio_modulation_start;
             unsigned pitch=SPU_CH_FREQ(0),a=SPU_CH_VOL_L(0),b=SPU_CH_VOL_L(1);
             int pairs=0;
             for(int i=0;i<AUDIO_HARDWARE_VOICES;i+=2)
-                pairs+=SPU_CH_FREQ(i)==pitch && SPU_CH_FREQ(i+1)==pitch
-                    && SPU_CH_VOL_L(i)==a && SPU_CH_VOL_L(i+1)==b
+                // Mixer readback can acknowledge different pairs on different
+                // services. Only the two halves must share pitch and gain budget.
+                pairs+=SPU_CH_FREQ(i)==SPU_CH_FREQ(i+1)
+                    && SPU_CH_VOL_L(i)+SPU_CH_VOL_L(i+1)==AUDIO_LEVEL
                     && SPU_CH_LOOP_ADDR(i)!=SPU_CH_LOOP_ADDR(i+1);
             ExitCriticalSection();
             samples[j][0]=elapsed; samples[j][1]=pitch; samples[j][2]=a; samples[j][3]=b; samples[j][4]=pairs;
@@ -168,6 +170,35 @@ static void synthesis_checks(void) {
         report("sweep chord");
         audio_platform_update(&editor.score,0,0); frames(2); report("sweep stop");
     }
+}
+static void transient_checks(void) {
+    unsigned errors=0, initial=0, completed=0, pending=0;
+    for(int trial=0;trial<16;trial++) {
+        score_init(&editor.score); score_create(&editor.score,0,0,1);
+        score_set_division(&editor.score,0,1);
+        score_set_sound(&editor.score,(SoundSettings){0,5,WAVE_SINE,WAVE_NOISE,0,1,24,1});
+        TileValue note=score_default(TILE_NOTE); note.length=1280;
+        score_place_value(&editor.score,1,0,note);
+        audio_platform_update(&editor.score,1,1);
+        int saw_initial=0,saw_end=0;
+        while(audio_platform_time()-audio_started<audio_ms(100)) {
+            EnterCriticalSection();
+            unsigned count=audio_note_count, elapsed=audio_control_time-audio_modulation_start;
+            unsigned a=SPU_CH_VOL_L(0),b=SPU_CH_VOL_L(1);
+            unsigned env_a=SPU_CH_ADSR_VOL(0),env_b=SPU_CH_ADSR_VOL(1);
+            ExitCriticalSection();
+            if(!count) continue;
+            unsigned duration=(unsigned)audio_ms(1);
+            unsigned expected=elapsed<duration?(duration-elapsed)*AUDIO_LEVEL/duration:0;
+            if(a+b!=AUDIO_LEVEL || b!=expected) errors++;
+            if(env_a<=1 || env_b<=1) { pending++; if(b!=AUDIO_LEVEL) errors++; }
+            if(!elapsed && b==AUDIO_LEVEL) saw_initial=1;
+            if(elapsed>=duration && !b) { saw_end=1; break; }
+        }
+        initial+=saw_initial; completed+=saw_end;
+        audio_platform_update(&editor.score,0,0); frames(2);
+    }
+    log_message("TRANSIENT trials=16 initial=%u completed=%u pending=%u errors=%u\n",initial,completed,pending,errors);
 }
 int main(void) {
     editor_init(&editor); render_init();
@@ -227,6 +258,7 @@ int main(void) {
         audio_platform_update(&editor.score,0,0); frames(2);
     }
     synthesis_checks();
+    transient_checks();
     // Valid worst-density score: 16 disjoint four-step lanes, each with
     // 64-deep stacks, filling all 4096 slots. No allocation or model shortcut
     // is used by playback; construction alone bypasses slow UI transactions.

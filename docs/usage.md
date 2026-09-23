@@ -150,7 +150,8 @@ below it and rises. The interval follows Jacquard's normalized exponential
 Snap curve and reaches the written pitch exactly at Pitch Decay. Zero sweep
 or zero decay disables it. The instantaneous frequency is limited to C0–C9,
 so extreme notes can initially plateau at an endpoint. Mix and sweep continue
-through gate-off while the amplitude tail remains audible.
+through gate-off while the amplitude tail remains audible. Their time starts
+when the SPU pair begins playback; amplitude and gate timing follow the score.
 
 All settings are captured at note-on. Published edits affect future notes;
 existing notes keep their complete sound. Automated synthesis checks and

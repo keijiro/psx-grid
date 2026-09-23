@@ -24,7 +24,7 @@ static void flush(void *ctx,uint32_t on,uint32_t off) {
 }
 static NoteSink reset(void) {
     memset(gains,0,sizeof(gains));
-    audio_init(&audio,(AudioDriver){NULL,start,volume,pitch,flush});
+    audio_init(&audio,(AudioDriver){NULL,start,volume,pitch,flush,NULL});
     return audio_sink(&audio);
 }
 static double ideal_register(int bank,double note) {
@@ -125,6 +125,71 @@ static void envelopes(void) {
     assert(!started && stopped==1 && !gains[0][0] && !gains[0][1]);
     puts("PASS: all mix zero-time combinations, equal waves, long tails, short/long gates and late-start rejection");
 }
+static unsigned ready_mask;
+static int ready(void *ctx,int slot) { (void)ctx; return (ready_mask>>slot)&1; }
+static void transients(void) {
+    SoundSettings sound={0,1,WAVE_SINE,WAVE_NOISE,0,1,24,1};
+    AudioTime origin=UINT64_C(0x100000000)+17;
+    for(int delay=1;delay<=20;delay++) {
+        NoteSink sink=reset(); audio.driver.ready=ready; ready_mask=0;
+        uint32_t token=sink.on(sink.context,origin,48,sound);
+        // Even the initial register dispatch can be later than the note's
+        // timestamp. Neither that delay nor pending mixer work eats the snap.
+        sink.advance(sink.context,origin+audio_ms(1)/4);
+        int initial=pitches[0];
+        for(int tick=1;tick<=delay;tick++) {
+            sink.advance(sink.context,origin+audio_ms(tick)/4);
+            assert(gains[0][1]==AUDIO_LEVEL && pitches[0]==initial);
+        }
+        AudioTime onset=origin+audio_ms(delay+1)/4;
+        ready_mask=1; sink.advance(sink.context,onset);
+        assert(!audio.voices[0].waiting && audio.voices[0].start==origin);
+        assert(gains[0][1]==AUDIO_LEVEL && pitches[0]==initial);
+        sink.advance(sink.context,onset+audio_ms(1)/2);
+        assert(gains[0][1]>=255 && gains[0][1]<=257 && pitches[0]<initial);
+        sink.advance(sink.context,onset+audio_ms(1));
+        assert(!gains[0][1] && pitches[0]==audio.voices[0].base_pitch);
+        sink.off(sink.context,onset+audio_ms(2),token);
+        sink.advance(sink.context,onset+audio_ms(3));
+        assert(!audio.voices[0].active);
+    }
+    NoteSink sink=reset(); audio.driver.ready=ready; ready_mask=0;
+    uint32_t tokens[SEQUENCER_VOICES];
+    for(int i=0;i<SEQUENCER_VOICES;i++) tokens[i]=sink.on(sink.context,origin,48,sound);
+    sink.advance(sink.context,origin);
+    ready_mask=2; sink.advance(sink.context,origin+audio_ms(3));
+    sink.advance(sink.context,origin+audio_ms(4));
+    assert(gains[0][1]==AUDIO_LEVEL && !gains[1][1]);
+    ready_mask=(1u<<SEQUENCER_VOICES)-1;
+    sink.advance(sink.context,origin+audio_ms(5));
+    uint32_t fresh=sink.on(sink.context,origin+audio_ms(6),48,sound);
+    assert((fresh&31)==0 && audio.steals==1);
+    // A stale ready value before flush must not acknowledge the replacement.
+    sink.advance(sink.context,origin+audio_ms(6));
+    assert(audio.voices[0].waiting && gains[0][1]==AUDIO_LEVEL);
+    ready_mask=0;
+    sink.off(sink.context,origin+audio_ms(6),tokens[0]);
+    assert(!audio.voices[0].releasing);
+    sink.off(sink.context,origin+audio_ms(7),fresh);
+    sink.advance(sink.context,origin+audio_ms(8));
+    assert(!audio.voices[0].active && !gains[0][0] && !gains[0][1]);
+    sink.stop(sink.context,origin+audio_ms(8));
+    sink.advance(sink.context,origin+audio_ms(13));
+    assert(audio.idle_mask==AUDIO_IDLE_MASK);
+    sound.release=0;
+    fresh=sink.on(sink.context,origin+audio_ms(14),48,sound);
+    sink.advance(sink.context,origin+audio_ms(14));
+    sink.off(sink.context,origin+audio_ms(15),fresh);
+    sink.advance(sink.context,origin+audio_ms(15));
+    assert(!audio.voices[0].active && !gains[0][1]);
+    sink.on(sink.context,origin+audio_ms(16),48,sound);
+    sink.advance(sink.context,origin+audio_ms(16));
+    assert(audio.voices[0].waiting);
+    sink.stop(sink.context,origin+audio_ms(17));
+    sink.advance(sink.context,origin+audio_ms(22));
+    assert(audio.idle_mask==AUDIO_IDLE_MASK && !gains[0][1]);
+    puts("PASS: delayed transient onset, independent pairs, stolen voices, stale gates and stop while pending");
+}
 static void snapshots(void) {
     static Score score, updated;
     static Sequencer seq;
@@ -150,4 +215,4 @@ static void snapshots(void) {
     assert(audio.idle_mask==AUDIO_IDLE_MASK && stopped==3);
     puts("PASS: amplitude locks preserve synthesis fields; sounding notes retain complete settings snapshots");
 }
-int main(void) { sweeps(); envelopes(); snapshots(); }
+int main(void) { sweeps(); envelopes(); transients(); snapshots(); }

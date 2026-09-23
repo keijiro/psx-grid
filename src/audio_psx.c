@@ -20,7 +20,7 @@ static uint32_t late_starts;
 volatile uint32_t audio_service_peak, audio_interval_peak, audio_services;
 volatile uint32_t audio_voice_steals, audio_skipped_notes, audio_overloads;
 volatile uint32_t audio_dispatch_peak, audio_note_count, audio_first_note, audio_last_note;
-volatile uint32_t audio_started, audio_control_time;
+volatile uint32_t audio_started, audio_control_time, audio_modulation_start;
 static AudioTime read_clock(void);
 
 static int cached_volume[AUDIO_HARDWARE_VOICES], cached_pitch[SEQUENCER_VOICES];
@@ -52,6 +52,12 @@ static void pitch(void *ctx,int slot,int value) {
     cached_pitch[slot]=value;
     SpuSetVoicePitch(slot*2,value);
     SpuSetVoicePitch(slot*2+1,value);
+}
+static int ready(void *ctx,int slot) {
+    (void)ctx;
+    // Redux reports 1 for a pending key-on, including a stolen voice whose
+    // old envelope was nonzero. Wait for both halves of the logical pair.
+    return (SPU_CH_ADSR_VOL(slot*2)&0x7fff)>1 && (SPU_CH_ADSR_VOL(slot*2+1)&0x7fff)>1;
 }
 static uint32_t hardware_mask(uint32_t logical) {
     uint32_t mask=0;
@@ -103,6 +109,7 @@ static void service(void) {
     // Register fixtures use the completed control timestamp, since reading
     // the main-thread clock before readback can straddle another service.
     audio_control_time=(uint32_t)now;
+    audio_modulation_start=(uint32_t)(audio.voices[0].waiting?now:audio.voices[0].modulation_start);
     audio_voice_steals=audio.steals; audio_skipped_notes=seq.skipped+late_starts; audio_overloads=seq.overloads;
     uint32_t elapsed=(uint32_t)(read_clock()-now);
     if(elapsed>audio_service_peak) audio_service_peak=elapsed;
@@ -119,7 +126,7 @@ void audio_platform_init(void) {
     SpuIsTransferCompleted(SPU_TRANSFER_WAIT);
     for(int i=0;i<AUDIO_HARDWARE_VOICES;i++) cached_volume[i]=-1;
     for(int i=0;i<SEQUENCER_VOICES;i++) { cached_pitch[i]=-1; volume(NULL,i,0,0); }
-    audio_init(&audio,(AudioDriver){NULL,start_voice,volume,pitch,flush});
+    audio_init(&audio,(AudioDriver){NULL,start_voice,volume,pitch,flush,ready});
     // Timer 2 free-runs at CLK/8 (4,233,600 Hz). Timer 0 requests service
     // every 8,467 CPU clocks, approximately 0.25 ms, independently of VSync.
     // Retain the cadence used by the original sine backend; paired control
