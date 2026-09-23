@@ -86,9 +86,14 @@ static Editor e;
 int main(void) {
     editor_init(&e); render_init();
     assert(!score_create(&e.score,0,0,64));
+    // Deliberate renderer overload coverage beyond the persistence budget.
+    // Keep every original cell and tile kind; ordinary editor fixtures below
+    // continue to use admitted model operations.
     for(int x=1;x<=64;x++) for(int y=0;y<64;y++) {
-        assert(!score_place(&e.score,x,y,(TileKind)(1+(x+y)%3)));
-        TileId t=score_at(&e.score,x,y).tile;
+        TileId t=(x-1)*64+y+1;
+        if(!y) e.score.lanes[0].tiles[x-1]=t;
+        e.score.tiles[t]=(Tile){score_default((TileKind)(1+(x+y)%3)),y==63?0:(TileId)(t+1),-1};
+        e.score.tile_generation[t]=++e.score.generation;
         e.score.tiles[t].value.pitch=49; e.score.tiles[t].value.chance=100; e.score.tiles[t].value.period=32;
     }
     for(int y=0;y<64;y++) for(int x=0;x<128;x++) {
@@ -162,6 +167,17 @@ int main(void) {
     e.x=e.score.lanes[branch].x; e.y=e.score.lanes[branch].y; e.mode=EDIT_PLANE;
     assert(score_channel(&e.score,branch)==7);
     render_frame(&e,1); save("build/tests/channel-branch.pgm");
+    editor_init(&e); e.mode=EDIT_MAIN; e.playing=1; e.storage_slot=15;
+    editor_refresh_capacity(&e);
+    for(int status=STORAGE_UNKNOWN;status<=STORAGE_GENERATION_FULL;status++) {
+        e.slot_status=status; e.card_free=status%16; e.message=storage_message(status);
+        for(int selected=0;selected<6;selected++) {
+            e.selected=selected; render_frame(&e,1);
+        }
+        char path[80]; snprintf(path,sizeof(path),"build/tests/storage-status-%d.pgm",status); save(path);
+    }
+    e.free_bytes=0; e.message="SCORE FULL";
+    render_frame(&e,1); save("build/tests/storage-full.pgm");
     assert(render_overflows==0);
     printf("PASS: %d render frames; peak %u / 32768 bytes; no overflow or screen escape\n",frame_count,render_packet_peak);
 }

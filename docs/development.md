@@ -41,7 +41,11 @@ to a gamepad or keyboard. See [usage.md](usage.md) for the editing walkthrough.
 
 ## Structure and Validation
 
-- `src/score.*`: SDK-independent model and edit validation.
+- `src/score.*`: SDK-independent model and transactional edit admission.
+- `src/score_format.*`: Portable v1 encoding, staging decode, and shared sizing.
+- `src/storage.*`: Sector-backed numbered saves, discovery and recovery.
+- `src/card.h`, `src/card_bios.c`, `src/card_psx.c`: Exclusive card backend
+  interface, provisional BIOS handoff, and direct-SIO candidate.
 - `src/sequencer.*`: SDK-independent runners, exact absolute deadlines,
   live runner reconciliation, ordered held locks, generation-tagged gate-offs,
   and bounded catch-up.
@@ -196,5 +200,59 @@ Platform initialization proceeds from rendering (SDK IRQ setup), to audio
 (Timer 2 clock and the periodic service), to pad callbacks. The shared timer
 services both audio and deferred pad transfers even when playback is stopped.
 The editor consumes completed pad reports on the main thread; rendering and
-score transactions never run inside the input callbacks. Port 2, memory cards,
-rumble and analog-axis editing are not implemented.
+score transactions never run inside the input callbacks. Port 2, rumble and analog-axis editing are not implemented. Port 1 memory-card
+access has host and emulator verification as described below.
+
+## Score storage verification
+
+The [storage design](score-storage-design.md) owns the v1 layout and behavior.
+`./scripts/test.sh` includes golden codec/compatibility cases, exact capacity
+boundaries, in-memory sector failure injection, menu/input checks, and event
+traces for replacement seams. The full-pool audio/input and dense renderer
+fixtures still deliberately bypass admission to retain overload coverage.
+
+The default `STORAGE_BIOS_BACKEND=ON` prototype currently fails discovery of
+an inserted card in the pinned emulator. The direct-SIO candidate has passed
+isolated persistence checks; neither is selected as a hardware-verified release
+backend. Build the measured direct-SIO configuration separately:
+
+```sh
+source scripts/env.sh
+cmake --preset debug -B build/storage-direct-debug -DSTORAGE_FIXTURE=ON -DSTORAGE_BIOS_BACKEND=OFF
+cmake --build build/storage-direct-debug
+python3 scripts/test-storage-emulator.py storage-direct-debug
+python3 scripts/test-storage-emulator.py storage-direct-debug missing
+python3 scripts/test-storage-emulator.py storage-direct-debug unformatted
+python3 scripts/test-storage-emulator.py storage-direct-debug remove
+python3 scripts/test-storage-emulator.py storage-direct-debug held
+cmake --preset release -B build/storage-direct-release -DSTORAGE_FIXTURE=ON -DSTORAGE_BIOS_BACKEND=OFF
+cmake --build build/storage-direct-release
+python3 scripts/test-storage-emulator.py storage-direct-release
+```
+
+The runner creates fresh private cards under `build/validation`, saves via the
+application's menu request/coordinator, restarts the executable, and verifies
+content plus the directory generation. Error scenarios check input resumption
+and continued audio; `remove` detaches the card during Save and checks recovery
+of the previous generation, while `held` exercises the release guard with
+Cross/START held across I/O. The normal case
+checks measured service/dispatch deadlines and main/ISR stack watermarks. These scripts never use interactive
+application cards. The fixture executable must only be used with disposable
+cards: it writes logical slot 01. `STORAGE_FIXTURE=ON` also works with the BIOS
+prototype for reproducing its discovery failure.
+
+The separate replacement fixture exercises pending publication, Stop/disconnect,
+repeated Load, and reverb memory behavior under twelve-note load:
+
+```sh
+source scripts/env.sh
+cmake --preset debug -B build/replacement-debug -DREPLACEMENT_FIXTURE=ON
+cmake --build build/replacement-debug --target replacement-fixture
+python3 scripts/test-replacement-emulator.py replacement-debug
+cmake --preset release -B build/replacement-release -DREPLACEMENT_FIXTURE=ON
+cmake --build build/replacement-release --target replacement-fixture
+python3 scripts/test-replacement-emulator.py replacement-release
+```
+
+Current results, memory measurements, captures, and remaining hardware/listening
+acceptance work are in [validation.md](validation.md).

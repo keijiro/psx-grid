@@ -70,7 +70,8 @@ removes its source jump. Lane and jump deletion require confirmation, initially
 set to Cancel. Moves that would create a branch cycle are rejected.
 
 The plane contains 128 by 64 cells, up to 16 lanes (including branches), and
-4,096 tiles. Regular lanes start at 16 steps; all lanes allow 1–64 steps.
+4,096 runtime tile slots, additionally limited by the one-block serialized
+score budget. Regular lanes start at 16 steps; all lanes allow 1–64 steps.
 Stack depth is limited by the bottom of the plane. A head at `(x,y)` has steps
 at `(x+1,y)` through `(x+length,y)` and an endpoint at `(x+length+1,y)`.
 Collision, boundary, and capacity failures leave the score unchanged. Shortening
@@ -78,11 +79,12 @@ a lane cannot discard occupied trailing steps.
 
 Division denominators are `1, 2, 3, 4, 6, 8, 12, 16, 24, 32, 48, 64`, initially
 16. Auditioning, the Channel Panel (including Solo, Mute, and Swap),
-absolute locks, saving, loading, and undo are outside this milestone.
+absolute locks and undo are outside this milestone.
 
 ## Playback and sound
 
-START toggles playback in every editor mode without applying an unfinished
+Except during exclusive card access, START toggles playback in every editor
+mode without applying an unfinished
 property edit or move. It never repeats while held. Playback starts at step
 zero with lap zero on every regular lane; branches have no independent runner.
 Stopping silences voices with a short ramp. Starting again restarts the score.
@@ -102,8 +104,8 @@ shortened past the next step, it returns to step zero of that lane. Neither
 repair increments the lap count. Removing an origin removes its runner.
 Already sounding notes keep their scheduled gates and envelopes.
 
-The first regular head in top-to-bottom, then left-to-right order is the
-master. New regular lanes join at a master lap boundary. That boundary is
+The first regular Channel 1 head in top-to-bottom, then left-to-right order
+is the master, falling back to the first regular head if Channel 1 is absent. New regular lanes join at a master lap boundary. That boundary is
 assigned when the master reads its final step, so a lane published while that
 step is already sounding waits one additional lap. A new lane that becomes
 the master starts at publication instead, so it can provide that boundary. Playback stays enabled with no regular lanes; the first lane drawn
@@ -201,6 +203,42 @@ sounding retain their original Attack and Release, and base channel settings nev
 lock changes. After a published channel reassignment, still-held locks apply
 to the new channel on the next slice and stop contributing to the old one.
 Assignment and sound edits preserve runner positions, laps, and scheduled gates.
+
+## Saving and loading
+
+Storage has passed host and direct-SIO emulator checks. The default BIOS
+backend still fails card discovery in the pinned emulator. Use the direct-SIO
+verification configuration in [development.md](development.md) for emulator
+testing; physical-card and listening checks remain incomplete.
+
+Open the main menu with SELECT. Select SLOT and use Left/Right to choose 01–15;
+this only changes the target. Press Cross on SLOT to check the card in port 1.
+Choose SAVE to capture the committed score, or LOAD to replace it. The slot
+number remains independent of the currently playing score. EMPTY cannot load;
+CORRUPT and NEWER VERSION identify unreadable content. The separate `BLK`
+readout reports available card blocks after an operation.
+
+`FREE n B` in the plane header and beside Save is the score's remaining encoded
+content budget, available even without a card. An empty score has 7464 bytes
+free. A transaction that exceeds the budget reports SCORE FULL and changes
+nothing. Deletions reclaim bytes, while fixed-size property edits remain
+available at zero free bytes.
+
+Each slot uses one block. Replacing it needs a spare block until the new save
+is verified, so a card containing 15 saved slots must have a block freed before
+a replacement. The application never formats cards or deletes other slots to
+make space. SAVED / CLEANUP PENDING means the new generation is saved, with an
+obsolete generation still occupying a block; another Save retries cleanup.
+
+All controller input, including START, pauses while CHECKING CARD, SAVING, or
+READING. Release every button when access finishes. Playback continues during
+I/O. A ready Load waits for the outgoing master lap while playing; the master
+is the first regular Channel 1 lane in Y/X order, falling back to the first
+regular lane. During WAITING FOR LAP, score edits and further Save/Load actions
+are locked, but START can stop and admit the new score immediately. Once
+adopted, all incoming regular lanes start together and outgoing note tails
+retain their gate deadlines. A changed reverb Size clears its old tail after
+adoption; identical Size retains its delay memory.
 
 ## Walkthrough
 

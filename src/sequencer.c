@@ -26,6 +26,10 @@ static void order_runners(Sequencer *s) {
         }
         s->order[n]=i;
     }
+    s->master=s->count?s->order[0]:-1;
+    for(int i=0;i<s->count;i++) if(s->score->lanes[s->runners[s->order[i]].origin].channel==0) {
+        s->master=s->order[i]; break;
+    }
 }
 void sequencer_start(Sequencer *s,const Score *score,NoteSink sink,AudioTime now) {
     memset(s,0,sizeof(*s)); s->score=score; s->sink=sink; s->playing=1; s->random=0x6d2b79f5u;
@@ -40,7 +44,7 @@ static int same_lane(const Score *old,const Score *score,int lane) {
     return score->lanes[lane].active && old->lane_generation[lane]==score->lane_generation[lane];
 }
 int sequencer_resync(Sequencer *s,const Score *score,AudioTime now) {
-    if(s->slicing) return 0;
+    if(s->slicing || s->replacement) return 0;
     const Score *old=s->score;
     // Only the 16 runner seats are reconciled here. Held locks validate their
     // births lazily under the tile budget, so publication never scans a score
@@ -67,17 +71,35 @@ int sequencer_resync(Sequencer *s,const Score *score,AudioTime now) {
         if(!found) runner_start(&s->runners[free_slot],lane,UINT64_MAX);
     }
     s->score=score; order_runners(s);
-    // The first head is the master. A new master cannot wait for its own
+    // The selected Channel 1 master cannot wait for its own
     // lap, and an empty playing score must be able to accept its first lane.
     if(s->count) {
-        Runner *master=&s->runners[s->order[0]];
+        Runner *master=&s->runners[s->master];
         if(master->next==UINT64_MAX) master->next=now;
     }
     return 1;
 }
-void sequencer_stop(Sequencer *s,AudioTime now) {
+int sequencer_replace(Sequencer *s,Sequencer *prepared,AudioTime now) {
+    if(s->replacement || !prepared || prepared==s) return 0;
+    s->replacement=prepared;
+    s->replacement_at=(!s->playing || !s->count)?now:UINT64_MAX;
+    return 1;
+}
+static Sequencer *adopt(Sequencer *s,AudioTime at) {
+    Sequencer *next=s->replacement;
+    next->sink=s->sink; next->playing=s->playing;
+    // Runner/held-lock preparation is already complete. Only bounded deadlines
+    // and the twelve outstanding gates cross the interrupt-time seam.
+    for(int i=0;i<SEQUENCER_VOICES;i++) next->offs[i]=s->offs[i];
+    for(int i=0;i<next->count;i++) next->runners[next->order[i]].next=at;
+    next->skipped=s->skipped; next->overloads=s->overloads;
+    s->replacement=NULL;
+    return next;
+}
+Sequencer *sequencer_stop(Sequencer *s,AudioTime now) {
     s->playing=0; memset(s->offs,0,sizeof(s->offs));
     if(s->sink.stop) s->sink.stop(s->sink.context,now);
+    return s->replacement?adopt(s,now):s;
 }
 static void offs_until(Sequencer *s,AudioTime now) {
     // At most one pending gate-off per logical note. The generation token
@@ -134,9 +156,12 @@ static int slice(Sequencer *s,AudioTime now,int *budget) {
             if(s->jump>=0) { r->lane=s->jump; r->step=0; }
             else if(++r->step==s->score->lanes[r->lane].length) {
                 r->lane=r->origin; r->step=0; r->lap++;
-                if(!s->runner_index) for(int i=0;i<s->count;i++) {
-                    Runner *pending=&s->runners[s->order[i]];
-                    if(pending->next==UINT64_MAX) pending->next=r->next+r->duration;
+                if(s->order[s->runner_index]==s->master) {
+                    if(s->replacement && s->replacement_at==UINT64_MAX) s->replacement_at=r->next+r->duration;
+                    for(int i=0;i<s->count;i++) {
+                        Runner *pending=&s->runners[s->order[i]];
+                        if(pending->next==UINT64_MAX) pending->next=r->next+r->duration;
+                    }
                 }
             }
             r->next+=r->duration;
@@ -154,12 +179,19 @@ static int slice(Sequencer *s,AudioTime now,int *budget) {
     }
     s->slicing=0; return 1;
 }
-void sequencer_service(Sequencer *s,AudioTime now) {
+Sequencer *sequencer_service(Sequencer *s,AudioTime now) {
     int work=0,budget=SEQUENCER_TILE_BUDGET;
+    if(!s->playing && s->replacement) s=adopt(s,now);
     if(s->playing) for(;;) {
         if(!s->slicing) {
             AudioTime at=UINT64_MAX;
             for(int i=0;i<s->count;i++) if(s->runners[s->order[i]].next<at) at=s->runners[s->order[i]].next;
+            // Complete the split slice that discovered the lap, then drain
+            // outgoing deadlines strictly below its seam. Takeover precedes
+            // slice selection even when this service arrived after the seam.
+            if(s->replacement && s->replacement_at<=now && at>=s->replacement_at) {
+                s=adopt(s,s->replacement_at); continue;
+            }
             if(at>now) break;
             if(work++==SEQUENCER_BUDGET) { s->overloads++; break; }
             offs_until(s,at);
@@ -179,4 +211,5 @@ void sequencer_service(Sequencer *s,AudioTime now) {
     }
     offs_until(s,now);
     if(s->sink.advance) s->sink.advance(s->sink.context,now);
+    return s;
 }

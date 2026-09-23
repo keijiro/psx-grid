@@ -40,5 +40,8 @@ void audio_platform_init(void);
 AudioTime audio_platform_time(void);
 void audio_platform_update(const Score *score, int connected, int start);
 int audio_platform_playing(void);
+int audio_platform_replace(const Score *incoming);
+int audio_platform_take_replacement(Score *score);
+int audio_platform_replacing(void);
 uint32_t audio_platform_revision(void);
 #endif

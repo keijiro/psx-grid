@@ -10,4 +10,9 @@ Each channel controls its reverb send into one shared Size/Amount effect.
 Committed score edits are published during playback without restarting the sequence.
 
 See [usage](docs/usage.md), [development](docs/development.md), and the
-[validation record](docs/validation.md). Saving and loading are not implemented.
+[validation record](docs/validation.md). The main menu includes numbered
+memory-card Save/Load and a one-block score budget. This storage implementation
+passes host verification and direct-SIO emulator persistence checks. The default
+BIOS backend still fails card discovery in the pinned emulator; backend selection,
+hardware checks, and listening remain incomplete. See the
+[storage design](docs/score-storage-design.md).

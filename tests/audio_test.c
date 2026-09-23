@@ -200,7 +200,10 @@ static void dense_and_rollback(void) {
     for(int k=0;k<64;k++) memset(&score.tiles[4033+k],0,sizeof(Tile));
     score.lanes[0].tiles[63]=0;
     for(int k=0;k<63;k++) score.tiles[4033+k]=(Tile){relative(0,0),k==62?0:(TileId)(4034+k),-1};
-    assert(!score_create(&score,66,0,1)); score.lanes[1].tiles[0]=4033;
+    // Deliberately bypass persistence admission for the full-pool rollback
+    // stress case; normal editor scores cannot reach this density.
+    score.lanes[1]=(Lane){.active=1,.x=66,.y=0,.length=1,.division=16};
+    score.lane_generation[1]=++score.generation; score.lanes[1].tiles[0]=4033;
     snapshot=score;
     assert(score_paste(&score,64,0,&clip)==SCORE_FULL); assert(!memcmp(&score,&snapshot,sizeof(score)));
     // Splitting a stack and later replaying its held locks must preserve order.

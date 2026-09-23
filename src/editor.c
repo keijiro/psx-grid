@@ -3,6 +3,7 @@
 static int clamp(int x,int min,int max) { return x<min?min:x>max?max:x; }
 void editor_init(Editor *e) {
     memset(e,0,sizeof(*e)); score_init(&e->score); e->x=e->y=1; e->message="";
+    e->storage_slot=1; e->card_free=-1; e->free_bytes=SCORE_FILE_BYTES-(int)score_format_measure(&e->score);
     e->last_tile=e->tile_candidate=TILE_NOTE; e->last_note=score_default(TILE_NOTE);
 }
 int editor_menu(const Editor *e,EditorAction items[EDITOR_MENU_ITEMS]) {
@@ -43,7 +44,22 @@ EditorMode editor_sound_parent(EditorMode mode) {
 }
 static void cancel_move(Editor *e) { e->x=e->source_x; e->y=e->source_y; e->mode=EDIT_PLANE; e->gesture=0; e->message="CANCELLED"; }
 static void finish(Editor *e,ScoreResult r) { e->message=score_message(r); if(!r) e->mode=EDIT_PLANE; }
-void editor_update(Editor *e,InputFrame f) {
+static void update(Editor *e,InputFrame f) {
+    if(e->load_busy) {
+        if(!f.connected) return;
+        // Navigation is independent of the armed request. Only score-changing
+        // actions and further Save/Load requests wait for its acknowledgement.
+        if(f.select) { e->mode=e->mode==EDIT_MAIN?EDIT_PLANE:EDIT_MAIN; e->selected=2; }
+        else if(e->mode==EDIT_MAIN) {
+            if(f.circle) e->mode=EDIT_PLANE;
+            e->selected=clamp(e->selected+f.dy,0,5);
+            if(e->selected==2) e->storage_slot=clamp(e->storage_slot+f.dx,1,STORAGE_SLOTS);
+            if(f.cross && e->selected==5) e->mode=EDIT_PLANE;
+        } else if(e->mode==EDIT_PLANE) {
+            e->x=clamp(e->x+f.dx,0,SCORE_WIDTH-1); e->y=clamp(e->y+f.dy,0,SCORE_HEIGHT-1);
+        }
+        return;
+    }
     if(!f.connected) { if(e->gesture || e->mode==EDIT_MOVE) cancel_move(e); return; }
     if(f.select) {
         int close=e->mode==EDIT_MAIN;
@@ -56,9 +72,17 @@ void editor_update(Editor *e,InputFrame f) {
             (e->mode==EDIT_REVERB_SIZE || e->mode==EDIT_REVERB_AMOUNT)?EDIT_REVERB:EDIT_MAIN;
         if(f.circle) { e->mode=parent; e->selected=0; return; }
         if(e->mode==EDIT_MAIN || e->mode==EDIT_REVERB) {
-            e->selected=clamp(e->selected+f.dy,0,2);
+            e->selected=clamp(e->selected+f.dy,0,e->mode==EDIT_MAIN?5:2);
+            if(e->mode==EDIT_MAIN && e->selected==2) {
+                int slot=clamp(e->storage_slot+f.dx,1,STORAGE_SLOTS);
+                if(slot!=e->storage_slot) { e->storage_slot=slot; e->message=""; }
+            }
+            if(f.cross && e->mode==EDIT_MAIN && e->selected>=2 && e->selected<=4) {
+                e->storage_request=e->selected==2?STORAGE_ACTION_CHECK:e->selected==3?STORAGE_ACTION_SAVE:STORAGE_ACTION_LOAD;
+                return;
+            }
             if(f.cross) {
-                if(e->selected==2) e->mode=parent;
+                if(e->selected==(e->mode==EDIT_MAIN?5:2)) e->mode=parent;
                 else if(e->mode==EDIT_MAIN) {
                     e->mode=e->selected?EDIT_REVERB:EDIT_BPM; e->candidate=e->score.bpm;
                 } else {
@@ -238,3 +262,10 @@ void editor_update(Editor *e,InputFrame f) {
     case ACTION_CLOSE: e->mode=EDIT_PLANE; break;
     }
 }
+
+void editor_refresh_capacity(Editor *e) {
+    if(e->capacity_revision==e->score.revision) return;
+    e->capacity_revision=e->score.revision;
+    e->free_bytes=SCORE_FILE_BYTES-(int)score_format_measure(&e->score);
+}
+void editor_update(Editor *e,InputFrame f) { update(e,f); editor_refresh_capacity(e); }

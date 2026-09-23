@@ -10,7 +10,11 @@
 // whole slice has finished. No score copy needs to mask timer interrupts.
 static Score snapshots[2];
 static volatile int active_snapshot, pending_snapshot=-1;
-static Sequencer seq;
+static Sequencer states[2];
+static Sequencer *volatile seq=&states[0];
+enum { REPLACE_IDLE, REPLACE_PREPARING, REPLACE_WAITING, REPLACE_ADOPTED };
+static volatile int replacement_state;
+static int replacement_snapshot;
 static Audio audio;
 static AudioTime clock_ticks;
 static uint16_t last_counter;
@@ -143,6 +147,12 @@ static AudioTime read_clock(void) {
     clock_ticks+=(uint16_t)(counter-last_counter); last_counter=counter;
     return clock_ticks;
 }
+static void replacement_adopted(Sequencer *next) {
+    if(next==seq) return;
+    seq=next; active_snapshot=replacement_snapshot;
+    published_revision=snapshots[active_snapshot].revision;
+    replacement_state=REPLACE_ADOPTED;
+}
 static void service(void) {
     static AudioTime previous;
     AudioTime now=read_clock();
@@ -151,19 +161,19 @@ static void service(void) {
     pad_service();
     if(enabled) {
         int pending=pending_snapshot;
-        if(pending>=0 && sequencer_resync(&seq,&snapshots[pending],now)) {
+        if(pending>=0 && sequencer_resync(seq,&snapshots[pending],now)) {
             active_snapshot=pending;
             published_revision=snapshots[pending].revision;
             pending_snapshot=-1;
         }
-        sequencer_service(&seq,now);
+        replacement_adopted(sequencer_service(seq,now));
     }
     else { NoteSink sink=audio_sink(&audio); sink.advance(sink.context,now); }
     // Register fixtures use the completed control timestamp, since reading
     // the main-thread clock before readback can straddle another service.
     audio_control_time=(uint32_t)now;
     audio_modulation_start=(uint32_t)(audio.voices[0].waiting?now:audio.voices[0].modulation_start);
-    audio_voice_steals=audio.steals; audio_skipped_notes=seq.skipped+late_starts; audio_overloads=seq.overloads;
+    audio_voice_steals=audio.steals; audio_skipped_notes=seq->skipped+late_starts; audio_overloads=seq->overloads;
     uint32_t elapsed=(uint32_t)(read_clock()-now);
     if(elapsed>audio_service_peak) audio_service_peak=elapsed;
     audio_services++;
@@ -198,17 +208,18 @@ void audio_platform_init(void) {
     ExitCriticalSection();
 }
 void audio_platform_update(const Score *score,int connected,int start) {
-    update_reverb(score);
+    if(replacement_state==REPLACE_IDLE) update_reverb(score);
     if(!connected || (start && enabled)) {
         EnterCriticalSection();
-        if(enabled) { sequencer_stop(&seq,read_clock()); enabled=0; }
+        if(enabled) { replacement_adopted(sequencer_stop(seq,read_clock())); enabled=0; }
         pending_snapshot=-1;
         ExitCriticalSection();
     } else if(start) {
+        if(replacement_state!=REPLACE_IDLE) return;
         // The timer remains live while the immutable snapshot is prepared.
         // Nothing in the interrupt can observe this copy until publication.
         snapshots[0]=*score;
-        sequencer_start(&seq,&snapshots[0],audio_sink(&audio),0);
+        sequencer_start(seq,&snapshots[0],audio_sink(&audio),0);
         EnterCriticalSection();
         // Restart discards release tails. Zero their registers before reuse;
         // the regular stop path, in contrast, always completes its 5 ms ramp.
@@ -222,13 +233,13 @@ void audio_platform_update(const Score *score,int connected,int start) {
         // cleanup to the first dispatch can drop an otherwise timely chord
         // when all 16 runners begin together.
         AudioTime now=read_clock();
-        for(int i=0;i<seq.count;i++) seq.runners[i].next=now;
+        for(int i=0;i<seq->count;i++) seq->runners[i].next=now;
         audio_started=(uint32_t)now;
         audio_dispatch_peak=audio_note_count=audio_first_note=audio_last_note=late_starts=0;
         active_snapshot=0; pending_snapshot=-1;
         published_revision=score->revision; enabled=1;
         ExitCriticalSection();
-    } else if(enabled && pending_snapshot<0 && score->revision!=published_revision) {
+    } else if(replacement_state==REPLACE_IDLE && enabled && pending_snapshot<0 && score->revision!=published_revision) {
         // With no pending publication the active buffer cannot change during
         // this copy. Edits arriving while a buffer is pending are coalesced in
         // the editor score and copied on a later main-thread update.
@@ -245,3 +256,35 @@ uint32_t audio_platform_revision(void) { return published_revision; }
 AudioTime audio_platform_time(void) {
     EnterCriticalSection(); AudioTime now=read_clock(); ExitCriticalSection(); return now;
 }
+
+int audio_platform_replace(const Score *incoming) {
+    EnterCriticalSection();
+    if(replacement_state!=REPLACE_IDLE) { ExitCriticalSection(); return 0; }
+    replacement_state=REPLACE_PREPARING; pending_snapshot=-1;
+    replacement_snapshot=1-active_snapshot;
+    ExitCriticalSection();
+    snapshots[replacement_snapshot]=*incoming;
+    Sequencer *prepared=seq==&states[0]?&states[1]:&states[0];
+    sequencer_start(prepared,&snapshots[replacement_snapshot],audio_sink(&audio),0);
+    EnterCriticalSection();
+    if(enabled) {
+        sequencer_replace(seq,prepared,read_clock());
+        replacement_state=REPLACE_WAITING;
+    } else {
+        prepared->playing=0;
+        replacement_adopted(prepared);
+    }
+    ExitCriticalSection();
+    return 1;
+}
+int audio_platform_take_replacement(Score *score) {
+    if(replacement_state!=REPLACE_ADOPTED) return 0;
+    // Publication remains locked through the editor copy and effect update.
+    // Same-size reverb keeps its delay memory; a size change wet-mutes and
+    // clears only after adoption, with incoming dry notes already running.
+    *score=snapshots[active_snapshot];
+    update_reverb(score);
+    EnterCriticalSection(); replacement_state=REPLACE_IDLE; ExitCriticalSection();
+    return 1;
+}
+int audio_platform_replacing(void) { return replacement_state!=REPLACE_IDLE; }

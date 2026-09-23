@@ -1,4 +1,5 @@
 #include "score.h"
+#include "score_format.h"
 #include <string.h>
 const int score_divisions[] = {1,2,3,4,6,8,12,16,24,32,48,64};
 // A single scratch score makes multi-object edits atomic without heap allocation
@@ -95,7 +96,42 @@ static ScoreResult validate(const Score *s) {
     }
     return SCORE_OK;
 }
-static ScoreResult commit(Score *s) { ScoreResult r=validate(&scratch); if(!r) { scratch.revision=s->revision+1; *s=scratch; } return r; }
+static ScoreResult admission(const Score *s) {
+    ScoreResult r=validate(s);
+    return r?r:score_format_measure(s)>SCORE_FILE_BYTES?SCORE_FULL:SCORE_OK;
+}
+ScoreResult score_validate_import(const Score *s) {
+    uint8_t seen[SCORE_TILE_CAPACITY+1]={0};
+    // Establish finite, uniquely owned links before the geometry validator or
+    // ancestry lookup can traverse untrusted input. The codec builds links,
+    // but this boundary also protects future importers from pool corruption.
+    for(int i=0;i<SCORE_LANES;i++) if(s->lanes[i].active) {
+        const Lane *l=&s->lanes[i];
+        if(l->length<1 || l->length>SCORE_STEPS || l->x<0 || l->x>=SCORE_WIDTH || l->y<0 || l->y>=SCORE_HEIGHT) return SCORE_INVALID;
+        if(l->source>SCORE_TILE_CAPACITY || (l->source?l->channel!=-1:l->channel<0 || l->channel>=SCORE_CHANNELS)) return SCORE_INVALID;
+        int division=0; for(int d=0;d<SCORE_DIVISIONS;d++) if(l->division==score_divisions[d]) division=1;
+        if(!division) return SCORE_INVALID;
+        for(int j=0;j<SCORE_STEPS;j++) {
+            if(j>=l->length && l->tiles[j]) return SCORE_INVALID;
+            int depth=0;
+            for(TileId t=l->tiles[j];t;) {
+                if(t>SCORE_TILE_CAPACITY || seen[t] || ++depth>SCORE_HEIGHT-l->y) return SCORE_INVALID;
+                seen[t]=1;
+                const Tile *v=&s->tiles[t];
+                if(!value_valid(v->value)) return SCORE_INVALID;
+                if(v->value.kind==TILE_JUMP && (!valid(s,v->branch) || s->lanes[v->branch].source!=t)) return SCORE_INVALID;
+                t=v->next;
+            }
+        }
+    }
+    for(int i=0;i<SCORE_LANES;i++) if(s->lanes[i].active && s->lanes[i].source) {
+        TileId t=s->lanes[i].source;
+        if(!seen[t] || s->tiles[t].value.kind!=TILE_JUMP || s->tiles[t].branch!=i) return SCORE_INVALID;
+    }
+    for(int t=1;t<=SCORE_TILE_CAPACITY;t++) if(!!s->tiles[t].value.kind!=!!seen[t]) return SCORE_INVALID;
+    return validate(s);
+}
+static ScoreResult commit(Score *s) { ScoreResult r=admission(&scratch); if(!r) { scratch.revision=s->revision+1; *s=scratch; } return r; }
 static int new_lane(Score *s,int x,int y,int n,TileId source) {
     if(s->generation==UINT32_MAX) return -1;
     for(int i=0;i<SCORE_LANES;i++) if(!valid(s,i)) {
@@ -106,14 +142,14 @@ static int new_lane(Score *s,int x,int y,int n,TileId source) {
     return -1;
 }
 ScoreResult score_can_create(const Score *s,int x,int y,int n) {
-    scratch=*s; if(new_lane(&scratch,x,y,n,0)<0) return SCORE_FULL; return validate(&scratch);
+    scratch=*s; if(new_lane(&scratch,x,y,n,0)<0) return SCORE_FULL; return admission(&scratch);
 }
 ScoreResult score_create(Score *s,int x,int y,int n) { ScoreResult r=score_can_create(s,x,y,n); if(!r) { scratch.revision=s->revision+1; *s=scratch; } return r; }
 ScoreResult score_can_resize(const Score *s,int i,int n) {
     if(!valid(s,i)) return SCORE_INVALID;
     if(n<1 || n>SCORE_STEPS) return SCORE_BOUNDS;
     for(int j=n;j<s->lanes[i].length;j++) if(s->lanes[i].tiles[j]) return SCORE_TILES;
-    scratch=*s; scratch.lanes[i].length=n; return validate(&scratch);
+    scratch=*s; scratch.lanes[i].length=n; return admission(&scratch);
 }
 ScoreResult score_resize(Score *s,int i,int n) { ScoreResult r=score_can_resize(s,i,n); if(!r) { scratch.revision=s->revision+1; *s=scratch; } return r; }
 static TileId *link_at(Score *s,Cell c) {
@@ -199,7 +235,7 @@ static ScoreResult move(const Score *s,int sx,int sy,int x,int y) {
     scratch=*s;
     if(a.kind!=CELL_HEAD && a.kind!=CELL_TILE) return SCORE_INVALID;
     if(sx==x && sy==y) return SCORE_OK;
-    if(a.kind==CELL_HEAD) { scratch.lanes[a.lane].x=x; scratch.lanes[a.lane].y=y; return validate(&scratch); }
+    if(a.kind==CELL_HEAD) { scratch.lanes[a.lane].x=x; scratch.lanes[a.lane].y=y; return admission(&scratch); }
     if(b.kind!=CELL_TILE && b.kind!=CELL_STEP && b.kind!=CELL_END) return SCORE_INVALID;
     TileId *from=link_at(&scratch,a), tail=a.tile;
     int same=a.lane==b.lane && a.step==b.step;
@@ -209,12 +245,12 @@ static ScoreResult move(const Score *s,int sx,int sy,int x,int y) {
     else { *from=0; while(scratch.tiles[tail].next) tail=scratch.tiles[tail].next; }
     if(b.kind==CELL_END) { if(scratch.lanes[b.lane].length==SCORE_STEPS) return SCORE_BOUNDS; scratch.lanes[b.lane].length++; }
     TileId *to=link_at(&scratch,b); scratch.tiles[tail].next=*to; *to=a.tile;
-    return validate(&scratch);
+    return admission(&scratch);
 }
 MovePlan score_plan_move(const Score *s,int sx,int sy,int x,int y) { return (MovePlan){sx,sy,x,y,move(s,sx,sy,x,y)}; }
 ScoreResult score_apply_move(Score *s,MovePlan p) { if(p.sx==p.x && p.sy==p.y) return move(s,p.sx,p.sy,p.x,p.y); ScoreResult r=move(s,p.sx,p.sy,p.x,p.y); if(!r) { scratch.revision=s->revision+1; *s=scratch; } return r; }
 const char *score_tile_label(TileKind k) { static const char *v[]={"EMPTY","NOTE","CYCLE GATE","PROBABILITY GATE","JUMP","RELATIVE LOCK"}; return k>=0 && k<TILE_KIND_COUNT?v[k]:"?"; }
-const char *score_message(ScoreResult r) { static const char *v[]={"","LIMIT / EDGE","COLLISION","CAPACITY FULL","REMOVE TRAILING TILES FIRST","INVALID CELL","BRANCH CYCLE"}; return v[r]; }
+const char *score_message(ScoreResult r) { static const char *v[]={"","LIMIT / EDGE","COLLISION","SCORE FULL","REMOVE TRAILING TILES FIRST","INVALID CELL","BRANCH CYCLE"}; return v[r]; }
 
 const char *score_wave_name(int wave) {
     static const char *names[]={"SINE","TRIANGLE","SAW","SQUARE","NOISE"};

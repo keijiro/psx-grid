@@ -51,6 +51,7 @@ int main(void) {
     run(2); run(3); run(4);
     audio_platform_update(&editor.score,0,0);
     score_init(&editor.score);
+    // Deliberate input/audio overload fixture, outside the saveable score limit.
     TileId id=1;
     for(int i=0;i<16;i++) {
         Lane *lane=&editor.score.lanes[i];

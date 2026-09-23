@@ -60,19 +60,38 @@ static void model(void) {
     snapshot(); unchanged(score_place(&s,1,0,TILE_JUMP)); unchanged(score_create(&s,20,0,4));
     score_init(&s); assert(!score_create(&s,0,63,4)); snapshot(); unchanged(score_place(&s,1,63,TILE_JUMP));
     assert(!score_place(&s,1,63,TILE_NOTE)); snapshot(); unchanged(score_place(&s,1,64,TILE_NOTE));
-    // Fill the actual pool with a 64-by-64 chord matrix; the unused lane still
-    // has room, isolating tile capacity from geometric rejection.
+    // Normal edits now fill the serialized budget before the runtime pool.
+    // Two lanes plus 1474 Notes use 8190 bytes. Replacing one with a Cycle
+    // reaches the exact boundary and still permits same-size edits/deletion.
     score_init(&s); assert(!score_create(&s,0,0,64)); assert(!score_create(&s,70,0,4));
-    for(int x=1;x<=64;x++) for(int y=0;y<64;y++) assert(!score_place(&s,x,y,TILE_NOTE));
+    for(int n=0;n<1474;n++) assert(!score_place(&s,n/64+1,n%64,TILE_NOTE));
+    assert(score_format_measure(&s)==8190);
+    assert(!score_remove(&s,24,1)); assert(!score_place(&s,24,1,TILE_CYCLE));
+    assert(score_format_measure(&s)==SCORE_FILE_BYTES);
+    TileId boundary=id(24,1); v=s.tiles[boundary].value; v.pattern=0;
+    assert(!score_edit(&s,boundary,v)); assert(score_format_measure(&s)==SCORE_FILE_BYTES);
+    snapshot(); unchanged(score_resize(&s,1,5));
+    snapshot(); unchanged(score_apply_move(&s,score_plan_move(&s,24,0,75,0)));
+    assert(s.lanes[1].length==4 && id(24,0));
+    Score available=s;
+    assert(!score_remove(&available,24,1)); assert(score_format_measure(&available)==8185);
+    MovePlan grow=score_plan_move(&available,24,0,75,0);
+    assert(grow.result==SCORE_OK); assert(!score_apply_move(&available,grow));
+    assert(available.lanes[1].length==5 && score_at(&available,75,0).tile);
+    assert(score_format_measure(&available)==8186);
     snapshot(); unchanged(score_place(&s,71,0,TILE_NOTE)); unchanged(score_paste(&s,71,0,&clip));
-    assert(!score_remove(&s,1,63));
-    Clipboard pair={0}; score_copy(&s,1,61,&pair); assert(pair.count==2);
+    assert(!score_remove(&s,24,1)); assert(score_format_measure(&s)==8185);
+    Clipboard pair={0}; score_copy(&s,1,62,&pair); assert(pair.count==2);
     snapshot(); unchanged(score_paste(&s,71,0,&pair));
-    assert(!score_place(&s,71,0,TILE_NOTE));
-    base(); assert(!score_place(&s,1,0,TILE_JUMP));
+    assert(!score_place(&s,71,0,TILE_NOTE)); assert(score_format_measure(&s)==8190);
+    base(); size_t before_jump=score_format_measure(&s); assert(!score_place(&s,1,0,TILE_JUMP));
+    assert(score_format_measure(&s)==before_jump+19);
+    Score without_jump=s; assert(!score_remove(&without_jump,1,0));
+    assert(score_format_measure(&without_jump)==before_jump);
     branch=s.tiles[id(1,0)].branch;
     assert(!score_place(&s,s.lanes[branch].x+1,s.lanes[branch].y,TILE_JUMP));
     assert(!score_delete(&s,0));
+    assert(score_format_measure(&s)==728);
     for(int i=0;i<SCORE_LANES;i++) assert(!s.lanes[i].active);
     for(int i=1;i<=SCORE_TILE_CAPACITY;i++) assert(!s.tiles[i].value.kind);
     for(int i=0;i<1000;i++) {

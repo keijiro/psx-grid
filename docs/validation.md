@@ -1,5 +1,165 @@
 # Validation Record
 
+## Score storage (2026-09-23)
+
+### Scope and result
+
+Verification ran on Apple Silicon, macOS 27.0 (26A428), Apple Clang 21.0.0,
+PSn00bSDK v0.24, MIPS GCC 16.2.0, and PCSX-Redux build 250 with its bundled
+OpenBIOS. Compiler/SDK/emulator versions follow `toolchain.lock`; the host OS
+has advanced since that lock was recorded. Environment output and BIOS hash
+are retained in `build/validation/storage-environment.log`.
+Automated host checks and direct-SIO emulator persistence checks pass. **The
+platform acceptance gate is incomplete:** the default BIOS prototype fails
+present-card discovery, and physical-card/controller/listening checks have no
+new evidence. No shipping backend was selected by emulator success alone.
+
+| Plan phase | Result |
+| --- | --- |
+| 1. Exclusive card access | Direct SIO passes emulator persistence/error/resume checks; BIOS fails discovery; hardware pending |
+| 2. Portable format | Host sanitizer/golden/compatibility/invalid-input/boundary checks pass |
+| 3. Capacity and readout | Host transactions and render bounds pass; host captures inspected |
+| 4. Numbered storage | Host interruption/recovery and isolated emulator generations pass; physical power-loss behavior unverified |
+| 5. Musical replacement | Host event traces pass; platform results and limitations below |
+| 6. End-to-end acceptance | Actual menu request/coordinator and restart persistence exercised; manual controller/card-manager/listening and hardware incomplete |
+
+### Host evidence
+
+`./scripts/test.sh` passes with ASan/UBSan, including four new suites:
+`score_format_test`, `storage_test`, `storage_editor_test`, and
+`replacement_test`. The fixed v1 binary is `tests/fixtures/score-v1.bin`;
+its SHA-256 is
+`f253351a65240836e4e7678f87c2e72c9bba5d49d182449cce139cf38eb325b9`.
+Tests cover deterministic re-encoding, semantic content, measured/emitted size,
+optional extensions, required future features, CRC/truncation/invalid graph
+rejection, and caller-owned staging without publication on decode failure.
+There are no released older schemas requiring migration in v1.
+
+Capacity checks reach exactly 8,192 bytes, preserve the entire score/revision
+on rejection, retain same-size edits, and check atomic paste, lane growth,
+end-marker moves, and Jump/owned-branch cost and reclamation. The host renderer
+checks 295,284 frames with 25,028 / 32,768 bytes peak packet usage. The
+[storage contact sheet](captures/host-storage.png) shows capacity, slot/card
+space, long error statuses, and playback messages without clipping or overlap.
+These are GPU-stub raster captures, not a console/card-manager inspection.
+
+The in-memory card suite interrupts every one of the 64 payload writes and
+64 verification reads, plus directory publication/readback and cleanup/retry.
+It sweeps all 37 initial metadata reads with I/O and card-change failures,
+checks ownership balancing and cleanup-retry discovery failure, and checks
+restart recovery, corrupt-latest fallback, newer-format blocking,
+full cards, missing/replaced cards, unrelated data preservation, and immutable
+save capture. Valid payload/directory remap redirection and malformed duplicate
+or reserved-range remap rejection are also covered. These simulations do not establish physical sector-write atomicity.
+Replacement traces check Channel 1 master choice, mixed divisions, taken and
+skipped Cycle-gated branch laps,
+incoming starts at the seam, absence of outgoing seam steps, outgoing gate-token
+release time, held-lock reset, empty/Stop adoption, repeated-request rejection,
+and split slices.
+
+Full evidence: `build/validation/storage-host-final.log`; focused results use
+`storage-codec-*`, `storage-coordinator-*`, `storage-editor.log`, and
+`storage-seams-*` in the same directory. The verification found and corrected
+encoder validation before traversal, BIOS event-handle rejection, and an
+unbounded BIOS filesystem initialization call in the prototype. The remaining
+BIOS failure is recorded below.
+
+### Emulator persistence and regressions
+
+Debug and Release application/fixture builds pass for BIOS and direct-SIO
+configurations. Existing audio fixtures pass in both configurations, and input
+fixtures pass for digital/analog pads in Debug/Release, retaining the deliberate
+4,096-tile overload tests. Their outputs are `audio-*-emulator.log` and
+`input-*-*-emulator.log` under `build/validation`.
+
+`storage_fixture.c` uses the application's actual `storage_action` and editor
+menu requests. On disposable images it saves 12-note content while playing,
+loads it, adopts it, restarts the executable, compares re-encoded content, and
+replaces generation 1 with generation 2. The runner checks one allocated
+8,192-byte file, filename generation, wrapper/title/icon bytes, and continued
+pad polling. These checks do not drive every action through physical buttons
+or inspect the console's card manager.
+
+| Direct-SIO configuration | Service peak | Interval peak | Dispatch peak |
+| --- | ---: | ---: | ---: |
+| Debug | 2,377 | 2,403 | 3,069 |
+| Release | 2,377 | 2,397 | 3,068 |
+
+Values are 4,233,600-Hz ticks; all remain below the 4,233-tick deadline.
+Per-operation `io_services`/`io_ticks` are measured between backend begin/end,
+excluding busy-frame rendering and warm-up. The longest measured normal
+operation is about 3.64 seconds (Debug replacement Save); pad input is paused
+for this interval. Logs: `storage-storage-direct-{debug,release}-normal-*.log`.
+
+Additional Debug scenarios pass: absent card, unformatted card unchanged,
+removal during a replacement Save with the previous generation unchanged and
+recoverable after restart, and Cross/START held across I/O followed by release
+and a fresh accepted press. Error waits finish and polling resumes with audio
+still playing. Logs use the `missing`, `unformatted`, `remove`, and `held`
+scenario names; the removal run includes seed and recovery logs.
+
+The BIOS prototype initially rejected valid high-bit event handles. After that
+fix and removing `_bu_init`, it still reports `STORAGE_NO_CARD` with a valid
+inserted private image. Its input-resume/audio check succeeds, but no BIOS
+write lifecycle is verified (`storage-debug-normal-0.log`). The default remains
+provisional; use the direct-SIO commands in [development.md](development.md)
+for the passing emulator persistence configuration.
+
+### Platform replacement and memory
+
+`replacement_fixture.c` and its runner pass in Debug/Release. They hold an
+ordinary publication pending, supersede it with Load, reject a repeated Load,
+and adopt ready replacements through both Stop and disconnect. A probe in SPU
+reverb RAM remains unchanged for same-Size adoption and is cleared for a Size
+change; the wet volume is restored to 16,383. This validates memory/register
+behavior, not audible continuity or the exact delay from note seam to effect
+acknowledgement.
+
+| Loaded replacement configuration | Service peak | Interval peak | Dispatch peak |
+| --- | ---: | ---: | ---: |
+| Debug | 4,151 | 4,176 | 4,217 |
+| Release | 4,135 | 4,155 | 4,216 |
+
+All measured loaded transitions remain within 4,233 ticks, with little margin.
+The pending-publication ownership probe includes an artificial timer pause;
+its long interval is excluded from timing acceptance. The rows above report
+the separate loaded adoption/reverb cases. Evidence:
+`storage-replacement-replacement-{debug,release}-emulator.log`.
+
+The application maps include live editor/staging data, both playback snapshots,
+encoded blocks, and prepared sequencers. BIOS Debug `_end` is `0x8013fa7c` and
+Release `_end` is `0x8013d1fc`; BSS is 1,114,648 bytes in both. Direct-SIO Debug
+and Release `_end` are `0x8013f9dc` and `0x8013cf6c`. These leave roughly 770–780
+KiB below the top of 2 MiB RAM, shared by heap/stack and runtime needs.
+Compiler stack reports show `score_validate_import` at 4,184/4,160 bytes
+(Debug/Release) per call, `score_copy` at 2,352 bytes, and the audio service
+frame at 112 bytes. Per-function stack sizes are not peak call-chain or IRQ
+watermarks. Detailed maps and `.su` reports are retained in
+`storage-replacement-memory-stack.txt`.
+
+The isolated storage fixture also measures runtime watermarks with incoming
+state and I/O buffers live. Across normal first-save and restart/replacement
+runs, Debug reaches 4,944 bytes on the main stack and 320 / 4,096 bytes on the
+SDK ISR stack; Release reaches 4,824 and 328 / 4,096 bytes respectively. The
+fixture has 767,196 / 778,508 bytes between its recorded main SP and `_end`.
+The main watermark covers a 64 KiB window with a 2 KiB active-frame exclusion;
+shallow paths therefore report a 2 KiB floor. The runner rejects exhaustion of
+that window. Painting occurs before playback, and final stack scanning is
+outside the measured I/O intervals. These are observed fixture paths, not
+hardware or all-path worst-case proofs. `STACK` rows are retained in the
+normal, missing, unformatted, removal/recovery, and held-input logs.
+
+### Remaining acceptance work
+
+Physical card read/write/removal, pad handoff and measured interrupt/dispatch
+bounds on hardware, actual controller interaction and card-manager title/icon
+inspection, and audible reverb continuity still require manual equipment-based
+validation. Exhaustive IRQ interleavings and physical power-loss guarantees are
+not supplied by the host or emulator tests. Full card/pad replacement across
+all metadata and transfer boundaries must not be inferred from the bounded
+injection cases. The final backend-selection and end-to-end acceptance gates
+therefore remain open.
+
 ## Eight shared channels (2026-09-23)
 
 ### Host model, playback and UI

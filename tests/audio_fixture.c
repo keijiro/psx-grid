@@ -402,9 +402,9 @@ int main(void) {
     transient_checks();
     menu_audio_checks();
     channel_checks();
-    // Valid worst-density score: 16 disjoint four-step lanes, each with
-    // 64-deep stacks, filling all 4096 slots. No allocation or model shortcut
-    // is used by playback; construction alone bypasses slow UI transactions.
+    // Deliberate sequencer stress beyond the persistence budget: 16 disjoint
+    // four-step lanes with 64-deep stacks still exercise all 4096 pool slots.
+    // Playback retains this overload coverage independently of edit admission.
     score_init(&editor.score);
     TileId id=1;
     for(int i=0;i<16;i++) {

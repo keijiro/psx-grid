@@ -57,6 +57,7 @@ typedef struct { int count; TileValue values[SCORE_HEIGHT]; } Clipboard;
 typedef struct { int sx, sy, x, y; ScoreResult result; } MovePlan;
 extern const int score_divisions[SCORE_DIVISIONS];
 void score_init(Score *score);
+ScoreResult score_validate_import(const Score *score);
 ScoreResult score_set_bpm(Score *score, int bpm);
 ScoreResult score_set_reverb(Score *score, ReverbSettings reverb);
 ScoreResult score_set_sound(Score *score, int channel, SoundSettings sound);

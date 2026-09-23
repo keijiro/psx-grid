@@ -30,14 +30,16 @@ typedef struct {
     int held_count;
 } Runner;
 typedef struct { AudioTime at; uint32_t token; } NoteOff;
-typedef struct {
+typedef struct Sequencer {
     const Score *score;
     NoteSink sink;
     Runner runners[SCORE_LANES];
     // Runner storage stays put across edits; only the traversal order changes.
     int order[SCORE_LANES];
     NoteOff offs[SEQUENCER_VOICES];
-    int count, playing;
+    int count, playing, master;
+    struct Sequencer *replacement;
+    AudioTime replacement_at;
     uint32_t random, skipped, overloads;
     AudioTime slice_at;
     SoundSettings working[SCORE_CHANNELS];
@@ -48,6 +50,10 @@ void sequencer_start(Sequencer *seq, const Score *snapshot, NoteSink sink, Audio
 // Both scores must remain immutable through this call. Resync is accepted
 // only between complete slices; failure leaves the old score in use.
 int sequencer_resync(Sequencer *seq, const Score *snapshot, AudioTime now);
-void sequencer_stop(Sequencer *seq, AudioTime now);
-void sequencer_service(Sequencer *seq, AudioTime now);
+// Prepare with sequencer_start on the main thread, then arm while service is
+// excluded. Both states/scores remain immutable to the main thread until the
+// returned active pointer changes. Retain every service/stop return value.
+int sequencer_replace(Sequencer *seq, Sequencer *prepared, AudioTime now);
+Sequencer *sequencer_stop(Sequencer *seq, AudioTime now);
+Sequencer *sequencer_service(Sequencer *seq, AudioTime now);
 #endif

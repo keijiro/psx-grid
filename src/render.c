@@ -175,13 +175,14 @@ void render_frame(const Editor *e, int connected) {
     int cx=screen_x(e->x),cy=screen_y(e->y); cursor(cx,cy);
     char line[64];
     snprintf(line,sizeof(line),"PSX GRID   %03d,%02d",e->x,e->y); text(8,8,line);
+    snprintf(line,sizeof(line),"FREE %d B",e->free_bytes); text(232-6*(e->free_bytes>=1000),8,line);
     Cell cell=score_at(&e->score,e->x,e->y);
     if(cell.lane>=0) snprintf(line,sizeof(line),"LANE %02d  CH %d  DIV 1/%d",cell.lane+1,score_channel(&e->score,cell.lane)+1,score_division(&e->score,cell.lane));
     else snprintf(line,sizeof(line),"PITCH AND GATE SCORE");
     text(8,20,line);
     if(e->mode!=EDIT_PLANE && e->mode!=EDIT_MOVE) {
         EditorAction items[EDITOR_MENU_ITEMS]; int n=editor_menu(e,items);
-        int width=208,height=e->mode==EDIT_MENU?n*16+16:e->mode==EDIT_PICKER?104:e->mode==EDIT_MAIN?120:e->mode==EDIT_REVERB?96:e->mode==EDIT_SOUND?128:editor_sound_parent(e->mode)==EDIT_SOUND?88:e->mode==EDIT_PATTERN?112:72;
+        int width=208,height=e->mode==EDIT_MENU?n*16+16:e->mode==EDIT_PICKER?104:e->mode==EDIT_MAIN?168:e->mode==EDIT_REVERB?96:e->mode==EDIT_SOUND?128:editor_sound_parent(e->mode)==EDIT_SOUND?88:e->mode==EDIT_PATTERN?112:72;
         int sound_property=e->mode==EDIT_SOUND_REVERB ||
             (editor_sound_parent(e->mode)!=EDIT_MENU && editor_sound_parent(e->mode)!=EDIT_SOUND);
         if(sound_property) height+=16;
@@ -190,9 +191,14 @@ void render_frame(const Editor *e, int connected) {
         rect(2,px,py,width,height,UI_PANEL); outline(1,px,py,width,height,UI_BORDER);
         if(e->mode==EDIT_MAIN) {
             sprite(0,px+(width-144)/2,py+12,0,64,144,30);
-            snprintf(line,sizeof(line),"%c BPM %d",e->selected==0?'>':' ',e->score.bpm); text(px+12,py+56,line);
-            text(px+12,py+76,e->selected==1?"> REVERB":"  REVERB");
-            text(px+12,py+96,e->selected==2?"> CLOSE":"  CLOSE");
+            snprintf(line,sizeof(line),"%c BPM %d",e->selected==0?'>':' ',e->score.bpm); text(px+12,py+48,line);
+            text(px+12,py+64,e->selected==1?"> REVERB":"  REVERB");
+            snprintf(line,sizeof(line),"%c SLOT %02d  L/R",e->selected==2?'>':' ',e->storage_slot); text(px+12,py+80,line);
+            text(px+24,py+96,storage_message(e->slot_status));
+            if(e->card_free>=0) { snprintf(line,sizeof(line),"%d BLK",e->card_free); text(px+160,py+80,line); }
+            snprintf(line,sizeof(line),"%c SAVE  FREE %d B",e->selected==3?'>':' ',e->free_bytes); text(px+12,py+112,line);
+            text(px+12,py+128,e->selected==4?"> LOAD":"  LOAD");
+            text(px+12,py+144,e->selected==5?"> CLOSE":"  CLOSE");
         } else if(e->mode==EDIT_REVERB) {
             text(px+8,py+8,"REVERB / GLOBAL");
             snprintf(line,sizeof(line),"%c SIZE %s",e->selected==0?'>':' ',score_reverb_size(e->score.reverb.size)); text(px+8,py+32,line);

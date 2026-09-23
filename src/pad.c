@@ -5,7 +5,10 @@
 #include <psxpad.h>
 
 static InputQueue queue;
-static int phase, received, length;
+static volatile int phase;
+static int received, length;
+static volatile int ownership;
+enum { PAD_OWNS, PAD_DRAINING, CARD_OWNS };
 static uint8_t reply[9];
 static uint16_t started, ready_at;
 volatile unsigned pad_polls, pad_reports, pad_timeouts, pad_overflows, pad_id;
@@ -35,6 +38,7 @@ static void publish(int connected) {
     phase=IDLE;
 }
 static void receive(void) {
+    if(ownership==CARD_OWNS) return;
     if(phase!=RECEIVING || !(SIO_STAT(0)&2)) {
         SIO_CTRL(0)|=0x10;
         return;
@@ -54,6 +58,7 @@ static void receive(void) {
     phase=READY;
 }
 static void vblank(void) {
+    if(ownership!=PAD_OWNS) return;
     // BIOS pad polling can be bypassed when the SDK drains a VBlank that
     // arrived during another IRQ. Starting here covers that path as well.
     if(phase!=IDLE) { pad_timeouts++; publish(0); }
@@ -67,7 +72,7 @@ static void vblank(void) {
     phase=READY;
 }
 void pad_service(void) {
-    if(phase==IDLE) return;
+    if(ownership==CARD_OWNS || phase==IDLE) return;
     uint16_t now=clock_now();
     if((uint16_t)(now-started)>=TIMEOUT_TICKS) { pad_timeouts++; publish(0); return; }
     if(phase!=READY || (uint16_t)(now-ready_at)<SETTLE_TICKS) return;
@@ -89,4 +94,28 @@ int pad_read(InputSample *sample) {
     int found=input_queue_pop(&queue,sample);
     ExitCriticalSection();
     return found;
+}
+
+void pad_suspend(void) {
+    EnterCriticalSection(); ownership=PAD_DRAINING; ExitCriticalSection();
+    // Let the current packet finish with the normal IRQ/timer path, but never
+    // wait for another VBlank. Intentional suspension publishes no disconnect.
+    uint16_t start=clock_now();
+    while(phase!=IDLE && (uint16_t)(clock_now()-start)<TIMEOUT_TICKS) {}
+    EnterCriticalSection();
+    ownership=CARD_OWNS; InterruptCallback(IRQ_SIO0,NULL);
+    SIO_CTRL(0)=0x40;
+    for(int i=0;i<16 && (SIO_STAT(0)&2);i++) (void)SIO_DATA(0);
+    SIO_CTRL(0)=0; IRQ_STAT=(uint16_t)~(1u<<IRQ_SIO0);
+    phase=IDLE; input_queue_init(&queue);
+    ExitCriticalSection();
+}
+void pad_resume(void) {
+    EnterCriticalSection();
+    SIO_CTRL(0)=0x40;
+    for(int i=0;i<16 && (SIO_STAT(0)&2);i++) (void)SIO_DATA(0);
+    SIO_CTRL(0)=0; IRQ_STAT=(uint16_t)~(1u<<IRQ_SIO0);
+    phase=IDLE; input_queue_init(&queue);
+    InterruptCallback(IRQ_SIO0,receive); ownership=PAD_OWNS;
+    ExitCriticalSection();
 }
