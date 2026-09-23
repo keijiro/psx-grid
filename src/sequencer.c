@@ -80,7 +80,7 @@ void sequencer_stop(Sequencer *s,AudioTime now) {
     if(s->sink.stop) s->sink.stop(s->sink.context,now);
 }
 static void offs_until(Sequencer *s,AudioTime now) {
-    // At most one pending gate-off per physical voice. The generation token
+    // At most one pending gate-off per logical note. The generation token
     // prevents an old gate from releasing a replacement after a steal.
     for(;;) {
         int first=-1;
@@ -89,7 +89,7 @@ static void offs_until(Sequencer *s,AudioTime now) {
         if(first<0) return;
         AudioTime at=s->offs[first].at;
         // Chord gate-offs share a deadline. Drain that group in one pass
-        // instead of searching all 24 slots again for each of its voices.
+        // instead of searching all logical slots again for each of its voices.
         for(int i=0;i<SEQUENCER_VOICES;i++) if(s->offs[i].token && s->offs[i].at==at) {
             uint32_t token=s->offs[i].token; s->offs[i].token=0;
             s->sink.off(s->sink.context,at,token);

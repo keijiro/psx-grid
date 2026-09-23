@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Run the bounded SPU/clock fixture with the pinned emulator, without its UI."""
+import math
 import os
 import re
 from pathlib import Path
@@ -23,7 +24,7 @@ result = subprocess.run(command, cwd=root, stdout=subprocess.PIPE, stderr=subpro
 log = result.stdout.decode(errors='replace')
 (output / f'audio-{configuration}-emulator.log').write_text(log)
 for line in log.splitlines():
-    if line.startswith(('AUDIO ', 'CAPTURE ', 'ENVELOPE ', 'DISPATCH ', 'LIVE ')):
+    if line.startswith(('AUDIO ', 'CAPTURE ', 'ENVELOPE ', 'DISPATCH ', 'LIVE ', 'WAVE ', 'SYNTH ')):
         print(line)
 if result.returncode or 'AUDIO FIXTURE COMPLETE' not in log:
     raise SystemExit(f'Fixture failed: exit {result.returncode}; see {output}')
@@ -34,12 +35,12 @@ def fields(prefix):
     match = re.search(r'^'+re.escape(prefix)+r': (.*)$', log, re.MULTILINE)
     assert match, f'Missing measurement: {prefix}'
     return {key:int(value) for key,value in re.findall(r'(\w+)=(\d+)', match[1])}
-for phase in ('C4 loop', '24-note chord', 'live pitch'):
+for phase in ('C4 loop', '12-note chord', 'live pitch'):
     timing, dispatch = fields('AUDIO '+phase), fields('DISPATCH '+phase)
     assert timing['skipped']==0 and timing['overloads']==0, (phase, timing)
     assert 0 < dispatch['peak'] <= 4233 and timing['interval'] <= 4233, (phase, dispatch, timing)
-chord = fields('DISPATCH 24-note chord')
-assert chord['count']==24 and chord['span']==0, chord
+chord = fields('DISPATCH 12-note chord')
+assert chord['count']==12 and chord['span']==0, chord
 loop = fields('DISPATCH C4 loop')
 assert abs(loop['span']-(loop['count']-1)*529200) <= 8467, loop
 for phase in ('stopped', 'final stop', 'pending stop', 'pending disconnect'):
@@ -70,4 +71,53 @@ assert coalesced['pending']==coalesced['deferred']==coalesced['adopted']==coales
 for phase in ('pending stop','pending disconnect'):
     state=fields('LIVE '+phase)
     assert state['pending']==state['unchanged']==1 and state['playing']==0, state
-print('PASS: emulator dispatch, loop duration, envelopes, signal, live publication, overload and pending-stop checks')
+waves=re.findall(r'WAVE wave=(\d+) peak=(\d+) pairs=(\d+) bound=(\d+)',log)
+assert {int(row[0]) for row in waves}==set(range(5)), waves
+for wave,peak,pairs,bound in waves:
+    assert int(pairs)==12 and 0<int(peak)<32767 and 0<int(bound)<12288, (wave,peak,pairs,bound)
+for sign in (-1,1):
+    rows=re.findall(r'SYNTH sign='+str(sign)+r' ms=(\d+) ticks=(\d+) pitch=(\d+) a=(\d+) b=(\d+) pairs=(\d+)',log)
+    assert len(rows)==7, rows
+    base=int(rows[-1][2])
+    # C4 uses a 672-sample bank for a downward sweep and a 168-sample
+    # bank for an upward sweep; both contain one fundamental cycle.
+    expected_base=round(4096*(440*2**((48-57)/12))*(672 if sign<0 else 168)/44100)
+    assert base==expected_base, (sign,base,expected_base)
+    previous=0 if sign<0 else 16384
+    for ms,ticks,pitch,a,b,pairs in rows:
+        ms,ticks,pitch,a,b,pairs=map(int,(ms,ticks,pitch,a,b,pairs))
+        assert pairs==12 and a+b==512, (sign,ms,a,b,pairs)
+        t=ticks/4233600
+        # The fixture records the last completed service timestamp together
+        # with the registers, avoiding main-loop and diagnostic output delays.
+        def expected(at):
+            snap=(math.exp(-8*at/.2)-math.exp(-8))/(1-math.exp(-8)) if at<.2 else 0
+            return base*2**(sign*2*snap)
+        expected_pitch=expected(t)
+        tolerance=expected_pitch*(2**(2/1200)-1)+1
+        assert abs(pitch-expected_pitch)<=tolerance, (sign,ms,t,pitch,expected_pitch)
+        assert (pitch>=previous if sign<0 else pitch<=previous), (sign,ms,pitch,previous)
+        previous=pitch
+        def mix(at): return max(0,min(at/.1,(.2-at)/.1,1))*512
+        expected_gain=mix(t)
+        assert abs(b-expected_gain)<=2, (sign,ms,t,b,expected_gain)
+    assert int(rows[-2][2])==base, rows
+# Each chord starts all twelve pairs in one flush and stays within the same
+# deadline even while both control envelopes update every service.
+chord_reports=re.findall(r'^(?:AUDIO|DISPATCH) (?:wave|sweep) chord: (.*)$',log,re.MULTILINE)
+assert len(chord_reports)==14, chord_reports
+for kind in ('AUDIO','DISPATCH'):
+    for phase,count in (('wave',5),('sweep',2)):
+        assert len(re.findall('^'+kind+' '+phase+' chord: ',log,re.MULTILINE))==count, (kind,phase)
+for line in chord_reports:
+    values={k:int(v) for k,v in re.findall(r'(\w+)=(\d+)',line)}
+    if 'cost' in values:
+        assert values['skipped']==values['overloads']==0 and values['interval']<=4233, values
+    else:
+        assert values['count']==12 and values['span']==0 and 0<values['peak']<=4233, values
+sweep_stops=re.findall(r'^AUDIO sweep stop: (.*)$',log,re.MULTILINE)
+assert len(sweep_stops)==2, sweep_stops
+for line in sweep_stops:
+    values={k:int(v) for k,v in re.findall(r'(\w+)=(\d+)',line)}
+    assert values['vol']==values['volumes']==0, values
+print('PASS: paired wavetable/mix/sweep/headroom and emulator dispatch, loop duration, envelopes, signal, live publication, overload and pending-stop checks')

@@ -1,5 +1,6 @@
 #include "audio.h"
 #include <string.h>
+#include "audio_tables.h"
 AudioTime audio_ms(int ms) { return (uint32_t)ms*(SEQUENCER_HZ/1000)+(uint32_t)ms*(SEQUENCER_HZ%1000)/1000; }
 static int level_at(const AudioVoice *v,AudioTime now) {
     if(!v->active) return 0;
@@ -16,15 +17,47 @@ static int level_at(const AudioVoice *v,AudioTime now) {
     int level=(int)(((uint32_t)elapsed>>7)*AUDIO_LEVEL/((uint32_t)attack>>7));
     return level<AUDIO_LEVEL?level:AUDIO_LEVEL-1;
 }
+static int pitch_at(const AudioVoice *v,AudioTime now) {
+    AudioTime elapsed=now-v->start;
+    uint32_t duration=(uint32_t)audio_ms(v->sound.decay);
+    if(!v->sound.sweep || !duration || elapsed>=duration) return v->base_pitch;
+    // Two radix-256 divisions normalize absolute time to Q16 without a
+    // 64-bit divide. At 2000 ms, duration*256 still fits in uint32_t.
+    uint32_t scaled=(uint32_t)elapsed*256;
+    uint32_t x=(scaled/duration)*256+(scaled%duration)*256/duration;
+    unsigned index=x>>6, fraction=x&63;
+    int snap=(int)audio_snap[index]-(int)((audio_snap[index]-audio_snap[index+1])*fraction/64);
+    int note=v->pitch*65536+v->sound.sweep*snap;
+    // Clamp frequency after evaluating the signed interval. Extreme notes
+    // can plateau at C0/C9, but never wrap a table or change banks mid-note.
+    if(note<0) note=0;
+    if(note>108*65536) note=108*65536;
+    // Semitone entries store register values in Q8. Interpolate with a Q12
+    // fraction; in the selected bank the product stays within 32 bits.
+    const uint32_t *table=&audio_pitch[v->bank*109];
+    index=(unsigned)note>>16;
+    uint32_t value=table[index];
+    if(index<108) value+=(table[index+1]-value)*(((unsigned)note&65535)>>4)/4096;
+    return (int)((value+128)>>8);
+}
+static int mix_at(const AudioVoice *v,AudioTime now) {
+    AudioTime elapsed=now-v->start;
+    uint32_t attack=(uint32_t)audio_ms(v->sound.mix_attack), release=(uint32_t)audio_ms(v->sound.mix_release);
+    if(attack && elapsed<attack) return (uint32_t)elapsed*AUDIO_LEVEL/attack;
+    if(release && elapsed<attack+release) return (attack+release-(uint32_t)elapsed)*AUDIO_LEVEL/release;
+    return 0;
+}
 static void advance(void *ctx,AudioTime now) {
     Audio *a=ctx;
-    if(a->idle_mask==0xffffff && !(a->starts|a->stops)) return;
+    if(a->idle_mask==AUDIO_IDLE_MASK && !(a->starts|a->stops)) return;
     for(int i=0;i<SEQUENCER_VOICES;i++) {
         AudioVoice *v=&a->voices[i];
         if(!v->active) continue;
         v->level=level_at(v,now);
-        if(a->starts&(1u<<i)) a->driver.start(a->driver.context,i,v->pitch);
-        a->driver.volume(a->driver.context,i,v->level);
+        if(a->starts&(1u<<i)) a->driver.start(a->driver.context,i,v->bank,v->sound);
+        int b=v->level*mix_at(v,now)/AUDIO_LEVEL;
+        a->driver.volume(a->driver.context,i,v->level-b,b);
+        a->driver.pitch(a->driver.context,i,pitch_at(v,now));
         if(v->releasing && now>=v->end) { v->active=0; a->idle_mask|=1u<<i; a->stops|=1u<<i; a->starts&=~(1u<<i); }
     }
     a->driver.flush(a->driver.context,a->starts,a->stops);
@@ -39,8 +72,8 @@ static uint32_t on(void *ctx,AudioTime now,int pitch,SoundSettings sound) {
         for(int i=0;i<SEQUENCER_VOICES;i++) {
             AudioVoice *v=&a->voices[i];
             if(v->active && v->releasing && now>=v->end) {
-                v->active=0; a->idle_mask|=1u<<i; a->stops|=1u<<i;
-                a->driver.volume(a->driver.context,i,0);
+                v->active=0; a->idle_mask|=1u<<i; a->stops|=1u<<i; a->starts&=~(1u<<i);
+                a->driver.volume(a->driver.context,i,0,0);
             }
         }
     }
@@ -70,6 +103,8 @@ static uint32_t on(void *ctx,AudioTime now,int pitch,SoundSettings sound) {
     if(!generation) generation=1;
     v->start=now; v->generation=generation; v->sound=sound;
     v->active=1; v->releasing=0; v->level=0; v->pitch=pitch;
+    v->bank=audio_banks[pitch*49+(sound.decay?sound.sweep:0)+24];
+    v->base_pitch=(int)((audio_pitch[v->bank*109+pitch]+128)>>8);
     // Batch one final key-on per slot. A stolen slot must not receive key-off
     // in the same batch, whose register priority would suppress its new note.
     a->stops&=~(1u<<slot); a->starts|=1u<<slot;
@@ -87,7 +122,7 @@ static void off(void *ctx,AudioTime now,uint32_t token) {
         release(a,(int)i,now,v->sound.release);
         if(!v->sound.release) {
             v->active=0; a->idle_mask|=1u<<i; a->stops|=1u<<i; a->starts&=~(1u<<i);
-            a->driver.volume(a->driver.context,(int)i,0);
+            a->driver.volume(a->driver.context,(int)i,0,0);
         }
     }
 }
@@ -95,5 +130,5 @@ static void stop(void *ctx,AudioTime now) {
     Audio *a=ctx;
     for(int i=0;i<SEQUENCER_VOICES;i++) if(a->voices[i].active) release(a,i,now,5);
 }
-void audio_init(Audio *a,AudioDriver driver) { memset(a,0,sizeof(*a)); a->driver=driver; a->idle_mask=0xffffff; a->allocation_time=UINT64_MAX; }
+void audio_init(Audio *a,AudioDriver driver) { memset(a,0,sizeof(*a)); a->driver=driver; a->idle_mask=AUDIO_IDLE_MASK; a->allocation_time=UINT64_MAX; }
 NoteSink audio_sink(Audio *a) { return (NoteSink){a,on,off,stop,advance}; }

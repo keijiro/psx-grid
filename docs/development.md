@@ -45,12 +45,16 @@ to a gamepad or keyboard. See [usage.md](usage.md) for the editing walkthrough.
 - `src/sequencer.*`: SDK-independent runners, exact absolute deadlines,
   live runner reconciliation, ordered held locks, generation-tagged gate-offs,
   and bounded catch-up.
-- `src/audio.*`: SDK-independent voice allocation and volume envelopes with
+- `src/audio.*`: SDK-independent 12-note pair allocation, amplitude/mix envelopes,
+  and fixed-point pitch sweep with
   an injected register driver for host tests.
 - `src/audio_psx.c`: Double-buffered score publication, SPU upload/registers,
   timer interrupts, lifecycle, and debugger-visible measurements.
-- `scripts/generate-audio.py`: Independent sine ADPCM generation, pitch table,
-  and decoded error report (`generated/sine_samples.txt`).
+- `scripts/generate-audio.py`: Deterministic five-wave ADPCM banks
+  (`generated/wave_samples.h`), fixed-point control tables
+  (`generated/audio_tables.h`), and asset/trajectory report
+  (`generated/wave_samples.txt`). Both headers share one build rule and are
+  used by the editor and fixture executables.
 - `src/input.*`: Ordered input history, button presses, repeats, disconnection,
   and reconnection.
 - `src/pad.*`: Port 1 asynchronous SIO polling and completed-report publication.
@@ -100,6 +104,25 @@ provenance and licensing live with the [editable sources](../assets/ui/README.md
 Visual study results and remaining acceptance checks are in
 [validation.md](validation.md).
 
+## Synthesis contract
+
+Each logical note owns a fixed pair of hardware voices throughout its lifetime.
+The portable driver passes a root bank and captured wave choices at start,
+then paired gains and a shared pitch register without retriggering. Flush masks
+use logical slots; the platform expands them to hardware pairs. Gate tokens and
+pending gate-offs address logical notes. Relative Locks change only amplitude
+attack/release; the remaining captured settings pass through unchanged.
+
+Asset generation retains ten octave-root banks and selects one bank for the
+whole clamped sweep trajectory. Generated control tables implement normalized
+Snap decay and pitch conversion without floating point in the timer callback.
+The existing absolute clock, service cadence, and 1 ms dispatch deadline remain
+the timing contract checked by the emulator fixtures.
+
+The current wavetable measurements and remaining listening/UI checks are in
+[validation.md](validation.md). Its historical sections describe the preceding
+sine implementation and must not be used as paired-voice measurements.
+
 ## Audio fixture
 
 Build and run the standalone development fixture without changing the editor's
@@ -144,7 +167,7 @@ python3 scripts/test-input-emulator.py release analog
 
 The runner injects one-frame Right/Cross/START taps through Redux's controller
 API, so they pass through SIO and the application's real pad driver. It checks
-stopped playback, a 24-voice score, consumption delayed by eight rendered frames,
+stopped playback, a 12-note score, consumption delayed by eight rendered frames,
 a held-button disconnect/reconnect, and a 4,096-tile overloaded score. Logs are written to
 `build/validation/input-{debug,release}-{digital,analog}-emulator.log`.
 Host tests separately exercise queue wraparound, overflow recovery and editor

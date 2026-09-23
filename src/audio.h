@@ -1,20 +1,26 @@
 #ifndef AUDIO_H
 #define AUDIO_H
 #include "sequencer.h"
+#define AUDIO_HARDWARE_VOICES 24
+#define AUDIO_IDLE_MASK ((1u<<SEQUENCER_VOICES)-1)
+// Even a full-scale decoded overshoot sums to only 3/8 scale for 12 pairs.
+// Complementary gains keep equal-wave pairs within the same per-note budget.
 #define AUDIO_LEVEL 512
+// Driver slots and flush masks refer to logical pairs, not SPU channels.
 // Register writes are injected so allocation, envelopes and stale gate-offs
 // use exactly the same code on the console and in the host fixture.
 typedef struct {
     void *context;
-    void (*start)(void *, int, int);
-    void (*volume)(void *, int, int);
-    void (*flush)(void *, uint32_t, uint32_t);
+    void (*start)(void *context, int slot, int bank, SoundSettings sound);
+    void (*volume)(void *context, int slot, int a, int b);
+    void (*pitch)(void *context, int slot, int value);
+    void (*flush)(void *context, uint32_t starts, uint32_t stops);
 } AudioDriver;
 typedef struct {
     AudioTime start, release_at, end;
     uint32_t generation;
     SoundSettings sound;
-    int active, releasing, level, release_level, pitch;
+    int active, releasing, level, release_level, pitch, bank, base_pitch;
 } AudioVoice;
 typedef struct {
     AudioVoice voices[SEQUENCER_VOICES];

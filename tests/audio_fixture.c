@@ -12,7 +12,7 @@
 extern volatile uint32_t audio_service_peak, audio_interval_peak, audio_services;
 extern volatile uint32_t audio_voice_steals, audio_skipped_notes, audio_overloads;
 extern volatile uint32_t audio_dispatch_peak, audio_note_count, audio_first_note, audio_last_note;
-extern volatile uint32_t audio_started;
+extern volatile uint32_t audio_started, audio_control_time;
 static Editor editor;
 static uint32_t capture[256];
 static void log_message(const char *format,...) {
@@ -29,7 +29,7 @@ static void report(const char *phase) {
         audio_skipped_notes,audio_overloads,SPU_CH_ADSR_VOL(0),SPU_CH_VOL_L(0),
         audio_dispatch_peak,audio_note_count,audio_last_note-audio_first_note};
     unsigned volumes=0;
-    for(int i=0;i<24;i++) volumes|=SPU_CH_VOL_L(i)|SPU_CH_VOL_R(i);
+    for(int i=0;i<AUDIO_HARDWARE_VOICES;i++) volumes|=SPU_CH_VOL_L(i)|SPU_CH_VOL_R(i);
     audio_service_peak=audio_interval_peak=0;
     ExitCriticalSection();
     log_message("AUDIO %s: calls=%u cost=%u interval=%u steals=%u skipped=%u overloads=%u env=%u vol=%u volumes=%u\n",
@@ -118,6 +118,57 @@ static void coalesce_revision(void) {
     log_message("LIVE coalesced: pending=%d deferred=%d adopted=%d playing=%d\n",
         pending,deferred,audio_platform_revision()==editor.score.revision,audio_platform_playing());
 }
+static void synthesis_checks(void) {
+    for(int wave=0;wave<WAVE_COUNT;wave++) {
+        score_init(&editor.score); score_create(&editor.score,0,0,1);
+        score_set_division(&editor.score,0,1);
+        score_set_sound(&editor.score,(SoundSettings){0,5,wave,wave,0,0,0,200});
+        TileValue note=score_default(TILE_NOTE); note.length=1280;
+        for(int i=0;i<SEQUENCER_VOICES;i++) score_place_value(&editor.score,1,i,note);
+        audio_platform_update(&editor.score,1,1); frames(12);
+        SpuSetTransferStartAddr(0x800); SpuRead(capture,sizeof(capture)); SpuIsTransferCompleted(SPU_TRANSFER_WAIT);
+        int peak=0; const int16_t *pcm=(const int16_t *)capture;
+        for(int j=0;j<512;j++) { int n=pcm[j]<0?-pcm[j]:pcm[j]; if(n>peak) peak=n; }
+        int pairs=0;
+        for(int i=0;i<AUDIO_HARDWARE_VOICES;i+=2)
+            pairs+=SPU_CH_FREQ(i)==SPU_CH_FREQ(i+1) && SPU_CH_VOL_L(i)+SPU_CH_VOL_L(i+1)==AUDIO_LEVEL
+                && SPU_CH_LOOP_ADDR(i)==SPU_CH_LOOP_ADDR(i+1);
+        // Capture is pre-volume voice output, not the final mixer. The bound
+        // scales its observed peak by all twelve complementary gain budgets.
+        log_message("WAVE wave=%d peak=%d pairs=%d bound=%d\n",wave,peak,pairs,(peak*SEQUENCER_VOICES*AUDIO_LEVEL+16383)/16384);
+        report("wave chord");
+        audio_platform_update(&editor.score,0,0); frames(2);
+    }
+    for(int sign=-1;sign<=1;sign+=2) {
+        score_init(&editor.score); score_create(&editor.score,0,0,1);
+        score_set_division(&editor.score,0,1);
+        score_set_sound(&editor.score,(SoundSettings){0,500,WAVE_SAW,WAVE_SQUARE,100,100,sign*24,200});
+        TileValue note=score_default(TILE_NOTE); note.length=1280;
+        for(int i=0;i<SEQUENCER_VOICES;i++) score_place_value(&editor.score,1,i,note);
+        audio_platform_update(&editor.score,1,1);
+        const int times[]={2,25,50,100,150,199,202};
+        // Formatting diagnostics on the main thread takes long enough to
+        // miss envelope phases in Debug. Buffer readback until sampling ends.
+        unsigned samples[7][5];
+        for(int j=0;j<7;j++) {
+            while(audio_platform_time()-audio_started<audio_ms(times[j])) {}
+            EnterCriticalSection();
+            unsigned elapsed=audio_control_time-audio_started;
+            unsigned pitch=SPU_CH_FREQ(0),a=SPU_CH_VOL_L(0),b=SPU_CH_VOL_L(1);
+            int pairs=0;
+            for(int i=0;i<AUDIO_HARDWARE_VOICES;i+=2)
+                pairs+=SPU_CH_FREQ(i)==pitch && SPU_CH_FREQ(i+1)==pitch
+                    && SPU_CH_VOL_L(i)==a && SPU_CH_VOL_L(i+1)==b
+                    && SPU_CH_LOOP_ADDR(i)!=SPU_CH_LOOP_ADDR(i+1);
+            ExitCriticalSection();
+            samples[j][0]=elapsed; samples[j][1]=pitch; samples[j][2]=a; samples[j][3]=b; samples[j][4]=pairs;
+        }
+        for(int j=0;j<7;j++)
+            log_message("SYNTH sign=%d ms=%d ticks=%u pitch=%u a=%u b=%u pairs=%u\n",sign,times[j],samples[j][0],samples[j][1],samples[j][2],samples[j][3],samples[j][4]);
+        report("sweep chord");
+        audio_platform_update(&editor.score,0,0); frames(2); report("sweep stop");
+    }
+}
 int main(void) {
     editor_init(&editor); render_init();
     audio_platform_init(); pad_init();
@@ -138,11 +189,11 @@ int main(void) {
     audio_platform_update(&editor.score,1,1); frames(4);
     stop_pending(1);
     score_init(&editor.score); score_create(&editor.score,0,0,16);
-    for(int i=0;i<24;i++) {
+    for(int i=0;i<SEQUENCER_VOICES;i++) {
         TileValue chord=score_default(TILE_NOTE); chord.pitch=36+i;
         score_place_value(&editor.score,1,i,chord);
     }
-    audio_platform_update(&editor.score,1,1); frames(6); report("24-note chord");
+    audio_platform_update(&editor.score,1,1); frames(6); report("12-note chord");
     audio_platform_update(&editor.score,0,0); frames(2);
     // Capture voice 1's decoded signal through the actual SPU DMA read path.
     // Its ring is unordered here; this checks signal presence, not continuity.
@@ -161,7 +212,7 @@ int main(void) {
     for(int i=0;i<4;i++) {
         score_init(&editor.score); score_create(&editor.score,0,0,1);
         score_set_division(&editor.score,0,1);
-        score_set_sound(&editor.score,(SoundSettings){times[i],times[i]});
+        score_set_sound(&editor.score,(SoundSettings){times[i],times[i],WAVE_SINE,WAVE_SINE,0,0,0,200});
         TileValue note=score_default(TILE_NOTE); note.length=5;
         score_place_value(&editor.score,1,0,note); audio_platform_update(&editor.score,1,1);
         uint32_t peak=0,zero=0; AudioTime gate=SEQUENCER_HZ/2;
@@ -175,6 +226,7 @@ int main(void) {
         log_message("ENVELOPE request=%d attack_ticks=%u release_ticks=%u\n",times[i],(unsigned)peak,(unsigned)(zero?zero-1:0));
         audio_platform_update(&editor.score,0,0); frames(2);
     }
+    synthesis_checks();
     // Valid worst-density score: 16 disjoint four-step lanes, each with
     // 64-deep stacks, filling all 4096 slots. No allocation or model shortcut
     // is used by playback; construction alone bypasses slow UI transactions.

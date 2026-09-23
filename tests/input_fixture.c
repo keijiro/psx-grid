@@ -43,7 +43,7 @@ int main(void) {
     for(int i=0;i<8;i++) { render_frame(&editor,1); drain(); }
     run(1);
     score_create(&editor.score,0,0,16);
-    for(int i=0;i<24;i++) {
+    for(int i=0;i<SEQUENCER_VOICES;i++) {
         TileValue v=score_default(TILE_NOTE); v.pitch=36+i; v.length=1280;
         score_place_value(&editor.score,1,i,v);
     }

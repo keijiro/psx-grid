@@ -3,7 +3,7 @@
 #include <psxspu.h>
 #include <psxetc.h>
 #include <psxapi.h>
-#include "sine_samples.h"
+#include "wave_samples.h"
 
 // The main thread owns the spare until it publishes it. The interrupt owns
 // both buffers while one is pending, and releases the old one only after a
@@ -20,28 +20,43 @@ static uint32_t late_starts;
 volatile uint32_t audio_service_peak, audio_interval_peak, audio_services;
 volatile uint32_t audio_voice_steals, audio_skipped_notes, audio_overloads;
 volatile uint32_t audio_dispatch_peak, audio_note_count, audio_first_note, audio_last_note;
-volatile uint32_t audio_started;
+volatile uint32_t audio_started, audio_control_time;
 static AudioTime read_clock(void);
 
-static void start_voice(void *ctx,int voice,int pitch) {
+static int cached_volume[AUDIO_HARDWARE_VOICES], cached_pitch[SEQUENCER_VOICES];
+static void start_voice(void *ctx,int slot,int bank,SoundSettings sound) {
     (void)ctx;
-    unsigned address=0x1000+sine_offsets[pitch/12];
-    SpuSetVoiceStartAddr(voice,address);
-    SPU_CH_LOOP_ADDR(voice)=getSPUAddr(address);
-    SpuSetVoicePitch(voice,sine_pitch[pitch]);
-    // Millisecond controls use software volume ramps. SPU release has only
-    // 32 exponentially spaced rates, so it cannot represent 0..16000 ms in
-    // 1 ms increments, especially when release interrupts a partial attack.
-    // Fast linear attack, maximum sustain level and stationary sustain leave
-    // the hardware envelope open; its startup latency still needs SPU checks.
-    SPU_CH_ADSR1(voice)=0x00ff;
-    SPU_CH_ADSR2(voice)=0x1fc0;
+    for(int half=0;half<2;half++) {
+        int voice=slot*2+half, wave=half?sound.wave_b:sound.wave_a;
+        unsigned address=WAVE_SPU_ADDRESS+wave_offsets[bank*WAVE_COUNT+wave];
+        SpuSetVoiceStartAddr(voice,address);
+        SPU_CH_LOOP_ADDR(voice)=getSPUAddr(address);
+        // Software amplitude retains the score's gate and 0..16000 ms times.
+        // Fast attack and stationary maximum sustain hold hardware ADSR open.
+        SPU_CH_ADSR1(voice)=0x00ff;
+        SPU_CH_ADSR2(voice)=0x1fc0;
+    }
 }
-static void volume(void *ctx,int voice,int level) {
+static void volume(void *ctx,int slot,int a,int b) {
     (void)ctx;
-    // Samples target half scale. At 512/16384 voice gain, 24 coherent notes
-    // nominally sum to 3/8 full scale, leaving room for ADPCM overshoot.
-    SpuSetVoiceVolume(voice,level,level);
+    for(int half=0;half<2;half++) {
+        int voice=slot*2+half, level=half?b:a;
+        if(cached_volume[voice]==level) continue;
+        cached_volume[voice]=level;
+        SpuSetVoiceVolume(voice,level,level);
+    }
+}
+static void pitch(void *ctx,int slot,int value) {
+    (void)ctx;
+    if(cached_pitch[slot]==value) return;
+    cached_pitch[slot]=value;
+    SpuSetVoicePitch(slot*2,value);
+    SpuSetVoicePitch(slot*2+1,value);
+}
+static uint32_t hardware_mask(uint32_t logical) {
+    uint32_t mask=0;
+    for(int i=0;i<SEQUENCER_VOICES;i++) if(logical&(1u<<i)) mask|=3u<<(i*2);
+    return mask;
 }
 static void flush(void *ctx,uint32_t starts,uint32_t stops) {
     (void)ctx;
@@ -51,11 +66,11 @@ static void flush(void *ctx,uint32_t starts,uint32_t stops) {
     // dispatch, not only at entry, so overload cannot turn into a late burst.
     for(int i=0;i<SEQUENCER_VOICES;i++) if((starts&(1u<<i)) && now-audio.voices[i].start>SEQUENCER_HZ/1000) {
         starts&=~(1u<<i); stops|=1u<<i; audio.voices[i].active=0; audio.idle_mask|=1u<<i;
-        volume(NULL,i,0); late_starts++;
+        volume(NULL,i,0,0); late_starts++;
     }
-    if(stops) SpuSetKey(0,stops);
+    if(stops) SpuSetKey(0,hardware_mask(stops));
     if(starts) {
-        SpuSetKey(1,starts);
+        SpuSetKey(1,hardware_mask(starts));
         for(int i=0;i<SEQUENCER_VOICES;i++) if(starts&(1u<<i)) {
             uint32_t late=(uint32_t)(now-audio.voices[i].start);
             if(late>audio_dispatch_peak) audio_dispatch_peak=late;
@@ -85,6 +100,9 @@ static void service(void) {
         sequencer_service(&seq,now);
     }
     else { NoteSink sink=audio_sink(&audio); sink.advance(sink.context,now); }
+    // Register fixtures use the completed control timestamp, since reading
+    // the main-thread clock before readback can straddle another service.
+    audio_control_time=(uint32_t)now;
     audio_voice_steals=audio.steals; audio_skipped_notes=seq.skipped+late_starts; audio_overloads=seq.overloads;
     uint32_t elapsed=(uint32_t)(read_clock()-now);
     if(elapsed>audio_service_peak) audio_service_peak=elapsed;
@@ -97,13 +115,15 @@ void audio_platform_init(void) {
     SPU_REVERB_ON1=SPU_REVERB_ON2=0;
     SPU_REVERB_VOL_L=SPU_REVERB_VOL_R=0;
     SPU_CD_VOL_L=SPU_CD_VOL_R=SPU_EXT_VOL_L=SPU_EXT_VOL_R=0;
-    SpuSetTransferStartAddr(0x1000); SpuWrite(sine_data,sizeof(sine_data));
+    SpuSetTransferStartAddr(WAVE_SPU_ADDRESS); SpuWrite(wave_data,sizeof(wave_data));
     SpuIsTransferCompleted(SPU_TRANSFER_WAIT);
-    audio_init(&audio,(AudioDriver){NULL,start_voice,volume,flush});
+    for(int i=0;i<AUDIO_HARDWARE_VOICES;i++) cached_volume[i]=-1;
+    for(int i=0;i<SEQUENCER_VOICES;i++) { cached_pitch[i]=-1; volume(NULL,i,0,0); }
+    audio_init(&audio,(AudioDriver){NULL,start_voice,volume,pitch,flush});
     // Timer 2 free-runs at CLK/8 (4,233,600 Hz). Timer 0 requests service
     // every 8,467 CPU clocks, approximately 0.25 ms, independently of VSync.
-    // This leaves time for a 24-note register batch inside the 1 ms deadline;
-    // a 0.5 ms interval plus an unoptimized batch exceeded it in the fixture.
+    // Retain the cadence used by the original sine backend; paired control
+    // cost and the 1 ms dispatch deadline must be measured with the fixture.
     // Read elapsed hardware ticks, never count interrupts as elapsed time.
     // The 16-bit clock must be sampled within 15.48 ms; no callback, DMA wait
     // or score copy may mask interrupts for that long. Peaks expose violations
@@ -131,9 +151,10 @@ void audio_platform_update(const Score *score,int connected,int start) {
         AudioTime now=read_clock();
         // Restart discards release tails. Zero their registers before reuse;
         // the regular stop path, in contrast, always completes its 5 ms ramp.
-        for(int i=0;i<SEQUENCER_VOICES;i++) { audio.voices[i].active=0; volume(NULL,i,0); }
+        for(int i=0;i<SEQUENCER_VOICES;i++) { audio.voices[i].active=0; volume(NULL,i,0,0); }
         SPU_KEY_OFF1=0xffff; SPU_KEY_OFF2=0xff;
-        audio.idle_mask=0xffffff; audio.allocation_time=UINT64_MAX;
+        audio.starts=audio.stops=0;
+        audio.idle_mask=AUDIO_IDLE_MASK; audio.allocation_time=UINT64_MAX;
         for(int i=0;i<seq.count;i++) seq.runners[i].next=now;
         audio_started=(uint32_t)now;
         audio_dispatch_peak=audio_note_count=audio_first_note=audio_last_note=late_starts=0;

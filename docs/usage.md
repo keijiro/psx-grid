@@ -12,6 +12,8 @@ The executable starts with an empty score and the cursor at `(1,1)`.
 | Menu / picker | Up/Down selects | Execute | Return |
 | Pitch | Left/Right changes semitone; Up/Down changes octave | Apply | Discard |
 | Note length | Left/Right changes 0.05 steps; Up/Down changes one step | Apply | Discard |
+| Wave A / B | Right/Up or Left/Down changes one waveform | Apply | Discard |
+| Pitch sweep | Left/Right changes 1 semitone; Up/Down changes 12 | Apply | Discard |
 | Sound time / lock offset | Left/Right changes 1 ms; Up/Down changes 100 ms | Apply | Discard |
 | Lock engagement | Right/Up enables; Left/Down disables and clears the offset | Apply | Discard |
 | Other numeric property | Right/Up increases; Left/Down decreases | Apply | Discard |
@@ -75,7 +77,7 @@ Collision, boundary, and capacity failures leave the score unchanged. Shortening
 a lane cannot discard occupied trailing steps.
 
 Division denominators are `1, 2, 3, 4, 6, 8, 12, 16, 24, 32, 48, 64`, initially
-16. Auditioning, effects, waveform/channel/tempo selection, absolute locks,
+16. Auditioning, effects, channel/tempo selection, absolute locks,
 saving, loading, and undo are outside this milestone.
 
 ## Playback and sound
@@ -115,8 +117,8 @@ playhead.
 Tempo is fixed at 120 BPM. A step lasts 2000 divided by the lane division in
 milliseconds: sixteen steps at division 16 make a two-second loop. Notes keep
 their written gate lengths and overlap across steps. Release begins at gate-off,
-even if Attack is still in progress. Up to 24 SPU voices share one logical
-sound channel. Extreme density may steal voices or skip overdue notes.
+even if Attack is still in progress. Up to 12 notes share one logical
+sound channel, using a fixed pair of SPU voices per note. Extreme density may steal voices or skip overdue notes.
 
 A reached Jump selects the next step from its branch, after finishing the
 current stack. The last reached Jump wins. Any terminator returns the runner
@@ -124,11 +126,37 @@ to its original regular lane and increments its lap, with no extra empty step.
 Cycle gates select bit zero on the first lap. Probability gates use a repeatable
 random sequence reset at each start.
 
-Open `SOUND` on any regular head to edit **global** Attack and Release. Both
-start at 5 ms and range from 0 to 16,000 ms. These are software volume ramps
-on compressed sine samples; see the measured limitations in [validation.md](validation.md).
+Open `SOUND` on any regular head to edit the **global** sound through four
+submenus. Cross applies an individual candidate; Circle discards it and returns
+to its submenu. `BACK` or Circle returns from a submenu to `SOUND`.
 
-Relative Locks add signed offsets from -16,000 to +16,000 ms. Enable a target
+| Submenu | Controls | Range | Initial value |
+| --- | --- | --- | --- |
+| Waves | Wave A, Wave B | Sine, Triangle, Saw, Square, Noise | Both Sine |
+| Amplitude | Amp Attack, Amp Release | 0–16,000 ms | Both 5 ms |
+| Mix | Mix Attack, Mix Release | 0–500 ms | 120 ms, 280 ms |
+| Pitch | Pitch Sweep | -24–+24 semitones | 0 |
+| Pitch | Pitch Decay | 0–2,000 ms | 200 ms |
+
+Amplitude rises at note-on, sustains until gate-off, and releases from its
+current level. Mix independently travels from A to B during its attack and
+back to A during its release, once per note. A zero attack starts at B if
+release is nonzero; a zero release returns immediately to A at the attack
+boundary. Both zero select A throughout. Equal wave choices are valid and
+retain the same total gain. Noise is a repeating wavetable.
+
+Positive sweep begins above the written pitch and falls; negative sweep begins
+below it and rises. The interval follows Jacquard's normalized exponential
+Snap curve and reaches the written pitch exactly at Pitch Decay. Zero sweep
+or zero decay disables it. The instantaneous frequency is limited to C0–C9,
+so extreme notes can initially plateau at an endpoint. Mix and sweep continue
+through gate-off while the amplitude tail remains audible.
+
+All settings are captured at note-on. Published edits affect future notes;
+existing notes keep their complete sound. Automated synthesis checks and
+remaining listening/controller checks are recorded in [validation.md](validation.md).
+
+Relative Locks affect only Amp Attack and Amp Release, adding signed offsets from -16,000 to +16,000 ms. Enable a target
 before changing its offset. Enabled zero is distinct from disabled; disabling
 clears the offset. Both targets may be enabled in one tile (`A` and `R` labels).
 
@@ -162,7 +190,7 @@ The source marker is clamped to a viewport edge when it scrolls out of view.
 1. Create a lane and place Notes at its first few steps. Press START and edit
    a pitch. On the next visit to that step after publication, the new pitch
    should sound without restarting playback.
-2. Select its head, open `SOUND`, and try a long Release. Stop during a tail.
+2. Select its head, open `SOUND > AMPLITUDE`, and try a long Amp Release. Stop during a tail.
 3. Place a Relative Lock above a Note. Enable Attack and set +100 ms. Place
    another Note above that lock to compare the two envelopes in one chord.
 4. Put a lock in the first step of an upper lane at division 8. Put Notes on

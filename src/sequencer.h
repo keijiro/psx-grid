@@ -4,12 +4,13 @@
 // CLK/8 gives an exact integral duration for every division and twentieth-step
 // gate at 120 BPM. A 64-bit absolute clock avoids both rounding drift and wrap.
 #define SEQUENCER_HZ 4233600u
-#define SEQUENCER_VOICES 24
+// Logical notes; each owns two of the 24 hardware voices.
+#define SEQUENCER_VOICES 12
 #define SEQUENCER_BUDGET 2
 #define SEQUENCER_TILE_BUDGET 32
 typedef uint64_t AudioTime;
 // on returns zero to drop a note, or a generation token whose low five bits
-// identify a voice slot in 0..23. off receives that same token unchanged.
+// identify a logical slot in 0..11. off receives that same token unchanged.
 typedef struct {
     void *context;
     uint32_t (*on)(void *, AudioTime, int, SoundSettings);

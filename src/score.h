@@ -16,7 +16,16 @@ typedef uint16_t TileId;
 // supported 0.05-step edits remain exact without floating point.
 #define SOUND_MAX_MS 16000
 enum { LOCK_ATTACK=1, LOCK_RELEASE=2 };
-typedef struct { int attack, release; } SoundSettings;
+#define SOUND_MAX_MIX_MS 500
+#define SOUND_MAX_DECAY_MS 2000
+#define SOUND_MAX_SWEEP 24
+typedef enum { WAVE_SINE, WAVE_TRIANGLE, WAVE_SAW, WAVE_SQUARE, WAVE_NOISE, WAVE_COUNT } Waveform;
+typedef struct {
+    int attack, release;
+    int wave_a, wave_b, mix_attack, mix_release, sweep, decay;
+} SoundSettings;
+#define SOUND_DEFAULT ((SoundSettings){5,5,WAVE_SINE,WAVE_SINE,120,280,0,200})
+const char *score_wave_name(int wave);
 typedef struct { TileKind kind; int pitch, length, period, chance; uint32_t pattern;
     int lock_mask, attack, release;
 } TileValue;

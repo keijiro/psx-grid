@@ -31,6 +31,16 @@ const char *editor_action_label(EditorAction a) {
     static const char *labels[]={"NEW LANE","CREATE TILE","DELETE TILE","LANE LENGTH","DELETE LANE","CLOSE","COPY STACK","PASTE STACK","PITCH","NOTE LENGTH","CYCLE PERIOD","CYCLE PATTERN","CHANCE","STEP DIVISION","SOUND","ATTACK ENABLE","ATTACK OFFSET","RELEASE ENABLE","RELEASE OFFSET"};
     return labels[a];
 }
+EditorMode editor_sound_parent(EditorMode mode) {
+    switch(mode) {
+    case EDIT_WAVE_A: case EDIT_WAVE_B: return EDIT_WAVES;
+    case EDIT_ATTACK: case EDIT_RELEASE: return EDIT_AMPLITUDE;
+    case EDIT_MIX_ATTACK: case EDIT_MIX_RELEASE: return EDIT_MIX;
+    case EDIT_PITCH_SWEEP: case EDIT_PITCH_DECAY: return EDIT_SWEEP;
+    case EDIT_WAVES: case EDIT_AMPLITUDE: case EDIT_MIX: case EDIT_SWEEP: return EDIT_SOUND;
+    default: return EDIT_MENU;
+    }
+}
 static void cancel_move(Editor *e) { e->x=e->source_x; e->y=e->source_y; e->mode=EDIT_PLANE; e->gesture=0; e->message="CANCELLED"; }
 static void finish(Editor *e,ScoreResult r) { e->message=score_message(r); if(!r) e->mode=EDIT_PLANE; }
 void editor_update(Editor *e,InputFrame f) {
@@ -60,18 +70,38 @@ void editor_update(Editor *e,InputFrame f) {
     }
     // A menu confirmation never arms the plane's press/release gesture.
     e->gesture=0;
-    if(f.circle) { e->mode=e->mode==EDIT_MENU?EDIT_PLANE:EDIT_MENU; e->selected=0; e->message=""; return; }
-    if(e->mode==EDIT_SOUND) {
-        e->selected=clamp(e->selected+f.dy,0,2);
+    if(f.circle) { e->mode=e->mode==EDIT_MENU?EDIT_PLANE:editor_sound_parent(e->mode); e->selected=0; e->message=""; return; }
+    if(e->mode==EDIT_SOUND || editor_sound_parent(e->mode)==EDIT_SOUND) {
+        static const EditorMode groups[]={EDIT_WAVES,EDIT_AMPLITUDE,EDIT_MIX,EDIT_SWEEP};
+        static const EditorMode fields[][2]={{EDIT_WAVE_A,EDIT_WAVE_B},{EDIT_ATTACK,EDIT_RELEASE},
+            {EDIT_MIX_ATTACK,EDIT_MIX_RELEASE},{EDIT_PITCH_SWEEP,EDIT_PITCH_DECAY}};
+        int root=e->mode==EDIT_SOUND, last=root?4:2;
+        e->selected=clamp(e->selected+f.dy,0,last);
         if(f.cross) {
-            if(e->selected==2) { e->mode=EDIT_MENU; e->selected=0; }
-            else { e->mode=e->selected?EDIT_RELEASE:EDIT_ATTACK; e->sound_candidate=e->score.sound; }
+            if(e->selected==last) e->mode=editor_sound_parent(e->mode);
+            else if(root) e->mode=groups[e->selected];
+            else {
+                int group=0; while(groups[group]!=e->mode) group++;
+                e->mode=fields[group][e->selected]; e->sound_candidate=e->score.sound;
+            }
+            e->selected=0;
         }
         return;
     }
-    if(e->mode==EDIT_ATTACK || e->mode==EDIT_RELEASE) {
-        int *v=e->mode==EDIT_ATTACK?&e->sound_candidate.attack:&e->sound_candidate.release;
-        *v=clamp(*v+f.dx-f.dy*100,0,SOUND_MAX_MS);
+    if(editor_sound_parent(e->mode)!=EDIT_MENU) {
+        int *v=NULL, min=0, max=SOUND_MAX_MS, step=100;
+        switch(e->mode) {
+        case EDIT_ATTACK: v=&e->sound_candidate.attack; break;
+        case EDIT_RELEASE: v=&e->sound_candidate.release; break;
+        case EDIT_WAVE_A: v=&e->sound_candidate.wave_a; max=WAVE_COUNT-1; step=1; break;
+        case EDIT_WAVE_B: v=&e->sound_candidate.wave_b; max=WAVE_COUNT-1; step=1; break;
+        case EDIT_MIX_ATTACK: v=&e->sound_candidate.mix_attack; max=SOUND_MAX_MIX_MS; break;
+        case EDIT_MIX_RELEASE: v=&e->sound_candidate.mix_release; max=SOUND_MAX_MIX_MS; break;
+        case EDIT_PITCH_SWEEP: v=&e->sound_candidate.sweep; min=-SOUND_MAX_SWEEP; max=SOUND_MAX_SWEEP; step=12; break;
+        case EDIT_PITCH_DECAY: v=&e->sound_candidate.decay; max=SOUND_MAX_DECAY_MS; break;
+        default: break;
+        }
+        if(v) *v=clamp(*v+f.dx-f.dy*step,min,max);
         if(f.cross) finish(e,score_set_sound(&e->score,e->sound_candidate));
         return;
     }

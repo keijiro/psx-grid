@@ -1,6 +1,7 @@
 #include "editor.h"
 #include <assert.h>
 #include <stdio.h>
+#include <stddef.h>
 #include <string.h>
 static Score s,before;
 static Editor e;
@@ -167,4 +168,69 @@ static void controls(void) {
     tap(INPUT_DOWN); assert(e.pattern_cursor==4); tap(INPUT_CROSS);
     assert(e.score.tiles[score_at(&e.score,6,1).tile].value.pattern==0);
 }
-int main(void) { model(); generations(); controls(); puts("PASS: model transactions, properties, stacks, branches, capacity and input/editor gestures"); }
+static void sound_controls(void) {
+    static const struct { EditorMode group,field; size_t offset; int min,max,step; } cases[]={
+        {EDIT_WAVES,EDIT_WAVE_A,offsetof(SoundSettings,wave_a),0,4,1},
+        {EDIT_WAVES,EDIT_WAVE_B,offsetof(SoundSettings,wave_b),0,4,1},
+        {EDIT_AMPLITUDE,EDIT_ATTACK,offsetof(SoundSettings,attack),0,16000,100},
+        {EDIT_AMPLITUDE,EDIT_RELEASE,offsetof(SoundSettings,release),0,16000,100},
+        {EDIT_MIX,EDIT_MIX_ATTACK,offsetof(SoundSettings,mix_attack),0,500,100},
+        {EDIT_MIX,EDIT_MIX_RELEASE,offsetof(SoundSettings,mix_release),0,500,100},
+        {EDIT_SWEEP,EDIT_PITCH_SWEEP,offsetof(SoundSettings,sweep),-24,24,12},
+        {EDIT_SWEEP,EDIT_PITCH_DECAY,offsetof(SoundSettings,decay),0,2000,100}
+    };
+    editor_init(&e); input_init(&input); frame(1,0);
+    SoundSettings initial=SOUND_DEFAULT;
+    assert(!memcmp(&initial,&e.score.sound,sizeof(initial)));
+    assert(!score_create(&e.score,1,1,4));
+    for(unsigned i=0;i<sizeof(cases)/sizeof(*cases);i++) {
+        action(ACTION_SOUND); assert(e.mode==EDIT_SOUND);
+        tap(INPUT_UP); assert(e.selected==0);
+        for(int j=0;j<8;j++) tap(INPUT_DOWN);
+        assert(e.selected==4);
+        tap(INPUT_CROSS); assert(e.mode==EDIT_MENU);
+        tap(INPUT_CIRCLE); action(ACTION_SOUND);
+        for(unsigned j=0;j<i/2;j++) tap(INPUT_DOWN);
+        tap(INPUT_CROSS); assert(e.mode==cases[i].group);
+        tap(INPUT_UP); assert(e.selected==0);
+        for(int j=0;j<4;j++) tap(INPUT_DOWN);
+        assert(e.selected==2);
+        tap(INPUT_CROSS); assert(e.mode==EDIT_SOUND && e.selected==0);
+        for(unsigned j=0;j<i/2;j++) tap(INPUT_DOWN);
+        tap(INPUT_CROSS);
+        if(i%2) tap(INPUT_DOWN);
+        tap(INPUT_CROSS); assert(e.mode==cases[i].field);
+        before=e.score;
+        int *value=(int *)((char *)&e.sound_candidate+cases[i].offset);
+        *value=cases[i].min;
+        tap(INPUT_LEFT); tap(INPUT_DOWN); assert(*value==cases[i].min);
+        tap(INPUT_RIGHT); assert(*value==cases[i].min+1);
+        tap(INPUT_LEFT); tap(INPUT_UP); assert(*value==cases[i].min+cases[i].step);
+        *value=cases[i].max;
+        tap(INPUT_RIGHT); tap(INPUT_UP); assert(*value==cases[i].max);
+        tap(INPUT_LEFT); assert(*value==cases[i].max-1);
+        tap(INPUT_RIGHT); tap(INPUT_DOWN); assert(*value==cases[i].max-cases[i].step);
+        tap(INPUT_START); assert(e.mode==cases[i].field);
+        assert(!memcmp(&before,&e.score,sizeof(before)));
+        tap(INPUT_CIRCLE); assert(e.mode==cases[i].group && e.selected==0);
+        assert(!memcmp(&before,&e.score,sizeof(before)));
+        if(i%2) tap(INPUT_DOWN);
+        tap(INPUT_CROSS);
+        assert(!memcmp(&e.sound_candidate,&e.score.sound,sizeof(initial)));
+        *value=cases[i].max;
+        SoundSettings expected=e.sound_candidate;
+        tap(INPUT_CROSS); assert(e.mode==EDIT_PLANE);
+        assert(!memcmp(&expected,&e.score.sound,sizeof(expected)));
+        assert(e.score.revision==before.revision+1);
+        s=e.score;
+        for(int boundary=0;boundary<2;boundary++) {
+            SoundSettings invalid=s.sound;
+            *(int *)((char *)&invalid+cases[i].offset)=boundary?cases[i].max+1:cases[i].min-1;
+            snapshot(); unchanged(score_set_sound(&s,invalid));
+        }
+    }
+    action(ACTION_SOUND); tap(INPUT_CROSS); tap(INPUT_CIRCLE);
+    assert(e.mode==EDIT_SOUND); tap(INPUT_CIRCLE); assert(e.mode==EDIT_MENU);
+    tap(INPUT_CIRCLE); assert(e.mode==EDIT_PLANE);
+}
+int main(void) { model(); generations(); controls(); sound_controls(); puts("PASS: model transactions, properties, stacks, branches, capacity and input/editor gestures"); }

@@ -181,7 +181,7 @@ void render_frame(const Editor *e, int connected) {
     text(8,20,line);
     if(e->mode!=EDIT_PLANE && e->mode!=EDIT_MOVE) {
         EditorAction items[EDITOR_MENU_ITEMS]; int n=editor_menu(e,items);
-        int width=208,height=e->mode==EDIT_MENU?n*16+16:e->mode==EDIT_PICKER?104:e->mode==EDIT_SOUND?88:e->mode==EDIT_PATTERN?112:72;
+        int width=208,height=e->mode==EDIT_MENU?n*16+16:e->mode==EDIT_PICKER?104:e->mode==EDIT_SOUND?112:editor_sound_parent(e->mode)==EDIT_SOUND?88:e->mode==EDIT_PATTERN?112:72;
         int px=clamp(cx+18,SCREEN_W-width-8),py=clamp(cy+18,192-height);
         rect(2,px,py,width,height,UI_PANEL); outline(1,px,py,width,height,UI_BORDER);
         if(e->mode==EDIT_MENU) for(int i=0;i<n;i++) {
@@ -194,8 +194,22 @@ void render_frame(const Editor *e, int connected) {
             }
         } else if(e->mode==EDIT_SOUND) {
             text(px+8,py+8,"SOUND / GLOBAL");
-            snprintf(line,sizeof(line),"%c ATTACK %d MS",e->selected==0?'>':' ',e->score.sound.attack); text(px+8,py+28,line);
-            snprintf(line,sizeof(line),"%c RELEASE %d MS",e->selected==1?'>':' ',e->score.sound.release); text(px+8,py+44,line);
+            static const char *groups[]={"WAVES","AMPLITUDE","MIX","PITCH","BACK"};
+            for(int i=0;i<5;i++) {
+                snprintf(line,sizeof(line),"%c %s",e->selected==i?'>':' ',groups[i]); text(px+8,py+28+i*16,line);
+            }
+        } else if(editor_sound_parent(e->mode)==EDIT_SOUND) {
+            const SoundSettings *s=&e->score.sound;
+            text(px+8,py+8,e->mode==EDIT_WAVES?"WAVES":e->mode==EDIT_AMPLITUDE?"AMPLITUDE":e->mode==EDIT_MIX?"MIX":"PITCH");
+            for(int i=0;i<2;i++) {
+                char marker=e->selected==i?'>':' ';
+                if(e->mode==EDIT_WAVES) snprintf(line,sizeof(line),"%c WAVE %c %s",marker,'A'+i,score_wave_name(i?s->wave_b:s->wave_a));
+                else if(e->mode==EDIT_AMPLITUDE) snprintf(line,sizeof(line),"%c AMP %s %d MS",marker,i?"RELEASE":"ATTACK",i?s->release:s->attack);
+                else if(e->mode==EDIT_MIX) snprintf(line,sizeof(line),"%c MIX %s %d MS",marker,i?"RELEASE":"ATTACK",i?s->mix_release:s->mix_attack);
+                else if(!i) snprintf(line,sizeof(line),"%c SWEEP %+d ST",marker,s->sweep);
+                else snprintf(line,sizeof(line),"%c DECAY %d MS",marker,s->decay);
+                text(px+8,py+28+i*16,line);
+            }
             text(px+8,py+64,e->selected==2?"> BACK":"  BACK");
         } else if(e->mode==EDIT_DELETE) {
             text(px+8,py+8,"DELETE LANE / BRANCH TILES?");
@@ -209,8 +223,14 @@ void render_frame(const Editor *e, int connected) {
             text(px+8,py+94,e->pattern_cursor==e->value.period?"> APPLY":"  APPLY");
         } else {
             switch(e->mode) {
-            case EDIT_ATTACK: snprintf(line,sizeof(line),"GLOBAL ATTACK %d MS",e->sound_candidate.attack); break;
-            case EDIT_RELEASE: snprintf(line,sizeof(line),"GLOBAL RELEASE %d MS",e->sound_candidate.release); break;
+            case EDIT_WAVE_A: snprintf(line,sizeof(line),"WAVE A %s",score_wave_name(e->sound_candidate.wave_a)); break;
+            case EDIT_WAVE_B: snprintf(line,sizeof(line),"WAVE B %s",score_wave_name(e->sound_candidate.wave_b)); break;
+            case EDIT_MIX_ATTACK: snprintf(line,sizeof(line),"MIX ATTACK %d MS",e->sound_candidate.mix_attack); break;
+            case EDIT_MIX_RELEASE: snprintf(line,sizeof(line),"MIX RELEASE %d MS",e->sound_candidate.mix_release); break;
+            case EDIT_PITCH_SWEEP: snprintf(line,sizeof(line),"PITCH SWEEP %+d ST",e->sound_candidate.sweep); break;
+            case EDIT_PITCH_DECAY: snprintf(line,sizeof(line),"PITCH DECAY %d MS",e->sound_candidate.decay); break;
+            case EDIT_ATTACK: snprintf(line,sizeof(line),"AMP ATTACK %d MS",e->sound_candidate.attack); break;
+            case EDIT_RELEASE: snprintf(line,sizeof(line),"AMP RELEASE %d MS",e->sound_candidate.release); break;
             case EDIT_LOCK_ATTACK_ENABLE: snprintf(line,sizeof(line),"ATTACK %s",e->value.lock_mask&LOCK_ATTACK?"ENABLED":"DISABLED"); break;
             case EDIT_LOCK_RELEASE_ENABLE: snprintf(line,sizeof(line),"RELEASE %s",e->value.lock_mask&LOCK_RELEASE?"ENABLED":"DISABLED"); break;
             case EDIT_LOCK_ATTACK: snprintf(line,sizeof(line),"ATTACK %+d MS %s",e->value.attack,e->value.lock_mask&LOCK_ATTACK?"":"OFF"); break;
@@ -223,7 +243,7 @@ void render_frame(const Editor *e, int connected) {
             default: snprintf(line,sizeof(line),"CHANCE  %d / 100",e->value.chance); break;
             }
             text(px+8,py+8,line);
-            text(px+8,py+28,e->mode==EDIT_ATTACK || e->mode==EDIT_RELEASE || e->mode==EDIT_LOCK_ATTACK || e->mode==EDIT_LOCK_RELEASE?"L/R 1 MS  U/D 100 MS":e->mode==EDIT_PITCH?"L/R NOTE  U/D OCTAVE":e->mode==EDIT_DURATION?"L/R .05  U/D 1 STEP":"D-PAD CHANGE");
+            text(px+8,py+28,e->mode==EDIT_ATTACK || e->mode==EDIT_RELEASE || e->mode==EDIT_LOCK_ATTACK || e->mode==EDIT_LOCK_RELEASE || e->mode==EDIT_MIX_ATTACK || e->mode==EDIT_MIX_RELEASE || e->mode==EDIT_PITCH_DECAY?"L/R 1 MS  U/D 100 MS":(e->mode==EDIT_PITCH || e->mode==EDIT_PITCH_SWEEP)?"L/R NOTE  U/D OCTAVE":e->mode==EDIT_DURATION?"L/R .05  U/D 1 STEP":"D-PAD CHANGE");
             text(px+8,py+48,"X APPLY  O DISCARD");
         }
     }

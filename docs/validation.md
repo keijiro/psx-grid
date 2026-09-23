@@ -1,5 +1,134 @@
 # Validation Record
 
+## Wavetable verification (2026-09-23)
+
+The paired wavetable path was checked separately from the earlier sine player.
+The current host log is `build/validation/wavetable-host-tests.log`; asset and
+trajectory reports are generated at `build/generated/wave_samples.txt`.
+The tests use production model, sequencer, synthesis, and rendering code with
+AddressSanitizer and UndefinedBehaviorSanitizer.
+
+### Assets and portable synthesis
+
+All 50 waveform/bank combinations generate deterministically. Independent
+ADPCM decoding checks the first and two repeated traversals with both rounded
+prediction and Redux's separate predictor truncations. Tests also verify the
+emitted bytes, loop flags, aligned addresses, and zero DMA padding. The bank
+occupies 16,080 bytes, padded to 16,128, at SPU addresses `0x1000..0x4eff`.
+The largest decoded peak is 14,419 across both decoders. Twelve coherent pairs
+at the fixed gain imply a worst decoded-sample sum of 5,407.125 / 32,768;
+this is a computed bound, not a capture of the final mixed or analog output.
+The initial asset check exposed a sine loop-junction regression, which was
+corrected in the encoder before rerunning the checks.
+Minimum decoded SNR is 20.30 dB across all waves and 25.16 dB for sine;
+shape-relative boundary error and DC measurements are included in the host log.
+
+The production fixed-point path was compared with the analytical Snap formula
+at **13,726,370 samples**: all 109 pitches, all 49 signed depths, decays of
+0, 1, 7, 200, and 2,000 ms, and 514 times per combination. Maximum total error
+was **1.113992 cents**, below the 2-cent target. Independently measured maxima
+were 0.397963 cents for ideal register rounding and 1.019719 cents for
+fixed-point approximation before register rounding. These maxima occur at
+different points and are not additive measurements. Monotonicity, endpoint
+clamping, exact return to the stored base register, and absolute times beyond
+the 32-bit clock range also pass.
+
+Mix tests cover zero/nonzero combinations, exact boundaries, equal-wave
+complementary gains, and gates before and after control-envelope completion.
+Amplitude tails, stop ramps, 12-note allocation, stealing, stale tokens, and
+existing sequencer/lock/live-edit regressions remain covered. New publication
+checks retain all settings on sounding notes and apply the complete new sound
+to the next scheduled note while amplitude locks leave other fields unchanged.
+
+### Console builds and audio emulator
+
+Debug and Release build with `AUDIO_FIXTURE=ON` without warnings. Both expanded
+PCSX-Redux audio fixtures pass. Logs are
+`build/validation/audio-{debug,release}-emulator.log`; reproduction commands
+are in [development.md](development.md#audio-fixture).
+
+Actual SPU readback checks all five waveforms, matching paired registers and
+12-note simultaneous starts, plus positive/negative 24-semitone sweeps with
+200 ms decay and independent 100/100 ms mix envelopes. Samples use the last
+completed audio-service timestamp, so main-thread logging does not distort
+trajectory comparisons. C4 endpoint registers are independently checked as
+16,329 for the downward sweep bank and 4,082 for the upward sweep bank.
+The fourteen sweep readbacks per build have maximum analytical pitch errors
+of 1.041 cents in Debug and 0.715 cents in Release.
+Decoded voice-buffer captures are nonzero for every waveform and remain below
+clipping. Their short windows do not measure the maximum final mixed output;
+the complete-loop decoder bound above is the conservative headroom evidence.
+
+| Measurement | Debug | Release |
+| --- | ---: | ---: |
+| C4 service cost | 0.140 ms | 0.139 ms |
+| C4 service interval | 0.300 ms | 0.302 ms |
+| C4 key-on lateness | 0.225 ms | 0.240 ms |
+| Swept 12-note chord service cost, maximum | 0.565 ms | 0.565 ms |
+| Swept 12-note chord service interval, maximum | 0.571 ms | 0.569 ms |
+| Swept 12-note chord key-on lateness, maximum | 0.755 ms | 0.722 ms |
+| Maximum-density service cost, including live edits | 1.344 ms | 1.346 ms |
+| Ordinary revision copy | 18.905 ms | 18.705 ms |
+| Dense revision copy | 25.398 ms | 25.398 ms |
+
+Normal cases have no skipped notes or overloads and retain the 1 ms deadline.
+The 4,096-tile score deliberately overloads the system, suppresses overdue
+starts, and still stops safely. Ordinary revisions are adopted 25/25 times and
+dense revisions 32/32 times in each configuration. Coalesced publication and
+pending stop/disconnect pass. All 48 left/right output volume registers are
+zero after stops, including both swept chords. The main-thread copy still
+exceeds one NTSC frame, so these results do not establish smooth editing.
+
+Editor BSS is 887,084 bytes in both configurations. Text/data/BSS totals are
+982,558 bytes in Debug and 975,594 in Release; Debug ends at `0x800ffe34`.
+These figures include the generated control tables and paired synthesis state.
+
+### Input emulator regression
+
+All four combinations of Debug/Release and digital (`0x41`)/analog (`0x73`)
+controllers pass through the actual SIO path. Each configuration detects all
+100 Right/Cross/START taps while stopped, all 100 during 12-note playback,
+and all 100 with consumption delayed by eight rendered frames. Held reconnect
+produces only the one fresh tap after release; the overloaded 4,096-tile case
+preserves all ten taps. Direction, Cross press/release, and START counts match
+independently. No queue overflows or connected-controller timeouts occur.
+Logs are `build/validation/input-{debug,release}-{digital,analog}-emulator.log`.
+
+### Editor and host-rendered UI
+
+All eight sound controls pass grouped navigation, increment and range limits,
+transactional validation, cancellation, reentry, revision, and START checks.
+The renderer passes **237,790 frames**, with a peak of **24,788 / 32,768 bytes**
+and no packet overflow or screen escape. The root menu, four submenus, and
+eight property screens were visually inspected at representative limits.
+Evidence includes [Waves](captures/host-sound-waves.png),
+[Amplitude](captures/host-sound-amplitude.png), [Mix](captures/host-sound-mix.png),
+[Pitch](captures/host-sound-sweep.png), and the
+[signed sweep property](captures/host-sound-pitch-sweep.png).
+These captures replay host GPU packets; they do not verify actual GPU output
+or controller feel.
+
+### Remaining acceptance checks
+
+Computer-use access was retried on 2026-09-23 after the headless fixtures.
+PCSX-Redux was absent from the app inventory, and both
+`cua.getApp('/Users/keijiro/Projects/psx/psx-grid/.local/PCSX-Redux.app')` and
+`cua.getApp('PCSX-Redux')` returned `Invalid app`. No application binding was
+obtained. The interactive emulator walkthrough therefore remains unverified;
+headless input injection and host captures do not resolve that limitation.
+
+Listening to every waveform, A/B transitions, short percussion, long bends,
+low/high notes, clicks, and distortion remains unverified. Automated register
+and decoder checks do not establish subjective sound quality. Physical-console
+SPU, display, clock, and controller behavior also remain unverified.
+
+## Historical validation before wavetable synthesis
+
+The sections below record the preceding implementation, including its 24-note
+capacity. They are retained as history and do not establish the paired path's
+current memory, timing, or sound quality. Current wavetable results above take
+precedence.
+
 Validation dates: 2026-09-22 (editor baseline) and 2026-09-23
 (input regression, live editing, and refreshed audio measurements), macOS 27.0 / Apple Silicon. Host tests use Clang
 with AddressSanitizer and UndefinedBehaviorSanitizer. Console builds use the
