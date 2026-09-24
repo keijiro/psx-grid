@@ -5,22 +5,22 @@ The executable starts with an empty score and the cursor at `(1,1)`.
 
 ## Controls
 
-| State | D-pad | X / Cross | O / Circle |
-| --- | --- | --- | --- |
-| Plane | Move and scroll | Tap to open the cursor menu; hold with a direction to move an object | Cancel a move |
-| Moving | Select a destination, including invalid ground | Release to drop | Return to source |
-| Menu / picker | Up/Down selects | Execute | Return |
-| Pitch | Left/Right changes semitone; Up/Down changes octave | Apply | Discard |
-| Note length | Left/Right changes 0.05 steps; Up/Down changes one step | Apply | Discard |
-| Wave A / B | Right/Up or Left/Down changes one waveform | Return | Return |
-| Pitch sweep | Left/Right changes 1 semitone; Up/Down changes 12 | Return | Return |
-| Sound time | Left/Right changes 1 ms; Up/Down changes 100 ms | Return | Return |
-| Lock offset | Left/Right changes 1 ms; Up/Down changes 100 ms | Apply | Discard |
-| Lock engagement | Right/Up enables; Left/Down disables and clears the offset | Apply | Discard |
-| Global Reverb and Sound Reverb | Change the selected value | Return | Return |
-| Other numeric property | Right/Up increases; Left/Down decreases | Apply | Discard |
-| Cycle pattern | Navigate eight columns and the Apply item | Toggle a lap, or apply at Apply | Discard |
-| Deletion confirmation | — | Delete | Cancel |
+| State | Up/Down | Left/Right | L1/R1 | X / Cross | O / Circle |
+| --- | --- | --- | --- | --- | --- |
+| Plane | Move cursor | Move cursor | — | Tap to open the cursor menu; hold with a direction to move an object | Cancel a move |
+| Menu | Select the previous/next row | Change its value by a fine step | Change its value by a coarse step | Open a submenu or perform an action | Return one level; close at the root |
+| Tile picker | Select a tile kind | — | — | Place the tile | Return to the cursor menu |
+| Cycle pattern | Move one row of eight laps | Move one lap | — | Toggle the selected lap immediately | Return to the cursor menu |
+| Deletion confirmation | — | — | — | Delete the named target | Return without deleting |
+
+Values change immediately through the score model. X has no effect on a value
+row, and O does not undo a change. Fine/coarse steps are 1/100 ms, 1/10 BPM
+or percent, 1/12 semitones for pitch and sweep, and 0.05/1 step for note
+length. Enum values advance one choice with either control. Changes stop at
+the supported limits. Holding one direction repeats after a short delay and
+speeds up in stages; changing rows or direction resets that acceleration.
+Opposing controls cancel. A row movement in the same sample takes priority
+over a value change.
 
 Menus open on X release, with no long-press timer. An X press and direction in
 one frame grabs the cell at the cursor's original position. Directional input
@@ -28,9 +28,9 @@ on an empty cell suppresses the tap menu. Menu confirmation never begins a
 move. Invalid drops and Circle return to the source without modifying the score.
 
 The controller must release all buttons after reconnecting. Disconnecting
-stops playback and cancels a move; other editors retain their candidates. Directions repeat after
-18 frames, then every three frames. Opposite directions cancel; horizontal
-movement takes precedence over vertical movement. Mode changes reset repeat.
+stops playback and cancels a move. Plane directions repeat after 18 frames,
+then every three frames. Opposite directions cancel; horizontal movement takes
+precedence over vertical movement. Mode changes reset repeat.
 
 ## Tiles and lanes
 
@@ -48,9 +48,9 @@ the lane by one step. Occupied cells are never overwritten.
 | Branch head (`B`) | Length, delete lane; division and channel inherited from its source |
 | Jump | Copy stack, delete tile; destination is its own branch |
 
-New notes remember the pitch and length of the last confirmed note placement
-or edit. Shortening a cycle period preserves switches outside the active
-period. Pattern changes are committed only with the explicit `APPLY` item.
+New notes remember the pitch and length of the last placed or edited note.
+Shortening a cycle period preserves switches outside the active
+period. Each pattern toggle commits immediately; O returns to the tile menu.
 Cycle tiles display `C` and their period; probability tiles display their
 percentage as a number. Sharp notes use `+` on the tile. Full editable values
 appear in the cursor menus.
@@ -99,8 +99,7 @@ Committed score, channel assignment, and channel sound edits are published
 during playback, after any time slice already being processed has finished. Notes, gates, jumps, and
 new locks use the updated contents when their steps are next read; a held
 lock uses its updated value on subsequent slices until its step ends. Deleted
-locks stop contributing after publication. Unconfirmed property candidates
-and moves are not published.
+locks stop contributing after publication. Moves are not published until the object is dropped.
 
 Existing regular lanes retain their next deadline and lap count. A tempo or division
 change applies to the next step's duration; it does not move the deadline of
@@ -135,17 +134,13 @@ to its original regular lane and increments its lap, with no extra empty step.
 Cycle gates select bit zero on the first lap. Probability gates use a repeatable
 random sequence reset at each start.
 
-SELECT opens the main menu with the Jacquard wordmark, `BPM`, and `REVERB`.
-SELECT again or Circle closes it. Opening it discards any unfinished staged
-property candidate and cancels a move; live Sound and Reverb changes remain.
-Playback continues while menus are open.
-BPM uses Left/Right for 1 BPM and Up/Down for 10 BPM. Cross applies; Circle
-returns without applying.
+SELECT opens the main menu with `BPM`, `REVERB`, `SLOT`, `CHECK CARD`,
+`SAVE`, and `LOAD`. SELECT again or O closes it; SELECT from a nested menu
+returns to MAIN. Opening MAIN cancels a move. Playback continues while menus
+are open. BPM changes in place by 1 or 10 BPM.
 
 `REVERB` provides `SIZE` (Small, Medium, Large; initially Medium) and `AMOUNT`
-(0–100%; initially 30%). Amount uses Left/Right for 1% and Up/Down for 10%.
-Each change applies immediately. Circle returns to the Reverb menu; Cross also
-returns.
+(0–100%; initially 30%). Each change commits immediately. O returns to MAIN.
 Each channel remains dry until its `SOUND > REVERB` is enabled. This setting
 is captured by future notes after publication; held notes and release tails
 keep their captured send choice. Dry notes do not mute wet notes or the shared
@@ -153,30 +148,28 @@ effect tail. Global Amount controls the wet return while preserving dry sound.
 Changing Size clears the previous reverb tail;
 ordinary stopping lets the tail decay. Reverb settings also apply when stopped.
 
-Open `CHANNEL` on a regular head to select channel 1–8 (initially 1).
-Left/Down decrements and Right/Up increments, stopping at either endpoint.
-Cross applies; Circle discards. Selection does not copy or reset sounds.
+On a regular head, `CHANNEL` changes the channel from 1–8 (initially 1)
+in place. It does not copy or reset sounds.
 All eight configurations persist even when no lane uses them. Branches,
 including nested branches, inherit their origin regular lane's channel;
 moving a Jump subtree to another lane changes that inheritance. Regular heads
 show their assigned channel on the score; branch heads retain `B`.
 
-Open `SOUND` on a regular head to edit its channel's shared sound through four
-submenus and a `REVERB` on/off field (initially Off). Each directional change
-applies immediately. Circle returns to the parent submenu without undoing the
-change; Cross also returns. Circle continues back to `SOUND` and the cursor menu.
-Headings retain the channel number throughout editing. Heads assigned to the
-same channel edit the same settings; changing assignment and reopening Sound
-shows the destination channel's settings. Lane divisions, lengths, positions,
-and lap counts remain independent.
+Open `SOUND` on a regular head to edit that channel's shared sound on
+one page. WAVEFORM contains WAVE 1 and WAVE 2; AMP and MIX each contain Attack
+and Release; PITCH contains Sweep and Decay; REVERB is an on/off row (initially
+Off). All rows commit immediately. O returns to the same SOUND row in the head
+menu. Heads assigned to the same channel edit the same settings; changing
+assignment and reopening Sound shows the destination channel's settings. Lane
+divisions, lengths, positions, and lap counts remain independent.
 
-| Submenu | Controls | Range | Initial value |
-| --- | --- | --- | --- |
-| Waves | Wave A, Wave B | Sine, Triangle, Saw, Square, Noise | Both Sine |
-| Amplitude | Amp Attack, Amp Release | 0–16,000 ms | Both 5 ms |
-| Mix | Mix Attack, Mix Release | 0–500 ms | 120 ms, 280 ms |
-| Pitch | Pitch Sweep | -24–+24 semitones | 0 |
-| Pitch | Pitch Decay | 0–2,000 ms | 200 ms |
+| Row | Range | Initial value |
+| --- | --- | --- |
+| Wave 1, Wave 2 | Sine, Triangle, Saw, Square, Noise | Both Sine |
+| Amp Attack, Amp Release | 0–16,000 ms | Both 5 ms |
+| Mix Attack, Mix Release | 0–500 ms | 120 ms, 280 ms |
+| Pitch Sweep | -24–+24 semitones | 0 |
+| Pitch Decay | 0–2,000 ms | 200 ms |
 
 Amplitude rises at note-on, sustains until gate-off, and releases from its
 current level. Mix independently travels from A to B during its attack and
@@ -224,7 +217,7 @@ ERROR in the pinned OpenBIOS test. See [validation.md](validation.md) before
 using interrupted-save recovery as a reliability guarantee.
 
 Open the main menu with SELECT. Select SLOT and use Left/Right to choose 01–15;
-this only changes the target. Press Cross on SLOT to check the card in port 1.
+this only changes the target. Choose `CHECK CARD` to check the card in port 1.
 Choose SAVE to capture the committed score, or LOAD to replace it. The slot
 number remains independent of the currently playing score. EMPTY cannot load;
 CORRUPT and NEWER VERSION identify unreadable content. The separate `BLK`
@@ -255,7 +248,7 @@ but is separate from these physical actions.
 1. Tap X at `(1,1)` and execute `NEW LANE`.
 2. At `(2,1)`, create a Cycle Gate. At `(2,2)` and `(2,3)`, create Notes.
 3. Open each note's menu and edit pitch and length. Open the gate's menu,
-   change its period, toggle laps in its pattern, and select Apply.
+   change its period, toggle laps in its pattern, and press O to return.
 4. Copy from the gate. Move to `(3,1)` and paste the complete stack.
 5. Create another lane on clear ground. Hold X on the pasted gate, navigate
    to an empty step in the new lane, and release X. The whole stack moves.
@@ -272,7 +265,7 @@ The source marker is clamped to a viewport edge when it scrolls out of view.
 1. Create a lane and place Notes at its first few steps. Press START and edit
    a pitch. On the next visit to that step after publication, the new pitch
    should sound without restarting playback.
-2. Select its head, open `SOUND > AMPLITUDE`, and try a long Amp Release. Stop during a tail.
+2. Select its head, open `SOUND`, and try a long Amp Release. Stop during a tail.
 3. Place a Relative Lock above a Note. Enable Attack and set +100 ms. Place
    another Note above that lock to compare the two envelopes in one chord.
 4. Put a lock in the first step of an upper lane at division 8. Put Notes on
@@ -285,12 +278,12 @@ The source marker is clamped to a viewport edge when it scrolls out of view.
 
 1. Create two regular lanes and put notes in both. Leave the first on channel
    1 and use the second head's `CHANNEL` selector to assign channel 8.
-2. Set channel 1's Wave A/B to Sine and channel 8's Wave A/B to Square. Start
+2. Set channel 1's Wave 1/2 to Sine and channel 8's Wave 1/2 to Square. Start
    playback and compare the two sounds. While playing, change the second
    lane's assignment and confirm that its next notes change without restarting.
 3. Assign both heads to channel 8. Edit Amp Release through one head and
-   reopen Sound through the other; both should show the same value. Cancel
-   a channel candidate and verify that its assignment remains unchanged.
+   reopen Sound through the other; both should show the same value. Change the
+   assignment back and verify that both changes took effect.
 4. Add a Jump and a nested Jump. Move the first Jump to a lane on channel 1
    and check that both descendants inherit the new channel.
 5. On channel 8, put an enabled +100 ms Attack lock above a note in a slow

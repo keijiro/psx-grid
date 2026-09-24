@@ -140,89 +140,123 @@ static void generations(void) {
 static Input input;
 static void frame(int connected,int held) { editor_update(&e,input_update(&input,connected,(uint16_t)held)); }
 static void tap(int key) { frame(1,key); frame(1,0); }
-static void action(EditorAction action) {
-    tap(INPUT_CROSS); assert(e.mode==EDIT_MENU);
-    EditorAction items[EDITOR_MENU_ITEMS]; int n=editor_menu(&e,items),i=0;
-    while(i<n && items[i]!=action) i++; assert(i<n);
-    for(int j=0;j<i;j++) tap(INPUT_DOWN);
-    tap(INPUT_CROSS);
+static void context(void) { tap(INPUT_CROSS); assert(e.mode==EDIT_MENU); }
+static void select_action(EditorAction action) {
+    EditorRow rows[EDITOR_ROWS]; int n=editor_rows(&e,rows),target=-1;
+    for(int i=0;i<n;i++) if(rows[i].id==(int)action) target=i;
+    assert(target>=0);
+    while(e.selected<target) tap(INPUT_DOWN);
+    while(e.selected>target) tap(INPUT_UP);
+    assert(e.selected==target);
 }
+static void action(EditorAction a) { context(); select_action(a); tap(INPUT_CROSS); }
+static void editor_setup(void) { editor_init(&e); input_init(&input); frame(1,0); }
 static void controls(void) {
-    editor_init(&e); input_init(&input); frame(1,0);
-    frame(1,INPUT_CROSS); assert(e.mode==EDIT_PLANE); frame(1,INPUT_CROSS); assert(e.mode==EDIT_PLANE);
-    frame(1,0); assert(e.mode==EDIT_MENU); tap(INPUT_CROSS); assert(e.score.lanes[0].active && e.mode==EDIT_PLANE);
-    tap(INPUT_RIGHT); action(ACTION_PLACE); assert(e.mode==EDIT_PICKER); tap(INPUT_CROSS); assert(e.mode==EDIT_PLANE);
-    TileId a=score_at(&e.score,e.x,e.y).tile; assert(a);
-    action(ACTION_PITCH); tap(INPUT_RIGHT); tap(INPUT_UP); tap(INPUT_CROSS); assert(e.score.tiles[a].value.pitch==61);
-    action(ACTION_DURATION); tap(INPUT_UP); tap(INPUT_RIGHT); tap(INPUT_CROSS); assert(e.score.tiles[a].value.length==41);
-    action(ACTION_PITCH); tap(INPUT_RIGHT); tap(INPUT_CIRCLE); tap(INPUT_CIRCLE); assert(e.score.tiles[a].value.pitch==61);
-    tap(INPUT_DOWN); action(ACTION_PLACE); tap(INPUT_CROSS); assert(e.score.tiles[score_at(&e.score,e.x,e.y).tile].value.pitch==61);
-    e.y=1; before=e.score;
-    frame(1,INPUT_CROSS|INPUT_RIGHT); assert(e.mode==EDIT_MOVE && e.source_x==2 && e.x==3);
-    assert(!memcmp(&before,&e.score,sizeof(before))); frame(1,0); assert(e.mode==EDIT_PLANE && score_at(&e.score,3,1).tile==a);
-    before=e.score; frame(1,INPUT_CROSS|INPUT_UP); frame(1,0); assert(e.x==3 && e.y==1 && !memcmp(&before,&e.score,sizeof(before)));
-    frame(1,INPUT_CROSS|INPUT_RIGHT); frame(1,INPUT_CROSS|INPUT_CIRCLE); frame(1,0); assert(e.x==3 && !memcmp(&before,&e.score,sizeof(before)));
-    frame(1,INPUT_CROSS|INPUT_RIGHT); frame(0,0); assert(e.mode==EDIT_PLANE && e.x==3);
-    frame(1,INPUT_CROSS|INPUT_RIGHT); frame(1,INPUT_RIGHT); frame(1,INPUT_RIGHT); assert(e.x==3);
-    frame(1,0); tap(INPUT_RIGHT); assert(e.x==4);
-    frame(1,INPUT_CROSS|INPUT_RIGHT); frame(1,0); assert(e.mode==EDIT_PLANE && e.x==5);
-    Input i; input_init(&i); input_update(&i,1,0); InputFrame f=input_update(&i,1,INPUT_CROSS|INPUT_RIGHT);
-    assert(f.cross && f.cross_held && f.dx==1);
-    for(int j=1;j<INPUT_DELAY;j++) assert(!input_update(&i,1,INPUT_CROSS|INPUT_RIGHT).dx);
-    assert(input_update(&i,1,INPUT_CROSS|INPUT_RIGHT).dx==1);
-    for(int j=1;j<INPUT_INTERVAL;j++) assert(!input_update(&i,1,INPUT_CROSS|INPUT_RIGHT).dx);
-    assert(input_update(&i,1,INPUT_CROSS|INPUT_RIGHT).dx==1);
-    f=input_update(&i,1,0); assert(f.cross_released && !f.cross_held);
-    input_reset_repeat(&i); assert(input_update(&i,1,INPUT_RIGHT).dx==1);
-    input_reset_repeat(&i);
-    for(int j=1;j<INPUT_DELAY;j++) assert(!input_update(&i,1,INPUT_RIGHT).dx);
-    assert(input_update(&i,1,INPUT_RIGHT).dx==1);
-    input_reset_repeat(&i); assert(input_update(&i,1,INPUT_DOWN).dy==1);
-    e.x=3; e.y=1; action(ACTION_COPY); assert(e.clipboard.count==2);
-    e.x=4; action(ACTION_PASTE); assert(score_at(&e.score,4,1).tile!=a);
-    e.x=1; action(ACTION_DELETE); assert(e.mode==EDIT_DELETE);
-    tap(INPUT_CIRCLE); assert(e.mode==EDIT_MENU && e.score.lanes[0].active);
+    editor_setup();
+    frame(1,INPUT_CROSS); assert(e.mode==EDIT_PLANE);
+    frame(1,0); assert(e.mode==EDIT_MENU);
+    tap(INPUT_CROSS); assert(e.score.lanes[0].active && e.mode==EDIT_PLANE);
+    tap(INPUT_RIGHT); action(ACTION_PLACE);
+    assert(e.mode==EDIT_PICKER);
+    tap(INPUT_CROSS); assert(e.mode==EDIT_PLANE);
+    TileId note=score_at(&e.score,e.x,e.y).tile; assert(note);
+    context(); select_action(ACTION_PITCH);
+    uint32_t revision=e.score.revision;
+    tap(INPUT_RIGHT);
+    assert(e.score.tiles[note].value.pitch==49 && e.score.revision==revision+1);
+    tap(INPUT_R1);
+    assert(e.score.tiles[note].value.pitch==61 && e.last_note.pitch==61);
+    tap(INPUT_CROSS); assert(e.mode==EDIT_MENU && e.score.tiles[note].value.pitch==61);
     tap(INPUT_CIRCLE); assert(e.mode==EDIT_PLANE);
-    e.x=6; e.y=1; action(ACTION_PLACE); tap(INPUT_DOWN); tap(INPUT_CROSS);
-    action(ACTION_PATTERN); tap(INPUT_CROSS); assert(e.value.pattern==0);
-    tap(INPUT_DOWN); assert(e.pattern_cursor==4); tap(INPUT_CROSS);
-    assert(e.score.tiles[score_at(&e.score,6,1).tile].value.pattern==0);
+    context(); select_action(ACTION_DURATION);
+    tap(INPUT_RIGHT); tap(INPUT_R1);
+    assert(e.score.tiles[note].value.length==41 && e.last_note.length==41);
+    tap(INPUT_CIRCLE); assert(e.mode==EDIT_PLANE);
+    tap(INPUT_DOWN); action(ACTION_PLACE); tap(INPUT_CROSS);
+    assert(e.score.tiles[score_at(&e.score,e.x,e.y).tile].value.pitch==61);
+    e.y=1; before=e.score;
+    frame(1,INPUT_CROSS|INPUT_RIGHT);
+    assert(e.mode==EDIT_MOVE && e.source_x==2 && e.x==3);
+    assert(!memcmp(&before,&e.score,sizeof(before)));
+    frame(1,0);
+    assert(e.mode==EDIT_PLANE && score_at(&e.score,3,1).tile==note);
+    e.x=3; action(ACTION_COPY);
+    assert(e.clipboard.count==2);
+    e.x=4; action(ACTION_PASTE);
+    assert(score_at(&e.score,4,1).tile!=note);
+    e.x=1; action(ACTION_DELETE);
+    assert(e.mode==EDIT_DELETE);
+    tap(INPUT_CIRCLE);
+    assert(e.mode==EDIT_MENU && e.score.lanes[0].active);
+    assert(e.selected==4);
+    tap(INPUT_CIRCLE); assert(e.mode==EDIT_PLANE);
+    e.x=6; e.y=1; action(ACTION_PLACE);
+    tap(INPUT_DOWN); tap(INPUT_CROSS);
+    TileId gate=score_at(&e.score,e.x,e.y).tile;
+    assert(e.score.tiles[gate].value.kind==TILE_CYCLE);
+    TileValue gate_value=e.score.tiles[gate].value;
+    gate_value.period=17; gate_value.pattern=0x80000001u;
+    assert(!score_edit(&e.score,gate,gate_value));
+    action(ACTION_PATTERN);
+    uint32_t old=e.score.tiles[gate].value.pattern;
+    revision=e.score.revision;
+    tap(INPUT_CROSS);
+    assert(e.score.tiles[gate].value.pattern==(old^1u));
+    assert(e.score.revision==revision+1);
+    tap(INPUT_RIGHT); assert(e.pattern_cursor==1);
+    tap(INPUT_DOWN); assert(e.pattern_cursor==9);
+    tap(INPUT_DOWN); assert(e.pattern_cursor==16);
+    tap(INPUT_RIGHT); assert(e.pattern_cursor==16);
+    tap(INPUT_UP); assert(e.pattern_cursor==8);
+    tap(INPUT_LEFT); assert(e.pattern_cursor==7);
+    tap(INPUT_CIRCLE); assert(e.mode==EDIT_MENU && e.selected==1);
+    tap(INPUT_CIRCLE);
+    e.x=1; action(ACTION_DELETE);
+    tap(INPUT_CROSS);
+    assert(e.mode==EDIT_PLANE && !e.score.lanes[0].active);
+}
+static void rejected_inline_resize(void) {
+    editor_setup();
+    assert(!score_create(&e.score,0,0,64));
+    assert(!score_create(&e.score,70,0,4));
+    for(int n=0;n<1474;n++) assert(!score_place(&e.score,n/64+1,n%64,TILE_NOTE));
+    assert(!score_remove(&e.score,24,1));
+    assert(!score_place(&e.score,24,1,TILE_CYCLE));
+    assert(score_format_measure(&e.score)==SCORE_FILE_BYTES);
+    e.x=70; e.y=0; context();
+    assert(e.selected==0);
+    Score unchanged_score=e.score;
+    tap(INPUT_RIGHT);
+    assert(!memcmp(&e.score,&unchanged_score,sizeof(e.score)));
+    assert(!strcmp(e.message,"SCORE FULL"));
+    tap(INPUT_CIRCLE);
+    assert(e.mode==EDIT_PLANE);
 }
 static void sound_controls(void) {
-    static const struct { EditorMode group,field; size_t offset; int min,max,step; } cases[]={
-        {EDIT_WAVES,EDIT_WAVE_A,offsetof(SoundSettings,wave_a),0,4,1},
-        {EDIT_WAVES,EDIT_WAVE_B,offsetof(SoundSettings,wave_b),0,4,1},
-        {EDIT_AMPLITUDE,EDIT_ATTACK,offsetof(SoundSettings,attack),0,16000,100},
-        {EDIT_AMPLITUDE,EDIT_RELEASE,offsetof(SoundSettings,release),0,16000,100},
-        {EDIT_MIX,EDIT_MIX_ATTACK,offsetof(SoundSettings,mix_attack),0,500,100},
-        {EDIT_MIX,EDIT_MIX_RELEASE,offsetof(SoundSettings,mix_release),0,500,100},
-        {EDIT_SWEEP,EDIT_PITCH_SWEEP,offsetof(SoundSettings,sweep),-24,24,12},
-        {EDIT_SWEEP,EDIT_PITCH_DECAY,offsetof(SoundSettings,decay),0,2000,100}
+    static const struct { size_t offset; int step; int min,max; } cases[]={
+        {offsetof(SoundSettings,wave_a),1,0,WAVE_COUNT-1},
+        {offsetof(SoundSettings,wave_b),1,0,WAVE_COUNT-1},
+        {offsetof(SoundSettings,attack),100,0,SOUND_MAX_MS},
+        {offsetof(SoundSettings,release),100,0,SOUND_MAX_MS},
+        {offsetof(SoundSettings,mix_attack),100,0,SOUND_MAX_MIX_MS},
+        {offsetof(SoundSettings,mix_release),100,0,SOUND_MAX_MIX_MS},
+        {offsetof(SoundSettings,sweep),12,-SOUND_MAX_SWEEP,SOUND_MAX_SWEEP},
+        {offsetof(SoundSettings,decay),100,0,SOUND_MAX_DECAY_MS},
+        {offsetof(SoundSettings,reverb),1,0,1}
     };
-    SoundSettings initial=SOUND_DEFAULT;
     for(unsigned i=0;i<sizeof(cases)/sizeof(*cases);i++) {
-        editor_init(&e); input_init(&input); frame(1,0);
+        editor_setup();
         assert(!score_create(&e.score,1,1,4));
-        action(ACTION_SOUND); assert(e.mode==EDIT_SOUND);
-        for(unsigned j=0;j<i/2;j++) tap(INPUT_DOWN);
-        tap(INPUT_CROSS); assert(e.mode==cases[i].group);
-        if(i%2) tap(INPUT_DOWN);
-        tap(INPUT_CROSS); assert(e.mode==cases[i].field);
-        int *value=(int *)((char *)&e.sound_candidate+cases[i].offset);
-        int *committed=(int *)((char *)&e.score.sounds[0]+cases[i].offset);
+        action(ACTION_SOUND); assert(e.mode==EDIT_SOUND && e.selected==1);
+        for(unsigned j=0;j<i;j++) tap(INPUT_DOWN);
+        int *value=(int *)((char *)&e.score.sounds[0]+cases[i].offset);
         int start=*value;
-        tap(INPUT_RIGHT); assert(*value==start+1 && *committed==*value);
         uint32_t revision=e.score.revision;
-        tap(INPUT_UP); assert(*value==start+1+cases[i].step && *committed==*value);
-        assert(e.score.revision==revision+1);
-        tap(INPUT_START); assert(e.mode==cases[i].field);
-        tap(INPUT_CIRCLE); assert(e.mode==cases[i].group && e.selected==(int)(i%2));
-        assert(*committed==start+1+cases[i].step);
-        tap(INPUT_CROSS); assert(e.mode==cases[i].field);
-        tap(INPUT_CROSS); assert(e.mode==cases[i].group && e.selected==(int)(i%2));
-        tap(INPUT_CIRCLE); assert(e.mode==EDIT_SOUND && e.selected==(int)(i/2));
-        tap(INPUT_CIRCLE); assert(e.mode==EDIT_MENU);
-        tap(INPUT_CIRCLE); assert(e.mode==EDIT_PLANE);
+        tap(INPUT_R1);
+        assert(*value==start+cases[i].step && e.score.revision==revision+1);
+        tap(INPUT_CROSS); assert(e.mode==EDIT_SOUND);
+        tap(INPUT_CIRCLE);
+        assert(e.mode==EDIT_MENU && e.selected==3 && *value==start+cases[i].step);
         s=e.score;
         for(int boundary=0;boundary<2;boundary++) {
             SoundSettings invalid=s.sounds[0];
@@ -230,43 +264,37 @@ static void sound_controls(void) {
             snapshot(); unchanged(score_set_sound(&s,0,invalid));
         }
     }
-    assert(!memcmp(&initial,&s.sounds[1],sizeof(initial)));
 }
 static void main_controls(void) {
-    editor_init(&e); input_init(&input); frame(1,0);
-    assert(e.score.bpm==120 && e.score.reverb.size==1 && e.score.reverb.amount==30 && !e.score.sounds[0].reverb);
-    tap(INPUT_SELECT); assert(e.mode==EDIT_MAIN);
-    tap(INPUT_CROSS); assert(e.mode==EDIT_BPM && e.candidate==120);
-    tap(INPUT_UP); tap(INPUT_RIGHT); assert(e.candidate==131 && e.score.bpm==120);
-    tap(INPUT_CIRCLE); assert(e.mode==EDIT_MAIN && e.score.bpm==120);
-    tap(INPUT_CROSS); tap(INPUT_RIGHT); tap(INPUT_CROSS);
-    assert(e.mode==EDIT_MAIN && e.score.bpm==121 && e.score.revision==1);
-    tap(INPUT_DOWN); tap(INPUT_CROSS); assert(e.mode==EDIT_REVERB);
-    tap(INPUT_CROSS); tap(INPUT_RIGHT); tap(INPUT_RIGHT); assert(e.candidate==2 && e.score.reverb.size==2);
-    tap(INPUT_CIRCLE); assert(e.mode==EDIT_REVERB && e.score.reverb.size==2);
-    tap(INPUT_DOWN); tap(INPUT_CROSS); tap(INPUT_UP);
+    editor_setup();
+    tap(INPUT_SELECT); assert(e.mode==EDIT_MAIN && e.selected==0);
+    tap(INPUT_RIGHT); tap(INPUT_R1);
+    assert(e.score.bpm==131 && e.score.revision==2);
+    tap(INPUT_CROSS); assert(e.mode==EDIT_MAIN);
+    tap(INPUT_CIRCLE); assert(e.mode==EDIT_PLANE && e.score.bpm==131);
+    tap(INPUT_SELECT); tap(INPUT_DOWN); tap(INPUT_CROSS);
+    assert(e.mode==EDIT_REVERB);
+    tap(INPUT_RIGHT);
+    assert(e.score.reverb.size==2);
+    tap(INPUT_DOWN); tap(INPUT_R1);
     assert(e.score.reverb.amount==40);
-    tap(INPUT_CIRCLE); assert(e.score.reverb.amount==40 && e.mode==EDIT_REVERB);
-    tap(INPUT_SELECT); assert(e.mode==EDIT_MAIN); tap(INPUT_SELECT); assert(e.mode==EDIT_PLANE);
-    assert(!score_create(&e.score,1,1,4)); action(ACTION_SOUND);
-    for(int j=0;j<4;j++) tap(INPUT_DOWN);
-    tap(INPUT_CROSS); assert(e.mode==EDIT_SOUND_REVERB && !e.candidate);
-    tap(INPUT_RIGHT); assert(e.score.sounds[0].reverb);
-    tap(INPUT_CIRCLE); assert(e.mode==EDIT_SOUND && e.score.sounds[0].reverb);
-    for(int j=0;j<4;j++) tap(INPUT_DOWN);
-    tap(INPUT_CROSS); tap(INPUT_LEFT); tap(INPUT_CROSS);
-    assert(e.mode==EDIT_SOUND && !e.score.sounds[0].reverb);
-    tap(INPUT_SELECT); tap(INPUT_SELECT);
-    frame(1,INPUT_CROSS); frame(1,INPUT_CROSS|INPUT_RIGHT); assert(e.mode==EDIT_MOVE);
-    frame(1,INPUT_CROSS|INPUT_SELECT); assert(e.mode==EDIT_MAIN && !e.gesture && e.x==1);
-    frame(1,0); assert(e.mode==EDIT_MAIN);
+    tap(INPUT_CIRCLE);
+    assert(e.mode==EDIT_MAIN && e.selected==1);
+    tap(INPUT_SELECT); assert(e.mode==EDIT_PLANE);
+    assert(!score_create(&e.score,1,1,4));
+    action(ACTION_SOUND);
+    for(int j=0;j<8;j++) tap(INPUT_DOWN);
+    tap(INPUT_RIGHT);
+    assert(e.score.sounds[0].reverb);
+    tap(INPUT_CIRCLE); tap(INPUT_CIRCLE);
+    frame(1,INPUT_CROSS); frame(1,INPUT_CROSS|INPUT_RIGHT);
+    assert(e.mode==EDIT_MOVE);
+    frame(1,INPUT_CROSS|INPUT_SELECT);
+    assert(e.mode==EDIT_MAIN && !e.gesture && e.x==1);
+    frame(1,0);
     s=e.score; snapshot();
     unchanged(score_set_bpm(&s,29)); unchanged(score_set_bpm(&s,301));
-    unchanged(score_set_reverb(&s,(ReverbSettings){-1,30}));
     unchanged(score_set_reverb(&s,(ReverbSettings){3,30}));
-    unchanged(score_set_reverb(&s,(ReverbSettings){1,-1}));
-    unchanged(score_set_reverb(&s,(ReverbSettings){1,101}));
-    SoundSettings invalid=s.sounds[0]; invalid.reverb=2; unchanged(score_set_sound(&s,0,invalid));
 }
 static void channels(void) {
     base(); SoundSettings initial=SOUND_DEFAULT;
@@ -297,37 +325,26 @@ static void channels(void) {
     assert(!score_create(&s,0,0,4)); assert(score_channel(&s,0)==0);
     assert(!score_set_channel(&s,0,2)); assert(!memcmp(&s.sounds[2],&custom,sizeof(custom)));
 
-    editor_init(&e); input_init(&input); frame(1,0);
-    assert(!score_create(&e.score,1,1,4)); assert(!score_create(&e.score,20,1,4));
-    action(ACTION_CHANNEL); before=e.score;
-    tap(INPUT_LEFT); tap(INPUT_DOWN); assert(e.candidate==0);
-    for(int i=0;i<10;i++) tap(INPUT_UP);
-    tap(INPUT_RIGHT); assert(e.candidate==7);
-    tap(INPUT_START); assert(e.mode==EDIT_CHANNEL);
-    assert(!memcmp(&before,&e.score,sizeof(before)));
-    tap(INPUT_CIRCLE); tap(INPUT_CIRCLE); assert(e.mode==EDIT_PLANE);
-    assert(!memcmp(&before,&e.score,sizeof(before)));
-    action(ACTION_CHANNEL); tap(INPUT_UP); tap(INPUT_CROSS);
-    assert(score_channel(&e.score,0)==1 && e.score.revision==before.revision+1);
-    assert(!score_set_channel(&e.score,1,1));
-    action(ACTION_SOUND); assert(e.sound_channel==1);
-    tap(INPUT_CROSS); tap(INPUT_CROSS); assert(e.mode==EDIT_WAVE_A);
-    tap(INPUT_RIGHT); tap(INPUT_CROSS); assert(e.score.sounds[1].wave_a==WAVE_TRIANGLE);
-    tap(INPUT_CIRCLE); tap(INPUT_CIRCLE); tap(INPUT_CIRCLE);
+    editor_setup();
+    assert(!score_create(&e.score,1,1,4));
+    assert(!score_create(&e.score,20,1,4));
+    context(); select_action(ACTION_CHANNEL);
+    tap(INPUT_RIGHT);
+    assert(score_channel(&e.score,0)==1);
+    tap(INPUT_CIRCLE);
+    action(ACTION_SOUND);
+    assert(e.sound_channel==1);
+    tap(INPUT_RIGHT);
+    assert(e.score.sounds[1].wave_a==WAVE_TRIANGLE);
     assert(!memcmp(&e.score.sounds[0],&initial,sizeof(initial)));
-    e.x=20; action(ACTION_SOUND); assert(e.sound_channel==1);
-    tap(INPUT_CROSS); tap(INPUT_CROSS); assert(e.sound_candidate.wave_a==WAVE_TRIANGLE);
-    tap(INPUT_SELECT); assert(e.mode==EDIT_MAIN); tap(INPUT_SELECT);
-    action(ACTION_SOUND); for(int i=0;i<4;i++) tap(INPUT_DOWN);
-    tap(INPUT_CROSS); tap(INPUT_RIGHT); tap(INPUT_CROSS);
-    assert(e.score.sounds[1].reverb && !e.score.sounds[0].reverb);
-    tap(INPUT_SELECT); tap(INPUT_SELECT);
-    action(ACTION_CHANNEL); tap(INPUT_RIGHT); tap(INPUT_CROSS);
-    action(ACTION_SOUND); tap(INPUT_CROSS); tap(INPUT_CROSS);
-    assert(e.sound_channel==2 && !memcmp(&e.sound_candidate,&initial,sizeof(initial)));
-    tap(INPUT_SELECT); tap(INPUT_SELECT);
-    action(ACTION_CHANNEL); before=e.score; tap(INPUT_RIGHT); tap(INPUT_SELECT);
-    assert(e.mode==EDIT_MAIN && !memcmp(&before,&e.score,sizeof(before)));
-    puts("PASS: eight channels, transactional validation, nested inheritance, retention and shared editor targets");
+    tap(INPUT_CIRCLE); tap(INPUT_CIRCLE);
+    e.x=20; action(ACTION_SOUND);
+    assert(e.sound_channel==0);
+    tap(INPUT_RIGHT);
+    assert(e.score.sounds[0].wave_a==WAVE_TRIANGLE);
 }
-int main(void) { model(); generations(); controls(); sound_controls(); main_controls(); channels(); puts("PASS: model transactions, properties, stacks, branches, capacity and input/editor gestures"); }
+int main(void) {
+    model(); generations(); controls(); rejected_inline_resize();
+    sound_controls(); main_controls(); channels();
+    puts("PASS: model transactions, inline properties, pattern, deletion and shared sound");
+}

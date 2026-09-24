@@ -30,6 +30,8 @@ static void publish(int connected) {
         if(buttons&PAD_CIRCLE) held|=INPUT_CIRCLE;
         if(buttons&PAD_START) held|=INPUT_START;
         if(buttons&PAD_SELECT) held|=INPUT_SELECT;
+        if(buttons&PAD_L1) held|=INPUT_L1;
+        if(buttons&PAD_R1) held|=INPUT_R1;
         pad_id=reply[1];
         pad_reports++;
     }

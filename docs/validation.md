@@ -1,5 +1,49 @@
 # Validation Record
 
+## Menu redesign verification (2026-09-24)
+
+The menu redesign passes `./scripts/test.sh` with ASan and
+UBSan. The updated host checks exercise inline fine and coarse edits, repeat
+acceleration and reset, opposing inputs, reconnect, unchanged plane repeat,
+shared Sound channels, immediate pattern toggles, copy/paste, deletion
+confirmation, card-busy restrictions, and a full-score resize rejection that
+preserves the score and revision. Verification exposed one load-busy defect:
+changing SLOT cleared the active WAITING FOR LAP message. The editor now keeps
+that message while the load is pending. The final host run passes after this
+fix.
+
+The GPU-stub test rendered 8,236 frames, including MAIN, REVERB, SOUND,
+picker, pattern, confirmation, card statuses, maximum values, each plane
+corner, and a full 300-cell view. Its peak was 10,560 / 65,536 packet bytes,
+with zero overflows and no primitives outside 320 × 240. The native-size
+SOUND capture and 3× enlargement were visually compared with the supplied
+`Frame 2.png`: the clipped panel, sections, two-column AMP/MIX placement,
+right-aligned values, and selection underline are present. The extra pitch,
+reverb, and channel fields fit in the PlayStation frame.
+
+Debug and Release PlayStation builds pass. PCSX-Redux SIO/Lua smoke tests pass
+for ground-menu opening/cancellation, lane creation, SELECT, and START
+start/stop in both configurations. A Debug shoulder run held L1 then R1 on
+MAIN/BPM; captures show BPM changing from 120 to 80, then back to 120. This
+establishes the emulator's button path and repeated coarse edits, while the
+host timing test establishes the acceleration stages.
+
+Automated Save/Load input recovery remains unverified in this run. The active
+BIOS storage fixture reported `STORAGE_UNKNOWN` at card refresh and stopped
+before Save or Load. The historical direct-SIO verification below applies to an
+earlier revision; the current tree has no direct-SIO backend to rerun it.
+The project owner subsequently reported that the real-hardware check was OK.
+
+Representative captures are [SOUND](captures/menu-sound.png),
+[MAIN](captures/menu-main.png), and the
+[emulator MAIN screen](captures/menu-main-emulator.png).
+
+Logs and representative captures are under
+`build/validation/menu-redesign-20260924/`: `host-final.log`, final Debug
+and Release build logs, `render_test.log`, SOUND/MAIN/pattern/confirmation
+PNGs, final Debug/Release emulator MAIN captures and result JSONs, shoulder
+PNGs and result JSON, and the failed storage fixture log.
+
 ## Pad-driven storage UI verification (2026-09-23)
 
 The HTTP/Lua procedure in [emulator-automation.md](emulator-automation.md) was

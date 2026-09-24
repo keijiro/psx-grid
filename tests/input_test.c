@@ -16,7 +16,75 @@ static void drain(void) {
         if(editor.mode!=before) input_reset_repeat(&input);
     }
 }
+static void value_repeat_and_conflicts(void) {
+    Input i; input_init(&i);
+    input_update(&i,1,0);
+    InputFrame f=input_update(&i,1,INPUT_RIGHT);
+    assert(f.value_dir==1 && !f.value_coarse);
+    for(int n=0;n<INPUT_VALUE_DELAY-1;n++) {
+        f=input_update(&i,1,INPUT_RIGHT);
+        assert(!f.value_dir);
+    }
+    f=input_update(&i,1,INPUT_RIGHT);
+    assert(f.value_dir==1 && !f.value_coarse);
+
+    // Direction change and coarse/fine opposition cancel the event and reset
+    // the value hold clock. Same-direction fine plus shoulder is coarse only.
+    f=input_update(&i,1,INPUT_LEFT);
+    assert(f.value_dir==-1 && !f.value_coarse);
+    f=input_update(&i,1,INPUT_R1|INPUT_RIGHT);
+    assert(f.value_dir==1 && f.value_coarse);
+    f=input_update(&i,1,INPUT_L1|INPUT_RIGHT);
+    assert(!f.value_dir);
+    f=input_update(&i,1,INPUT_R1|INPUT_L1);
+    assert(!f.value_dir);
+    f=input_update(&i,1,INPUT_L1);
+    assert(f.value_dir==-1 && f.value_coarse);
+
+    // Disconnect/reconnect suppresses held shoulder input until all buttons
+    // are released, while a fresh press still emits immediately.
+    f=input_update(&i,0,INPUT_R1);
+    assert(!f.value_dir);
+    f=input_update(&i,1,INPUT_R1);
+    assert(!f.value_dir);
+    f=input_update(&i,1,0);
+    assert(!f.value_dir);
+    f=input_update(&i,1,INPUT_R1);
+    assert(f.value_dir==1 && f.value_coarse);
+
+    Input coarse; input_init(&coarse);
+    input_update(&coarse,1,0);
+    f=input_update(&coarse,1,INPUT_L1);
+    assert(f.value_dir==-1 && f.value_coarse);
+    int last_event=0, first_interval=0, last_interval=0;
+    for(int tick=1;tick<=220;tick++) {
+        f=input_update(&coarse,1,INPUT_L1);
+        if(f.value_dir) {
+            if(last_event) {
+                int interval=tick-last_event;
+                if(!first_interval) first_interval=interval;
+                last_interval=interval;
+            }
+            last_event=tick;
+        }
+    }
+    assert(first_interval==5 && last_interval==2);
+
+    // Menu value timing remains independent from the plane cursor's fixed
+    // repeat delay.
+    Input plane; input_init(&plane);
+    input_update(&plane,1,0);
+    f=input_update(&plane,1,INPUT_RIGHT);
+    assert(f.dx==1);
+    for(int tick=1;tick<INPUT_DELAY;tick++) {
+        f=input_update(&plane,1,INPUT_RIGHT);
+        assert(!f.dx);
+    }
+    f=input_update(&plane,1,INPUT_RIGHT);
+    assert(f.dx==1);
+}
 int main(void) {
+    value_repeat_and_conflicts();
     editor_init(&editor); input_init(&input); input_queue_init(&queue);
     assert(!score_create(&editor.score,100,1,4));
     input_queue_push(&queue,(InputSample){1,0}); drain();
@@ -47,5 +115,5 @@ int main(void) {
     input_queue_push(&queue,(InputSample){1,0});
     input_queue_push(&queue,(InputSample){1,INPUT_RIGHT}); drain();
     assert(editor.x==2);
-    puts("PASS: ordered input history, mode changes, overflow and reconnect");
+    puts("PASS: value repeat, coarse conflicts, ordered history, overflow and reconnect");
 }

@@ -12,7 +12,7 @@
 #define OT_SIZE 8
 // OT traverses high depths first and reverses insertion within each bucket.
 // 7: texture setup/lattice, 6: rails, 5: tiles, 4: endpoint, 3: cursor,
-// 2: panels, 1: panel borders, 0: text and picker samples (non-overlapping).
+// 2: panels and shadows, 1: bevels and underlines, 0: text.
 typedef struct {
     DRAWENV draw;
     DISPENV disp;
@@ -55,6 +55,135 @@ static void text(int x, int y, const char *s) {
         if (i != 0) sprite(0,x,y,(i%32)*8,24+(i/32)*8,advance-1,7);
         x += advance;
     }
+}
+static int text_width(const char *s) {
+    int width=0;
+    while(*s) width+=ui_advance[glyph((unsigned char)*s++)];
+    return width;
+}
+static void clipped_text(int x,int y,const char *s,int right) {
+    while(*s) {
+        int i=glyph((unsigned char)*s++),advance=ui_advance[i];
+        if(x+advance>right) break;
+        if(i) sprite(0,x,y,(i%32)*8,24+(i/32)*8,advance-1,7);
+        x+=advance;
+    }
+}
+static void clipped_panel(int x,int y,int w,int h,int gray) {
+    // Two overlapping rectangles leave the upper-left and lower-right
+    // corners cut away without a textured mask or an extra packet pass.
+    rect(2,x+6,y,w-6,h-6,gray);
+    rect(2,x,y+6,w-6,h-6,gray);
+}
+static void menu_panel(int x,int y,int w,int h) {
+    clipped_panel(x,y,w,h,UI_PANEL);
+    clipped_panel(x+4,y+4,w,h,UI_SHADOW);
+    rect(1,x+6,y,w-6,1,UI_INK);
+    rect(1,x,y+6,1,h-6,UI_INK);
+    rect(1,x+1,y+5,2,1,UI_INK);
+    rect(1,x+3,y+3,2,1,UI_INK);
+    rect(1,x+5,y+1,1,2,UI_INK);
+    rect(1,x,y+h-1,w-6,1,UI_INK);
+    rect(1,x+w-1,y,1,h-6,UI_INK);
+    rect(1,x+w-6,y+h-1,2,1,UI_INK);
+    rect(1,x+w-4,y+h-3,2,1,UI_INK);
+    rect(1,x+w-2,y+h-5,1,2,UI_INK);
+}
+static void menu_row(const Editor *e,const EditorRow *row,int index,int x,int y,int width) {
+    char value[48];
+    editor_row_value(e,row->id,value,sizeof(value));
+    int right=x+width;
+    int value_x=right-text_width(value);
+    clipped_text(x,y,row->label,value[0]?value_x-6:right);
+    if(value[0]) clipped_text(value_x,y,value,right);
+    if(index==e->selected) rect(1,x,y+10,width,1,UI_INK);
+}
+static void sound_menu(const Editor *e,const EditorRow *rows,int x,int y,int w) {
+    // The reference's AMP/MIX pair fits beside each other at atlas size;
+    // the extra pitch and reverb fields continue below it within 240 lines.
+    static const int yy[]={29,43,57,75,89,103,75,89,103,123,137,151,165};
+    const int left=x+15,right=x+151,col=118;
+    for(int i=0;i<13;i++) {
+        int sx=(i>=6 && i<=8)?right:left;
+        int sy=y+yy[i];
+        if(rows[i].kind==ROW_HEADING) {
+            int rule_end=(i==6)?x+w-15:(i==3)?x+133:x+w-15;
+            clipped_text(sx,sy,rows[i].label,rule_end);
+            int start=sx+text_width(rows[i].label)+8;
+            if(start<rule_end) rect(1,start,sy+5,rule_end-start,1,UI_RULE);
+        } else menu_row(e,&rows[i],i,sx,sy,(i>=4 && i<=8)?col:w-30);
+    }
+    rect(1,x+142,y+75,1,40,UI_BORDER);
+}
+static void draw_menu(const Editor *e) {
+    EditorRow rows[EDITOR_ROWS];
+    int count=editor_rows(e,rows);
+    int sound=e->mode==EDIT_SOUND;
+    int pattern=e->mode==EDIT_PATTERN;
+    int picker=e->mode==EDIT_PICKER;
+    int confirm=e->mode==EDIT_DELETE;
+    int width=sound?286:pattern?238:confirm?226:picker?220:0;
+    char value[48];
+    if(!width) {
+        int need=0;
+        for(int i=0;i<count;i++) {
+            editor_row_value(e,rows[i].id,value,sizeof(value));
+            int row_width=text_width(rows[i].label)+text_width(value)+(value[0]?24:0);
+            if(row_width>need) need=row_width;
+        }
+        width=need+30;
+        if(width<194) width=194;
+        if(width>286) width=286;
+    }
+    int visible=count>9?9:count;
+    int alert=e->message && e->message[0];
+    int height=sound?194:pattern?126:confirm?76:picker?142:36+visible*UI_MENU_ROW+18;
+    if(e->mode==EDIT_MAIN) height+=20;
+    if(alert && !sound && !pattern && !confirm && !picker) height+=14;
+    int x=(SCREEN_W-width)/2,y=(SCREEN_H-height)/2;
+    menu_panel(x,y,width,height);
+    char title[40];
+    if(e->mode==EDIT_MAIN) strcpy(title,"JACQUARD / MAIN");
+    else if(e->mode==EDIT_REVERB) strcpy(title,"REVERB / GLOBAL");
+    else if(sound) snprintf(title,sizeof(title),"SOUND CH %d",e->sound_channel+1);
+    else if(pattern) strcpy(title,"CYCLE PATTERN");
+    else if(picker) strcpy(title,"CREATE TILE");
+    else if(confirm) strcpy(title,e->target?"DELETE JUMP BRANCH?":
+        e->score.lanes[e->lane].source?"DELETE BRANCH LANE?":"DELETE LANE?");
+    else strcpy(title,"MENU");
+    clipped_text(x+UI_MENU_MARGIN,y+11,title,x+width-UI_MENU_MARGIN);
+    rect(1,x+UI_MENU_MARGIN,y+23,width-UI_MENU_MARGIN*2,1,UI_RULE);
+    if(sound) sound_menu(e,rows,x,y,width);
+    else if(pattern) {
+        TileValue v=e->score.tiles[e->target].value;
+        for(int i=0;i<v.period;i++) {
+            int gx=x+16+(i%8)*26,gy=y+39+(i/8)*18;
+            char digit[2]={v.pattern&((uint32_t)1<<i)?'1':'0',0};
+            text(gx+8,gy,digit);
+            if(i==e->pattern_cursor) rect(1,gx+5,gy+10,13,1,UI_INK);
+        }
+    } else if(picker) {
+        for(int k=1;k<TILE_KIND_COUNT;k++) {
+            int py=y+32+(k-1)*UI_MENU_ROW;
+            clipped_text(x+16,py,score_tile_label((TileKind)k),x+width-16);
+            if(k==(int)e->tile_candidate) rect(1,x+16,py+10,width-32,1,UI_INK);
+        }
+    } else if(!confirm) {
+        int first=0;
+        if(e->selected>=visible) first=e->selected-visible+1;
+        if(first>count-visible) first=count-visible;
+        for(int i=first;i<first+visible;i++) {
+            int py=y+35+(i-first)*UI_MENU_ROW;
+            menu_row(e,&rows[i],i,x+15,py,width-30);
+        }
+        if(e->mode==EDIT_MAIN) {
+            char status[64];
+            snprintf(status,sizeof(status),"%s",storage_message(e->slot_status));
+            if(e->card_free>=0) snprintf(status,sizeof(status),"%s  %d BLK",storage_message(e->slot_status),e->card_free);
+            clipped_text(x+15,y+height-(alert?30:22),status,x+width-15);
+        }
+    }
+    if(alert) clipped_text(x+15,y+height-14,e->message,x+width-15);
 }
 static void tile(int depth, int x, int y, int kind) {
     sprite(depth,x,y,kind*16,0,16,16);
@@ -178,9 +307,6 @@ void render_frame(const Editor *e, int connected) {
             }
         }
     }
-    if(e->mode==EDIT_LENGTH) {
-        const Lane *l=&e->score.lanes[e->lane]; marker(l->x+e->candidate+1,l->y,UI_INK);
-    }
     if(e->mode==EDIT_MOVE) {
         MovePlan p=score_plan_move(&e->score,e->source_x,e->source_y,e->x,e->y);
         Cell source=score_at(&e->score,e->source_x,e->source_y);
@@ -198,105 +324,7 @@ void render_frame(const Editor *e, int connected) {
         }
     }
     int cx=screen_x(e->x),cy=screen_y(e->y); cursor(cx,cy);
-    char line[64];
-    if(e->mode!=EDIT_PLANE && e->mode!=EDIT_MOVE) {
-        EditorAction items[EDITOR_MENU_ITEMS]; int n=editor_menu(e,items);
-        int width=208,height=e->mode==EDIT_MENU?n*16+16:e->mode==EDIT_PICKER?104:e->mode==EDIT_MAIN?128:e->mode==EDIT_REVERB?80:e->mode==EDIT_SOUND?112:editor_sound_parent(e->mode)==EDIT_SOUND?72:e->mode==EDIT_PATTERN?112:72;
-        int sound_property=e->mode==EDIT_SOUND_REVERB ||
-            (editor_sound_parent(e->mode)!=EDIT_MENU && editor_sound_parent(e->mode)!=EDIT_SOUND);
-        if(sound_property) height+=16;
-        int alert=e->message && e->message[0] && e->mode!=EDIT_MAIN;
-        if(alert) height+=16;
-        int px=clamp(cx+18,SCREEN_W-width-8),py=clamp(cy+18,SCREEN_H-height-8);
-        if(e->mode==EDIT_MAIN || e->mode==EDIT_REVERB || e->mode==EDIT_BPM || e->mode==EDIT_REVERB_SIZE || e->mode==EDIT_REVERB_AMOUNT) { px=(SCREEN_W-width)/2; py=(SCREEN_H-height)/2; }
-        int panel_y=py;
-        rect(2,px,py,width,height,UI_PANEL); outline(1,px,py,width,height,UI_BORDER);
-        if(e->mode==EDIT_MAIN) {
-            sprite(0,px+(width-72)/2,py+8,0,64,72,15);
-            snprintf(line,sizeof(line),"%c BPM %d",e->selected==0?'>':' ',e->score.bpm); text(px+12,py+32,line);
-            text(px+12,py+48,e->selected==1?"> REVERB":"  REVERB");
-            snprintf(line,sizeof(line),"%c SLOT %02d  L/R",e->selected==2?'>':' ',e->storage_slot); text(px+12,py+64,line);
-            text(px+24,py+80,storage_message(e->slot_status));
-            if(e->card_free>=0) { snprintf(line,sizeof(line),"%d BLK",e->card_free); text(px+160,py+64,line); }
-            snprintf(line,sizeof(line),"%c SAVE  FREE %d B",e->selected==3?'>':' ',e->free_bytes); text(px+12,py+96,line);
-            text(px+12,py+112,e->selected==4?"> LOAD":"  LOAD");
-        } else if(e->mode==EDIT_REVERB) {
-            text(px+8,py+8,"REVERB / GLOBAL");
-            snprintf(line,sizeof(line),"%c SIZE %s",e->selected==0?'>':' ',score_reverb_size(e->score.reverb.size)); text(px+8,py+32,line);
-            snprintf(line,sizeof(line),"%c AMOUNT %d%%",e->selected==1?'>':' ',e->score.reverb.amount); text(px+8,py+52,line);
-        } else if(e->mode==EDIT_MENU) for(int i=0;i<n;i++) {
-            snprintf(line,sizeof(line),"%c %s",i==e->selected?'>':' ',editor_action_label(items[i])); text(px+6,py+8+i*16,line);
-        }
-        else if(e->mode==EDIT_PICKER) {
-            text(px+8,py+8,"CREATE TILE");
-            for(int k=1;k<TILE_KIND_COUNT;k++) {
-                snprintf(line,sizeof(line),"%c %s",k==(int)e->tile_candidate?'>':' ',score_tile_label((TileKind)k)); text(px+8,py+8+k*16,line);
-            }
-        } else if(e->mode==EDIT_SOUND) {
-            snprintf(line,sizeof(line),"SOUND CH %d",e->sound_channel+1); text(px+8,py+8,line);
-            static const char *groups[]={"WAVES","AMPLITUDE","MIX","PITCH","REVERB"};
-            for(int i=0;i<5;i++) {
-                snprintf(line,sizeof(line),"%c %s",e->selected==i?'>':' ',groups[i]); text(px+8,py+28+i*16,line);
-            }
-        } else if(editor_sound_parent(e->mode)==EDIT_SOUND) {
-            const SoundSettings *s=&e->score.sounds[e->sound_channel];
-            snprintf(line,sizeof(line),"%s CH %d",e->mode==EDIT_WAVES?"WAVES":e->mode==EDIT_AMPLITUDE?"AMPLITUDE":e->mode==EDIT_MIX?"MIX":"PITCH",e->sound_channel+1);
-            text(px+8,py+8,line);
-            for(int i=0;i<2;i++) {
-                char marker=e->selected==i?'>':' ';
-                if(e->mode==EDIT_WAVES) snprintf(line,sizeof(line),"%c WAVE %c %s",marker,'A'+i,score_wave_name(i?s->wave_b:s->wave_a));
-                else if(e->mode==EDIT_AMPLITUDE) snprintf(line,sizeof(line),"%c AMP %s %d MS",marker,i?"RELEASE":"ATTACK",i?s->release:s->attack);
-                else if(e->mode==EDIT_MIX) snprintf(line,sizeof(line),"%c MIX %s %d MS",marker,i?"RELEASE":"ATTACK",i?s->mix_release:s->mix_attack);
-                else if(!i) snprintf(line,sizeof(line),"%c SWEEP %+d ST",marker,s->sweep);
-                else snprintf(line,sizeof(line),"%c DECAY %d MS",marker,s->decay);
-                text(px+8,py+28+i*16,line);
-            }
-        } else if(e->mode==EDIT_DELETE) {
-            text(px+8,py+8,"DELETE LANE / BRANCH TILES?");
-            text(px+8,py+28,"X DELETE  O CANCEL");
-        } else if(e->mode==EDIT_PATTERN) {
-            text(px+8,py+8,"CYCLE PATTERN");
-            for(int i=0;i<e->value.period;i++) {
-                int x=px+8+(i%8)*24,y=py+26+(i/8)*16;
-                snprintf(line,sizeof(line),"%c%c",i==e->pattern_cursor?'>':' ',(e->value.pattern&((uint32_t)1<<i))?'1':'0'); text(x,y,line);
-            }
-            text(px+8,py+94,e->pattern_cursor==e->value.period?"> APPLY":"  APPLY");
-        } else {
-            if(sound_property) {
-                snprintf(line,sizeof(line),"SOUND CH %d",e->sound_channel+1); text(px+8,py+8,line);
-                py+=16;
-            }
-            switch(e->mode) {
-            case EDIT_BPM: snprintf(line,sizeof(line),"BPM %d",e->candidate); break;
-            case EDIT_REVERB_SIZE: snprintf(line,sizeof(line),"SIZE %s",score_reverb_size(e->candidate)); break;
-            case EDIT_REVERB_AMOUNT: snprintf(line,sizeof(line),"AMOUNT %d%%",e->candidate); break;
-            case EDIT_SOUND_REVERB: snprintf(line,sizeof(line),"REVERB %s",e->candidate?"ON":"OFF"); break;
-            case EDIT_WAVE_A: snprintf(line,sizeof(line),"WAVE A %s",score_wave_name(e->sound_candidate.wave_a)); break;
-            case EDIT_WAVE_B: snprintf(line,sizeof(line),"WAVE B %s",score_wave_name(e->sound_candidate.wave_b)); break;
-            case EDIT_MIX_ATTACK: snprintf(line,sizeof(line),"MIX ATTACK %d MS",e->sound_candidate.mix_attack); break;
-            case EDIT_MIX_RELEASE: snprintf(line,sizeof(line),"MIX RELEASE %d MS",e->sound_candidate.mix_release); break;
-            case EDIT_PITCH_SWEEP: snprintf(line,sizeof(line),"PITCH SWEEP %+d ST",e->sound_candidate.sweep); break;
-            case EDIT_PITCH_DECAY: snprintf(line,sizeof(line),"PITCH DECAY %d MS",e->sound_candidate.decay); break;
-            case EDIT_ATTACK: snprintf(line,sizeof(line),"AMP ATTACK %d MS",e->sound_candidate.attack); break;
-            case EDIT_RELEASE: snprintf(line,sizeof(line),"AMP RELEASE %d MS",e->sound_candidate.release); break;
-            case EDIT_LOCK_ATTACK_ENABLE: snprintf(line,sizeof(line),"ATTACK %s",e->value.lock_mask&LOCK_ATTACK?"ENABLED":"DISABLED"); break;
-            case EDIT_LOCK_RELEASE_ENABLE: snprintf(line,sizeof(line),"RELEASE %s",e->value.lock_mask&LOCK_RELEASE?"ENABLED":"DISABLED"); break;
-            case EDIT_LOCK_ATTACK: snprintf(line,sizeof(line),"ATTACK %+d MS %s",e->value.attack,e->value.lock_mask&LOCK_ATTACK?"":"OFF"); break;
-            case EDIT_LOCK_RELEASE: snprintf(line,sizeof(line),"RELEASE %+d MS %s",e->value.release,e->value.lock_mask&LOCK_RELEASE?"":"OFF"); break;
-            case EDIT_LENGTH: snprintf(line,sizeof(line),"LANE LENGTH  %d",e->candidate); break;
-            case EDIT_CHANNEL: snprintf(line,sizeof(line),"CHANNEL %d",e->candidate+1); break;
-            case EDIT_DIVISION: snprintf(line,sizeof(line),"DIVISION  1/%d",score_divisions[e->candidate]); break;
-            case EDIT_PITCH: snprintf(line,sizeof(line),"PITCH  %s%d",score_note_name(e->value.pitch),e->value.pitch/12); break;
-            case EDIT_DURATION: snprintf(line,sizeof(line),"NOTE LENGTH  %d.%02d",e->value.length/20,e->value.length%20*5); break;
-            case EDIT_PERIOD: snprintf(line,sizeof(line),"CYCLE PERIOD  %d",e->value.period); break;
-            default: snprintf(line,sizeof(line),"CHANCE  %d / 100",e->value.chance); break;
-            }
-            text(px+8,py+8,line);
-            text(px+8,py+28,e->mode==EDIT_BPM || e->mode==EDIT_REVERB_AMOUNT?"L/R 1  U/D 10":e->mode==EDIT_ATTACK || e->mode==EDIT_RELEASE || e->mode==EDIT_LOCK_ATTACK || e->mode==EDIT_LOCK_RELEASE || e->mode==EDIT_MIX_ATTACK || e->mode==EDIT_MIX_RELEASE || e->mode==EDIT_PITCH_DECAY?"L/R 1 MS  U/D 100 MS":(e->mode==EDIT_PITCH || e->mode==EDIT_PITCH_SWEEP)?"L/R NOTE  U/D OCTAVE":e->mode==EDIT_DURATION?"L/R .05  U/D 1 STEP":"D-PAD CHANGE");
-            text(px+8,py+48,sound_property || e->mode==EDIT_REVERB_SIZE || e->mode==EDIT_REVERB_AMOUNT?"O BACK":"X APPLY  O DISCARD");
-        }
-        if(alert) text(px+8,panel_y+height-12,e->message);
-    }
+    if(e->mode!=EDIT_PLANE && e->mode!=EDIT_MOVE) draw_menu(e);
     (void)connected;
     DR_TPAGE *page=packet(sizeof(DR_TPAGE));
     if(page) { setDrawTPage(page,0,0,getTPage(0,0,640,0)); addPrim(&buffers[active].ot[7],page); }

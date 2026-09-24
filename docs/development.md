@@ -57,7 +57,7 @@ to a gamepad or keyboard. See [usage.md](usage.md) for the editing walkthrough.
 - `src/input.*`: Ordered input history, button presses, repeats, disconnection,
   and reconnection.
 - `src/pad.*`: Port 1 asynchronous SIO polling and completed-report publication.
-- `src/editor.*`: Menus, candidate properties, clipboard, deletion confirmation,
+- `src/editor.*`: Menus, inline property edits, clipboard, deletion confirmation,
   and press/hold/release movement transitions.
 - `src/render.*`: 320 x 240 NTSC output, double buffering, scrolling, and
   render-packet management.

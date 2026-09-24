@@ -30,13 +30,13 @@ static void chooser_and_requests(void) {
 
     tap(INPUT_SELECT);
     assert(editor.mode==EDIT_MAIN && editor.selected==0);
-    for(int row=0;row<4;row++) {
+    for(int row=0;row<5;row++) {
         tap(INPUT_DOWN);
         assert(editor.selected==row+1);
     }
     tap(INPUT_DOWN);
-    assert(editor.selected==4);
-    tap(INPUT_UP); tap(INPUT_UP);
+    assert(editor.selected==5);
+    tap(INPUT_UP); tap(INPUT_UP); tap(INPUT_UP);
     assert(editor.selected==2);
 
     editor.message="SAVED";
@@ -51,6 +51,17 @@ static void chooser_and_requests(void) {
     tap(INPUT_LEFT);
     assert(editor.storage_slot==1);
 
+    // Coarse shoulder changes are inline value edits. Opposing fine/coarse
+    // controls cancel, and a simultaneous row move suppresses adjustment.
+    frame(INPUT_R1);
+    assert(editor.storage_slot==2);
+    frame(INPUT_RIGHT|INPUT_L1);
+    assert(editor.storage_slot==2);
+    frame(0);
+    frame(INPUT_DOWN|INPUT_R1);
+    assert(editor.selected==3 && editor.storage_slot==2);
+    frame(0);
+
     tap(INPUT_CROSS);
     assert(editor.storage_request==STORAGE_ACTION_CHECK);
     editor.storage_request=STORAGE_ACTION_NONE;
@@ -60,7 +71,7 @@ static void chooser_and_requests(void) {
     tap(INPUT_DOWN); tap(INPUT_CROSS);
     assert(editor.storage_request==STORAGE_ACTION_LOAD);
     editor.storage_request=STORAGE_ACTION_NONE;
-    tap(INPUT_DOWN); assert(editor.selected==4);
+    tap(INPUT_DOWN); assert(editor.selected==5);
     tap(INPUT_CIRCLE);
     assert(editor.mode==EDIT_PLANE);
 }
@@ -110,6 +121,29 @@ static void waiting_load_lock(void) {
     assert(editor.selected==4);
     tap(INPUT_CROSS);
     assert(editor.storage_request==STORAGE_ACTION_NONE);
+    // Card requests and score value changes stay locked until acknowledgement.
+    editor.selected=0;
+    int bpm=editor.score.bpm;
+    frame(INPUT_RIGHT);
+    assert(editor.score.bpm==bpm);
+    tap(INPUT_CROSS);
+    assert(editor.storage_request==STORAGE_ACTION_NONE);
+}
+
+static void inline_value_controls(void) {
+    init();
+    tap(INPUT_SELECT);
+    assert(editor.mode==EDIT_MAIN && editor.selected==0);
+    tap(INPUT_R1);
+    assert(editor.score.bpm==130);
+    tap(INPUT_LEFT);
+    assert(editor.score.bpm==129);
+
+    // Moving to a different row wins over an adjustment in the same frame.
+    uint32_t revision=editor.score.revision;
+    frame(INPUT_DOWN|INPUT_R1);
+    assert(editor.selected==1 && editor.score.bpm==129);
+    assert(editor.score.revision==revision);
 }
 
 static void adoption_and_capacity(void) {
@@ -156,6 +190,8 @@ static void resume_requires_all_buttons_up(void) {
     frame(0);
     tap(INPUT_UP);
     assert(editor.selected==3);
+    tap(INPUT_DOWN);
+    assert(editor.selected==4);
     tap(INPUT_CROSS);
     assert(editor.storage_request==STORAGE_ACTION_SAVE);
 }
@@ -163,6 +199,7 @@ static void resume_requires_all_buttons_up(void) {
 int main(void) {
     chooser_and_requests();
     waiting_load_lock();
+    inline_value_controls();
     adoption_and_capacity();
     resume_requires_all_buttons_up();
     puts("PASS: storage editor menu, requests, load lock, adoption and input resume");

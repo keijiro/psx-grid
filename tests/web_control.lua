@@ -1,7 +1,7 @@
 -- Drive the ordinary executable through SIO, without writing application RAM.
 local pad = PCSX.SIO0.slots[1].pads[1]
 local buttons = PCSX.CONSTS.PAD.BUTTON
-local allowed = {'UP', 'DOWN', 'LEFT', 'RIGHT', 'CROSS', 'CIRCLE', 'START', 'SELECT'}
+local allowed = {'UP', 'DOWN', 'LEFT', 'RIGHT', 'L1', 'R1', 'CROSS', 'CIRCLE', 'START', 'SELECT'}
 local frame, remaining, release_at, completed = 0, 0, 0, 0
 local function release()
     for _, name in ipairs(allowed) do pad.clearOverride(buttons[name]) end

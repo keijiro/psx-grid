@@ -11,7 +11,7 @@ static Input input;
 static Storage storage;
 static void replacement_acknowledged(void) {
     editor.load_busy=0; editor.message="LOADED";
-    editor.mode=EDIT_MAIN; editor.selected=4; editor.target=0; editor.gesture=0;
+    editor.mode=EDIT_MAIN; editor.selected=5; editor.target=0; editor.gesture=0;
     editor_refresh_capacity(&editor);
 }
 static void storage_action(int connected) {
@@ -74,9 +74,11 @@ int main(void) {
         for(int n=0;n<INPUT_QUEUE_CAPACITY && pad_read(&sample);n++) {
             connected=sample.connected;
             EditorMode before=editor.mode;
+            int selected=editor.selected;
             InputFrame frame=input_update(&input,connected,sample.held);
             editor_update(&editor,frame);
             if(editor.mode!=before) input_reset_repeat(&input);
+            else if(editor.selected!=selected) input_reset_value_repeat(&input);
             if(editor.storage_request) { storage_action(connected); break; }
             audio_platform_update(&editor.score,connected,frame.start);
         }
