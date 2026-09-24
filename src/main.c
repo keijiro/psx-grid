@@ -33,7 +33,7 @@ static void storage_action(int connected) {
     // Submit a visible busy frame while SDK GPU callbacks still work.
     render_frame(&editor,connected);
     // The renderer displays the previously submitted buffer. A second frame
-    // makes the busy message visible before the synchronous operation begins.
+    // makes the busy slot status visible before synchronous access begins.
     render_frame(&editor,connected);
     DrawSync(0);
     pad_suspend();

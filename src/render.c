@@ -6,7 +6,9 @@
 #include <stddef.h>
 #include "ui_style.h"
 #include "ui_atlas.h"
-#define PACKET_BYTES 32768
+// A full 20-by-15 view can contain 300 labeled tiles and their rail dots.
+// Both buffers still fit in main RAM at the measured 64 KiB packet budget.
+#define PACKET_BYTES 65536
 #define OT_SIZE 8
 // OT traverses high depths first and reverses insertion within each bucket.
 // 7: texture setup/lattice, 6: rails, 5: tiles, 4: endpoint, 3: cursor,
@@ -90,28 +92,53 @@ void render_init(void) {
     }
     SetDispMask(1);
 }
-static void small(int x,int y,const char *s,int dark) {
-    const char *chars="0123456789ABCDEFG#LR%";
+static void small(int x,int y,const char *s,int dark,int shift,int first_shift) {
+    const char *chars="0123456789ABCDEFG+LR%h";
+    // Tight spacing after the compact plus keeps sharp labels inside the tile body.
+    int width=0,advance=0,compact=0;
+    for(const char *p=s;*p;p++) {
+        advance=*p=='+' || (compact && *p>='0' && *p<='9')?3:4;
+        width+=advance;
+        compact=*p=='+' || (compact && *p>='0' && *p<='9');
+    }
+    if(!width) return;
+    width-=advance-3;
+    int inset=(CELL_SIZE-width)/2;
+    x+=(inset<2?2:inset)+shift;
+    compact=0;
     while(*s) {
-        const char *p=strchr(chars,*s++);
-        if(p) sprite(5,x,y,(int)(p-chars)*4,dark?56:48,3,5);
-        x+=4;
+        char ch=*s++;
+        const char *p=strchr(chars,ch);
+        if(p) sprite(5,x+first_shift,y,(int)(p-chars)*4,dark?56:48,3,5);
+        first_shift=0;
+        x+=ch=='+' || (compact && ch>='0' && ch<='9')?3:4;
+        compact=ch=='+' || (compact && ch>='0' && ch<='9');
     }
 }
 static void draw_cell(const Score *s,Cell c,int x,int y) {
     if(c.kind==CELL_EMPTY) return;
     int kind=c.kind==CELL_HEAD?(s->lanes[c.lane].source?5:0):c.kind==CELL_END?7:c.kind==CELL_STEP?8:s->tiles[c.tile].value.kind==TILE_RELATIVE?6:s->tiles[c.tile].value.kind;
     char label[16]="";
-    if(c.kind==CELL_HEAD) strcpy(label,s->lanes[c.lane].source?"B":"L");
+    int shift=0,first_shift=0;
+    if(c.kind==CELL_HEAD) {
+        if(s->lanes[c.lane].source) strcpy(label,"B");
+        else { snprintf(label,sizeof(label),"Ch%d",score_channel(s,c.lane)+1); shift=1; }
+    }
     if(c.kind==CELL_TILE) {
         TileValue v=s->tiles[c.tile].value;
-        if(v.kind==TILE_NOTE) snprintf(label,sizeof(label),"%s%d",score_note_name(v.pitch),v.pitch/12);
+        if(v.kind==TILE_NOTE) {
+            snprintf(label,sizeof(label),"%s%d",score_note_name(v.pitch),v.pitch/12);
+            for(char *p=label;*p;p++) if(*p=='#') *p='+';
+            // The plus and octave already align; only the note letter needs a nudge.
+            if(strchr(label,'+')) first_shift=1;
+            else shift=1;
+        }
         if(v.kind==TILE_RELATIVE) snprintf(label,sizeof(label),"%s%s",v.lock_mask&LOCK_ATTACK?"A":"",v.lock_mask&LOCK_RELEASE?"R":"");
         if(v.kind==TILE_CYCLE) snprintf(label,sizeof(label),"C%d",v.period);
         if(v.kind==TILE_PROBABILITY) snprintf(label,sizeof(label),"%d",v.chance);
     }
     // Labels share the tile bucket so later panels cover them completely.
-    small(x+4,y+5,label,c.kind==CELL_HEAD);
+    small(x,y+5,label,c.kind==CELL_HEAD,shift,first_shift);
     tile(5,x,y,kind);
 }
 static int screen_x(int x) { return VIEW_X+clamp(x-camera_x,VIEW_COLS-1)*CELL_SIZE; }
@@ -154,7 +181,6 @@ void render_frame(const Editor *e, int connected) {
     if(e->mode==EDIT_LENGTH) {
         const Lane *l=&e->score.lanes[e->lane]; marker(l->x+e->candidate+1,l->y,UI_INK);
     }
-    const char *status=e->message;
     if(e->mode==EDIT_MOVE) {
         MovePlan p=score_plan_move(&e->score,e->source_x,e->source_y,e->x,e->y);
         Cell source=score_at(&e->score,e->source_x,e->source_y);
@@ -170,40 +196,34 @@ void render_frame(const Editor *e, int connected) {
                 carried=x==e->x && y==e->y;
             if(carried) outline(4,VIEW_X+col*16+2,VIEW_Y+row*16+2,12,12,gray);
         }
-        status=p.result==SCORE_OK?"DROP OK":"INVALID DROP";
     }
     int cx=screen_x(e->x),cy=screen_y(e->y); cursor(cx,cy);
     char line[64];
-    snprintf(line,sizeof(line),"PSX GRID   %03d,%02d",e->x,e->y); text(8,8,line);
-    snprintf(line,sizeof(line),"FREE %d B",e->free_bytes); text(232-6*(e->free_bytes>=1000),8,line);
-    Cell cell=score_at(&e->score,e->x,e->y);
-    if(cell.lane>=0) snprintf(line,sizeof(line),"LANE %02d  CH %d  DIV 1/%d",cell.lane+1,score_channel(&e->score,cell.lane)+1,score_division(&e->score,cell.lane));
-    else snprintf(line,sizeof(line),"PITCH AND GATE SCORE");
-    text(8,20,line);
     if(e->mode!=EDIT_PLANE && e->mode!=EDIT_MOVE) {
         EditorAction items[EDITOR_MENU_ITEMS]; int n=editor_menu(e,items);
-        int width=208,height=e->mode==EDIT_MENU?n*16+16:e->mode==EDIT_PICKER?104:e->mode==EDIT_MAIN?168:e->mode==EDIT_REVERB?96:e->mode==EDIT_SOUND?128:editor_sound_parent(e->mode)==EDIT_SOUND?88:e->mode==EDIT_PATTERN?112:72;
+        int width=208,height=e->mode==EDIT_MENU?n*16+16:e->mode==EDIT_PICKER?104:e->mode==EDIT_MAIN?128:e->mode==EDIT_REVERB?80:e->mode==EDIT_SOUND?112:editor_sound_parent(e->mode)==EDIT_SOUND?72:e->mode==EDIT_PATTERN?112:72;
         int sound_property=e->mode==EDIT_SOUND_REVERB ||
             (editor_sound_parent(e->mode)!=EDIT_MENU && editor_sound_parent(e->mode)!=EDIT_SOUND);
         if(sound_property) height+=16;
-        int px=clamp(cx+18,SCREEN_W-width-8),py=clamp(cy+18,192-height);
-        if(e->mode==EDIT_MAIN || e->mode==EDIT_REVERB || e->mode==EDIT_BPM || e->mode==EDIT_REVERB_SIZE || e->mode==EDIT_REVERB_AMOUNT) { px=(SCREEN_W-width)/2; py=(192-height)/2+16; }
+        int alert=e->message && e->message[0] && e->mode!=EDIT_MAIN;
+        if(alert) height+=16;
+        int px=clamp(cx+18,SCREEN_W-width-8),py=clamp(cy+18,SCREEN_H-height-8);
+        if(e->mode==EDIT_MAIN || e->mode==EDIT_REVERB || e->mode==EDIT_BPM || e->mode==EDIT_REVERB_SIZE || e->mode==EDIT_REVERB_AMOUNT) { px=(SCREEN_W-width)/2; py=(SCREEN_H-height)/2; }
+        int panel_y=py;
         rect(2,px,py,width,height,UI_PANEL); outline(1,px,py,width,height,UI_BORDER);
         if(e->mode==EDIT_MAIN) {
-            sprite(0,px+(width-144)/2,py+12,0,64,144,30);
-            snprintf(line,sizeof(line),"%c BPM %d",e->selected==0?'>':' ',e->score.bpm); text(px+12,py+48,line);
-            text(px+12,py+64,e->selected==1?"> REVERB":"  REVERB");
-            snprintf(line,sizeof(line),"%c SLOT %02d  L/R",e->selected==2?'>':' ',e->storage_slot); text(px+12,py+80,line);
-            text(px+24,py+96,storage_message(e->slot_status));
-            if(e->card_free>=0) { snprintf(line,sizeof(line),"%d BLK",e->card_free); text(px+160,py+80,line); }
-            snprintf(line,sizeof(line),"%c SAVE  FREE %d B",e->selected==3?'>':' ',e->free_bytes); text(px+12,py+112,line);
-            text(px+12,py+128,e->selected==4?"> LOAD":"  LOAD");
-            text(px+12,py+144,e->selected==5?"> CLOSE":"  CLOSE");
+            sprite(0,px+(width-72)/2,py+8,0,64,72,15);
+            snprintf(line,sizeof(line),"%c BPM %d",e->selected==0?'>':' ',e->score.bpm); text(px+12,py+32,line);
+            text(px+12,py+48,e->selected==1?"> REVERB":"  REVERB");
+            snprintf(line,sizeof(line),"%c SLOT %02d  L/R",e->selected==2?'>':' ',e->storage_slot); text(px+12,py+64,line);
+            text(px+24,py+80,storage_message(e->slot_status));
+            if(e->card_free>=0) { snprintf(line,sizeof(line),"%d BLK",e->card_free); text(px+160,py+64,line); }
+            snprintf(line,sizeof(line),"%c SAVE  FREE %d B",e->selected==3?'>':' ',e->free_bytes); text(px+12,py+96,line);
+            text(px+12,py+112,e->selected==4?"> LOAD":"  LOAD");
         } else if(e->mode==EDIT_REVERB) {
             text(px+8,py+8,"REVERB / GLOBAL");
             snprintf(line,sizeof(line),"%c SIZE %s",e->selected==0?'>':' ',score_reverb_size(e->score.reverb.size)); text(px+8,py+32,line);
             snprintf(line,sizeof(line),"%c AMOUNT %d%%",e->selected==1?'>':' ',e->score.reverb.amount); text(px+8,py+52,line);
-            text(px+8,py+76,e->selected==2?"> BACK":"  BACK");
         } else if(e->mode==EDIT_MENU) for(int i=0;i<n;i++) {
             snprintf(line,sizeof(line),"%c %s",i==e->selected?'>':' ',editor_action_label(items[i])); text(px+6,py+8+i*16,line);
         }
@@ -214,8 +234,8 @@ void render_frame(const Editor *e, int connected) {
             }
         } else if(e->mode==EDIT_SOUND) {
             snprintf(line,sizeof(line),"SOUND CH %d",e->sound_channel+1); text(px+8,py+8,line);
-            static const char *groups[]={"WAVES","AMPLITUDE","MIX","PITCH","REVERB","BACK"};
-            for(int i=0;i<6;i++) {
+            static const char *groups[]={"WAVES","AMPLITUDE","MIX","PITCH","REVERB"};
+            for(int i=0;i<5;i++) {
                 snprintf(line,sizeof(line),"%c %s",e->selected==i?'>':' ',groups[i]); text(px+8,py+28+i*16,line);
             }
         } else if(editor_sound_parent(e->mode)==EDIT_SOUND) {
@@ -231,10 +251,9 @@ void render_frame(const Editor *e, int connected) {
                 else snprintf(line,sizeof(line),"%c DECAY %d MS",marker,s->decay);
                 text(px+8,py+28+i*16,line);
             }
-            text(px+8,py+64,e->selected==2?"> BACK":"  BACK");
         } else if(e->mode==EDIT_DELETE) {
             text(px+8,py+8,"DELETE LANE / BRANCH TILES?");
-            text(px+8,py+28,e->confirm?"  CANCEL":"> CANCEL"); text(px+8,py+44,e->confirm?"> DELETE":"  DELETE");
+            text(px+8,py+28,"X DELETE  O CANCEL");
         } else if(e->mode==EDIT_PATTERN) {
             text(px+8,py+8,"CYCLE PATTERN");
             for(int i=0;i<e->value.period;i++) {
@@ -274,12 +293,11 @@ void render_frame(const Editor *e, int connected) {
             }
             text(px+8,py+8,line);
             text(px+8,py+28,e->mode==EDIT_BPM || e->mode==EDIT_REVERB_AMOUNT?"L/R 1  U/D 10":e->mode==EDIT_ATTACK || e->mode==EDIT_RELEASE || e->mode==EDIT_LOCK_ATTACK || e->mode==EDIT_LOCK_RELEASE || e->mode==EDIT_MIX_ATTACK || e->mode==EDIT_MIX_RELEASE || e->mode==EDIT_PITCH_DECAY?"L/R 1 MS  U/D 100 MS":(e->mode==EDIT_PITCH || e->mode==EDIT_PITCH_SWEEP)?"L/R NOTE  U/D OCTAVE":e->mode==EDIT_DURATION?"L/R .05  U/D 1 STEP":"D-PAD CHANGE");
-            text(px+8,py+48,"X APPLY  O DISCARD");
+            text(px+8,py+48,sound_property || e->mode==EDIT_REVERB_SIZE || e->mode==EDIT_REVERB_AMOUNT?"O BACK":"X APPLY  O DISCARD");
         }
+        if(alert) text(px+8,panel_y+height-12,e->message);
     }
-    text(8,200,connected?status:"CONNECT PAD 1 / RELEASE BUTTONS");
-    text(8,216,e->mode==EDIT_PLANE?"X TAP MENU / HOLD + D-PAD MOVE":e->mode==EDIT_MOVE?"RELEASE X DROP  O CANCEL":"D-PAD SELECT  X OK  O BACK");
-    text(8,228,e->playing?(e->snapshot_dirty?"PLAYING / APPLYING EDITS":"PLAYING / START TO STOP"):"STOPPED / START PLAY / SELECT MENU");
+    (void)connected;
     DR_TPAGE *page=packet(sizeof(DR_TPAGE));
     if(page) { setDrawTPage(page,0,0,getTPage(0,0,640,0)); addPrim(&buffers[active].ot[7],page); }
     DrawSync(0); VSync(0); PutDispEnv(&buffers[active^1].disp);

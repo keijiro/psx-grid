@@ -30,13 +30,13 @@ static void chooser_and_requests(void) {
 
     tap(INPUT_SELECT);
     assert(editor.mode==EDIT_MAIN && editor.selected==0);
-    for(int row=0;row<5;row++) {
+    for(int row=0;row<4;row++) {
         tap(INPUT_DOWN);
         assert(editor.selected==row+1);
     }
     tap(INPUT_DOWN);
-    assert(editor.selected==5);
-    tap(INPUT_UP); tap(INPUT_UP); tap(INPUT_UP);
+    assert(editor.selected==4);
+    tap(INPUT_UP); tap(INPUT_UP);
     assert(editor.selected==2);
 
     editor.message="SAVED";
@@ -60,7 +60,8 @@ static void chooser_and_requests(void) {
     tap(INPUT_DOWN); tap(INPUT_CROSS);
     assert(editor.storage_request==STORAGE_ACTION_LOAD);
     editor.storage_request=STORAGE_ACTION_NONE;
-    tap(INPUT_DOWN); tap(INPUT_CROSS);
+    tap(INPUT_DOWN); assert(editor.selected==4);
+    tap(INPUT_CIRCLE);
     assert(editor.mode==EDIT_PLANE);
 }
 

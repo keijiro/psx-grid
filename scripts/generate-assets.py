@@ -49,17 +49,16 @@ for code in range(32, 127):
     ink(mask, i%32*8, 24+i//32*8, 4)
     metrics.append(len(mask.split('/')[0])+1)
 
-small_chars = '0123456789ABCDEFG#LR%'
+small_chars = '0123456789ABCDEFG+LR%h'
 for i, ch in enumerate(small_chars):
     ink(masks.SMALL_FONT[ch], i*4, 48, 4)
     ink(masks.SMALL_FONT[ch], i*4, 56, 1)
 
-# Preserve the original wordmark's 60-unit grid at two screen pixels per cell.
+# Preserve the original wordmark's 60-unit grid at one screen pixel per cell.
 logo = (root / 'assets/ui/jacquard-logo.svg').read_text()
 for x, y, w in re.findall(r'M(-?\d+) (-?\d+)h(\d+)v60h-\d+z', logo):
-    x, y, w = (int(x)-60)//30, (int(y)+720)//30, int(w)//30
-    for row in range(2):
-        for col in range(w): pixels[64+y+row][x+col] = 4
+    x, y, w = (int(x)-60)//60, (int(y)+720)//60, int(w)//60
+    for col in range(w): pixels[64+y][x+col] = 4
 
 def generate(destination):
     packed = []

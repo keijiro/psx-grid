@@ -2,13 +2,12 @@
 #define UI_STYLE_H
 #define SCREEN_W 320
 #define SCREEN_H 240
-// Sixteen-pixel pitch retains the 19-by-10 viewport. Compact labels fit
-// complete sharp pitches while leaving a gutter between adjacent stacks.
+// The 16-pixel grid fills the native 320-by-240 frame exactly.
 #define CELL_SIZE 16
-#define VIEW_X 8
-#define VIEW_Y 32
-#define VIEW_COLS ((SCREEN_W - 2 * VIEW_X) / CELL_SIZE)
-#define VIEW_ROWS ((192 - VIEW_Y) / CELL_SIZE)
+#define VIEW_X 0
+#define VIEW_Y 0
+#define VIEW_COLS (SCREEN_W / CELL_SIZE)
+#define VIEW_ROWS (SCREEN_H / CELL_SIZE)
 #define UI_BACKGROUND 0x16
 #define UI_DOT 0x4e
 #define UI_INK 0xf2

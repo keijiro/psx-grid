@@ -28,5 +28,5 @@ For the optional visual study, install Pillow in a virtual environment and run
 
 `jacquard-logo.svg` is the original Jacquard wordmark copied from the local
 checkout's `Branding/jacquard-logo.svg`. The atlas generator preserves its
-60-unit grid at two pixels per cell, using transparent background and the UI
+60-unit grid at one pixel per cell, using transparent background and the UI
 ink color. It is covered by the accompanying Jacquard MIT attribution.

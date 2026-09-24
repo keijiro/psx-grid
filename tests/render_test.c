@@ -82,9 +82,24 @@ static void save(const char *path) {
     FILE *f=fopen(path,"wb"); assert(f);
     fprintf(f,"P5\n320 240\n255\n"); fwrite(output,1,sizeof(output),f); fclose(f);
 }
+static int changed_pixels(int x,int y,int w,int h,uint8_t background) {
+    int changed=0;
+    for(int py=y;py<y+h;py++) for(int px=x;px<x+w;px++) changed+=output[py][px]!=background;
+    return changed;
+}
 static Editor e;
 int main(void) {
     editor_init(&e); render_init();
+    // An empty plane contains only the dot lattice and cursor. This catches
+    // accidental restoration of persistent status or help text over the score.
+    e.x=10; e.y=7; capture=1; render_frame(&e,1);
+    uint8_t background=(0x16>>3)*255/31;
+    for(int row=0;row<15;row++) for(int col=0;col<20;col++) {
+        if(col==e.x && row==e.y) continue;
+        assert(changed_pixels(col*16,row*16,16,16,background)==1);
+        assert(output[row*16+8][col*16+8]!=background);
+    }
+    capture=0;
     assert(!score_create(&e.score,0,0,64));
     // Deliberate renderer overload coverage beyond the persistence budget.
     // Keep every original cell and tile kind; ordinary editor fixtures below
@@ -120,11 +135,26 @@ int main(void) {
     editor_init(&e); assert(!score_create(&e.score,1,1,16));
     assert(!score_place(&e.score,2,1,TILE_CYCLE));
     for(int y=2;y<5;y++) assert(!score_place(&e.score,2,y,TILE_NOTE));
+    TileId sharp=score_at(&e.score,2,2).tile;
+    TileValue sharp_value=e.score.tiles[sharp].value; sharp_value.pitch=106;
+    assert(!score_edit(&e.score,sharp,sharp_value));
     assert(!score_place(&e.score,3,1,TILE_PROBABILITY));
     assert(!score_place(&e.score,4,1,TILE_JUMP));
     for(int i=0;i<13;i++) assert(!score_place(&e.score,5+i,1,TILE_JUMP));
     for(int y=0;y<64;y++) { e.y=y; render_frame(&e,1); }
+    assert(!score_create(&e.score,19,14,4));
     e.x=2; e.y=1; capture=1; e.mode=EDIT_PLANE; render_frame(&e,1); save("build/tests/plane.pgm");
+    assert(changed_pixels(19*16,14*16,16,16,background)>1);
+    // The three compact glyph sprites for A+8 stay within the Note body.
+    int sharp_glyphs=0;
+    for(int i=0;i<counts[5];i++) {
+        SPRT *p=primitives[5][i];
+        if(p->code==0x64 && p->y0==2*16+5 && p->h==5) {
+            assert(p->x0>=2*16+2 && p->x0+p->w<=3*16-1);
+            sharp_glyphs++;
+        }
+    }
+    assert(sharp_glyphs==3);
     e.mode=EDIT_PICKER; render_frame(&e,1); save("build/tests/picker.pgm");
     e.mode=EDIT_PATTERN; e.value=score_default(TILE_CYCLE); e.value.period=32;
     render_frame(&e,1); save("build/tests/pattern.pgm");
@@ -171,7 +201,7 @@ int main(void) {
     editor_refresh_capacity(&e);
     for(int status=STORAGE_UNKNOWN;status<=STORAGE_GENERATION_FULL;status++) {
         e.slot_status=status; e.card_free=status%16; e.message=storage_message(status);
-        for(int selected=0;selected<6;selected++) {
+        for(int selected=0;selected<5;selected++) {
             e.selected=selected; render_frame(&e,1);
         }
         char path[80]; snprintf(path,sizeof(path),"build/tests/storage-status-%d.pgm",status); save(path);
@@ -179,5 +209,5 @@ int main(void) {
     e.free_bytes=0; e.message="SCORE FULL";
     render_frame(&e,1); save("build/tests/storage-full.pgm");
     assert(render_overflows==0);
-    printf("PASS: %d render frames; peak %u / 32768 bytes; no overflow or screen escape\n",frame_count,render_packet_peak);
+    printf("PASS: %d render frames; peak %u / 65536 bytes; no overflow or screen escape\n",frame_count,render_packet_peak);
 }

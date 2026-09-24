@@ -18,6 +18,7 @@ static void drain(void) {
 }
 int main(void) {
     editor_init(&editor); input_init(&input); input_queue_init(&queue);
+    assert(!score_create(&editor.score,100,1,4));
     input_queue_push(&queue,(InputSample){1,0}); drain();
     // Entire taps happen while the consumer is busy, including an X tap
     // opening a menu immediately followed by a direction in that new mode.

@@ -170,14 +170,20 @@ static void model_editor(void) {
     editor.mode=EDIT_LOCK_ATTACK_ENABLE; editor_update(&editor,(InputFrame){.connected=1,.dx=-1,.cross=1});
     assert(!editor.score.tiles[editor.target].value.lock_mask && !editor.score.tiles[editor.target].value.attack);
     for(int mode=0;mode<EDIT_MODE_COUNT;mode++) {
-        editor.mode=mode; editor.gesture=0; editor.value=relative(33,44); snapshot=editor.score;
+        editor.mode=mode; editor.gesture=0; editor.value=relative(33,44);
+        editor.sound_candidate=editor.score.sounds[0];
+        if(mode==EDIT_REVERB_SIZE) editor.candidate=editor.score.reverb.size;
+        if(mode==EDIT_REVERB_AMOUNT) editor.candidate=editor.score.reverb.amount;
+        if(mode==EDIT_SOUND_REVERB) editor.candidate=editor.score.sounds[0].reverb;
+        snapshot=editor.score;
         editor_update(&editor,(InputFrame){.connected=1,.start=1});
         assert(!memcmp(&editor.score,&snapshot,sizeof(snapshot)));
     }
     editor.mode=EDIT_ATTACK; editor.sound_candidate=(SoundSettings){0,0,WAVE_SINE,WAVE_SINE,0,0,0,200,0};
     editor_update(&editor,(InputFrame){.connected=1,.dy=-1,.cross=1}); assert(editor.score.sounds[0].attack==100);
-    editor.mode=EDIT_RELEASE; editor.sound_candidate=(SoundSettings){9,16000,WAVE_SINE,WAVE_SINE,0,0,0,200,0};
-    editor_update(&editor,(InputFrame){.connected=1,.circle=1}); assert(editor.score.sounds[0].release==0);
+    editor.mode=EDIT_RELEASE; editor.sound_candidate=editor.score.sounds[0];
+    editor_update(&editor,(InputFrame){.connected=1,.dy=-1});
+    editor_update(&editor,(InputFrame){.connected=1,.circle=1}); assert(editor.score.sounds[0].release==100);
     Input input; input_init(&input); input_update(&input,1,0);
     assert(input_update(&input,1,INPUT_START).start);
     for(int i=0;i<90;i++) assert(!input_update(&input,1,INPUT_START).start);

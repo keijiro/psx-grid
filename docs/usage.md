@@ -12,13 +12,15 @@ The executable starts with an empty score and the cursor at `(1,1)`.
 | Menu / picker | Up/Down selects | Execute | Return |
 | Pitch | Left/Right changes semitone; Up/Down changes octave | Apply | Discard |
 | Note length | Left/Right changes 0.05 steps; Up/Down changes one step | Apply | Discard |
-| Wave A / B | Right/Up or Left/Down changes one waveform | Apply | Discard |
-| Pitch sweep | Left/Right changes 1 semitone; Up/Down changes 12 | Apply | Discard |
-| Sound time / lock offset | Left/Right changes 1 ms; Up/Down changes 100 ms | Apply | Discard |
+| Wave A / B | Right/Up or Left/Down changes one waveform | Return | Return |
+| Pitch sweep | Left/Right changes 1 semitone; Up/Down changes 12 | Return | Return |
+| Sound time | Left/Right changes 1 ms; Up/Down changes 100 ms | Return | Return |
+| Lock offset | Left/Right changes 1 ms; Up/Down changes 100 ms | Apply | Discard |
 | Lock engagement | Right/Up enables; Left/Down disables and clears the offset | Apply | Discard |
+| Global Reverb and Sound Reverb | Change the selected value | Return | Return |
 | Other numeric property | Right/Up increases; Left/Down decreases | Apply | Discard |
 | Cycle pattern | Navigate eight columns and the Apply item | Toggle a lap, or apply at Apply | Discard |
-| Deletion confirmation | Down/Right selects Delete; Up/Left selects Cancel | Execute selection | Return |
+| Deletion confirmation | — | Delete | Cancel |
 
 Menus open on X release, with no long-press timer. An X press and direction in
 one frame grabs the cell at the cursor's original position. Directional input
@@ -41,7 +43,7 @@ the lane by one step. Occupied cells are never overwritten.
 | Note | Pitch C0–C9, initially C4; length 0.25–64 steps, initially 1 |
 | Cycle gate | Period 2–32, initially 4; pattern with only lap 1 enabled |
 | Probability gate | Chance 0–100%, initially 50% |
-| Regular head (`L`) | Length, step division, channel, shared Sound settings, delete lane |
+| Regular head (`Ch1`–`Ch8`) | Length, step division, channel, shared Sound settings, delete lane |
 | Relative Lock | Separate Attack/Release enable switches and signed millisecond offsets; both disabled initially |
 | Branch head (`B`) | Length, delete lane; division and channel inherited from its source |
 | Jump | Copy stack, delete tile; destination is its own branch |
@@ -50,7 +52,8 @@ New notes remember the pitch and length of the last confirmed note placement
 or edit. Shortening a cycle period preserves switches outside the active
 period. Pattern changes are committed only with the explicit `APPLY` item.
 Cycle tiles display `C` and their period; probability tiles display their
-percentage as a number. Full editable values appear in the cursor menus.
+percentage as a number. Sharp notes use `+` on the tile. Full editable values
+appear in the cursor menus.
 
 Notes in a vertical stack describe a chord. Gates govern tiles below them;
 a failed gate preserves notes and locks already reached above it.
@@ -66,8 +69,11 @@ Pastes create independent tiles, including independent property values.
 A jump creates a four-step branch below the score. Its connection and any
 visible off-screen endpoint markers are drawn on the plane. Deleting a jump
 removes its branch and every descendant branch. Deleting a branch head also
-removes its source jump. Lane and jump deletion require confirmation, initially
-set to Cancel. Moves that would create a branch cycle are rejected.
+removes its source jump. Lane and jump deletion require a second X press;
+O cancels. Moves that would create a branch cycle are rejected.
+
+The visible score fills the 320-by-240 frame with 20 by 15 cells. The plane
+has no persistent text overlay; menus appear over the score.
 
 The plane contains 128 by 64 cells, up to 16 lanes (including branches), and
 4,096 runtime tile slots, additionally limited by the one-block serialized
@@ -112,9 +118,8 @@ the master starts at publication instead, so it can provide that boundary. Playb
 then starts at publication. Deleting and recreating a lane creates a new
 runner, even if the same pool slot is reused.
 
-The status area shows `PLAYING` or `STOPPED`, with `APPLYING EDITS` while a
-committed revision is waiting for publication. There is no Transport Row or
-playhead.
+There is no Transport Row or playhead. START toggles playback without opening
+a menu.
 
 Tempo defaults to 120 BPM and can be set from 30 to 300 BPM in the main menu.
 A step lasts 240,000 / BPM / division milliseconds: at 120 BPM, sixteen steps
@@ -131,14 +136,16 @@ Cycle gates select bit zero on the first lap. Probability gates use a repeatable
 random sequence reset at each start.
 
 SELECT opens the main menu with the Jacquard wordmark, `BPM`, and `REVERB`.
-SELECT again or Circle closes it. Opening it discards an unfinished property
-candidate and cancels a move. Playback continues while menus are open.
+SELECT again or Circle closes it. Opening it discards any unfinished staged
+property candidate and cancels a move; live Sound and Reverb changes remain.
+Playback continues while menus are open.
 BPM uses Left/Right for 1 BPM and Up/Down for 10 BPM. Cross applies; Circle
 returns without applying.
 
 `REVERB` provides `SIZE` (Small, Medium, Large; initially Medium) and `AMOUNT`
 (0–100%; initially 30%). Amount uses Left/Right for 1% and Up/Down for 10%.
-Cross applies each setting and returns to the Reverb menu; Circle discards it.
+Each change applies immediately. Circle returns to the Reverb menu; Cross also
+returns.
 Each channel remains dry until its `SOUND > REVERB` is enabled. This setting
 is captured by future notes after publication; held notes and release tails
 keep their captured send choice. Dry notes do not mute wet notes or the shared
@@ -151,12 +158,13 @@ Left/Down decrements and Right/Up increments, stopping at either endpoint.
 Cross applies; Circle discards. Selection does not copy or reset sounds.
 All eight configurations persist even when no lane uses them. Branches,
 including nested branches, inherit their origin regular lane's channel;
-moving a Jump subtree to another lane changes that inheritance. The plane
-status shows the effective channel on heads, steps, tiles, and branches.
+moving a Jump subtree to another lane changes that inheritance. Regular heads
+show their assigned channel on the score; branch heads retain `B`.
 
 Open `SOUND` on a regular head to edit its channel's shared sound through four
-submenus and a `REVERB` on/off field (initially Off). Cross applies an individual
-candidate; Circle discards it and returns to its submenu. `BACK` or Circle returns from a submenu to `SOUND`.
+submenus and a `REVERB` on/off field (initially Off). Each directional change
+applies immediately. Circle returns to the parent submenu without undoing the
+change; Cross also returns. Circle continues back to `SOUND` and the cursor menu.
 Headings retain the channel number throughout editing. Heads assigned to the
 same channel edit the same settings; changing assignment and reopening Sound
 shows the destination channel's settings. Lane divisions, lengths, positions,
@@ -222,7 +230,7 @@ number remains independent of the currently playing score. EMPTY cannot load;
 CORRUPT and NEWER VERSION identify unreadable content. The separate `BLK`
 readout reports available card blocks after an operation.
 
-`FREE n B` in the plane header and beside Save is the score's remaining encoded
+`FREE n B` beside Save is the score's remaining encoded
 content budget, available even without a card. An empty score has 7464 bytes
 free. A transaction that exceeds the budget reports SCORE FULL and changes
 nothing. Deletions reclaim bytes, while fixed-size property edits remain
@@ -283,8 +291,8 @@ The source marker is clamped to a viewport edge when it scrolls out of view.
 3. Assign both heads to channel 8. Edit Amp Release through one head and
    reopen Sound through the other; both should show the same value. Cancel
    a channel candidate and verify that its assignment remains unchanged.
-4. Add a Jump and a nested Jump. Inspect the branch status for `CH 8`, then
-   move the first Jump to a lane on channel 1 and check both descendants.
+4. Add a Jump and a nested Jump. Move the first Jump to a lane on channel 1
+   and check that both descendants inherit the new channel.
 5. On channel 8, put an enabled +100 ms Attack lock above a note in a slow
    lane. Compare a faster lane on channel 8 with one on channel 1. Reassign
    the slow lane while its lock is held; the lock should follow its channel
