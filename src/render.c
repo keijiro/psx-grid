@@ -12,7 +12,7 @@
 #define OT_SIZE 8
 // OT traverses high depths first and reverses insertion within each bucket.
 // 7: texture setup/lattice, 6: rails, 5: tiles, 4: endpoint, 3: cursor,
-// 2: panels and shadows, 1: bevels and underlines, 0: text.
+// 2: panels and shadows, 1: underlines, 0: text.
 typedef struct {
     DRAWENV draw;
     DISPENV disp;
@@ -70,24 +70,16 @@ static void clipped_text(int x,int y,const char *s,int right) {
     }
 }
 static void clipped_panel(int x,int y,int w,int h,int gray) {
-    // Two overlapping rectangles leave the upper-left and lower-right
-    // corners cut away without a textured mask or an extra packet pass.
-    rect(2,x+6,y,w-6,h-6,gray);
-    rect(2,x,y+6,w-6,h-6,gray);
+    // Match the reference's diagonal cuts at native resolution. Scanline
+    // strips keep the panel and its shadow on the same integer pixel edge.
+    const int top=9,bottom=9;
+    for(int i=0;i<top;i++) rect(2,x+top-i,y+i,w-top+i,1,gray);
+    rect(2,x,y+top,w,h-top-bottom,gray);
+    for(int i=0;i<bottom;i++) rect(2,x,y+h-bottom+i,w-i-1,1,gray);
 }
 static void menu_panel(int x,int y,int w,int h) {
     clipped_panel(x,y,w,h,UI_PANEL);
     clipped_panel(x+4,y+4,w,h,UI_SHADOW);
-    rect(1,x+6,y,w-6,1,UI_INK);
-    rect(1,x,y+6,1,h-6,UI_INK);
-    rect(1,x+1,y+5,2,1,UI_INK);
-    rect(1,x+3,y+3,2,1,UI_INK);
-    rect(1,x+5,y+1,1,2,UI_INK);
-    rect(1,x,y+h-1,w-6,1,UI_INK);
-    rect(1,x+w-1,y,1,h-6,UI_INK);
-    rect(1,x+w-6,y+h-1,2,1,UI_INK);
-    rect(1,x+w-4,y+h-3,2,1,UI_INK);
-    rect(1,x+w-2,y+h-5,1,2,UI_INK);
 }
 static void menu_row(const Editor *e,const EditorRow *row,int index,int x,int y,int width) {
     char value[48];
@@ -96,7 +88,7 @@ static void menu_row(const Editor *e,const EditorRow *row,int index,int x,int y,
     int value_x=right-text_width(value);
     clipped_text(x,y,row->label,value[0]?value_x-6:right);
     if(value[0]) clipped_text(value_x,y,value,right);
-    if(index==e->selected) rect(1,x,y+10,width,1,UI_INK);
+    if(index==e->selected) rect(1,x,y+9,width,1,UI_INK);
 }
 static void sound_menu(const Editor *e,const EditorRow *rows,int x,int y,int w) {
     // The reference's AMP/MIX pair fits beside each other at atlas size;
@@ -109,11 +101,9 @@ static void sound_menu(const Editor *e,const EditorRow *rows,int x,int y,int w) 
         if(rows[i].kind==ROW_HEADING) {
             int rule_end=(i==6)?x+w-15:(i==3)?x+133:x+w-15;
             clipped_text(sx,sy,rows[i].label,rule_end);
-            int start=sx+text_width(rows[i].label)+8;
-            if(start<rule_end) rect(1,start,sy+5,rule_end-start,1,UI_RULE);
+            rect(1,sx,sy+10,62,1,UI_RULE);
         } else menu_row(e,&rows[i],i,sx,sy,(i>=4 && i<=8)?col:w-30);
     }
-    rect(1,x+142,y+75,1,40,UI_BORDER);
 }
 static void draw_menu(const Editor *e) {
     EditorRow rows[EDITOR_ROWS];
@@ -137,9 +127,16 @@ static void draw_menu(const Editor *e) {
     }
     int visible=count>9?9:count;
     int alert=e->message && e->message[0];
-    int height=sound?194:pattern?126:confirm?76:picker?142:36+visible*UI_MENU_ROW+18;
-    if(e->mode==EDIT_MAIN) height+=20;
-    if(alert && !sound && !pattern && !confirm && !picker) height+=14;
+    // Leave ten pixels below the last selection underline, rather than
+    // reserving a full unused row. Status and message lines add their own space.
+    int bottom=35+(visible-1)*UI_MENU_ROW+10;
+    if(sound) bottom=165+10;
+    else if(pattern) bottom=39+((e->score.tiles[e->target].value.period-1)/8)*18+10;
+    else if(picker) bottom=32+(TILE_KIND_COUNT-2)*UI_MENU_ROW+10;
+    else if(confirm) bottom=11+7;
+    int height=bottom+10;
+    if(e->mode==EDIT_MAIN) height+=UI_MENU_ROW;
+    if(alert) height+=14;
     int x=(SCREEN_W-width)/2,y=(SCREEN_H-height)/2;
     menu_panel(x,y,width,height);
     char title[40];
@@ -152,7 +149,6 @@ static void draw_menu(const Editor *e) {
         e->score.lanes[e->lane].source?"DELETE BRANCH LANE?":"DELETE LANE?");
     else strcpy(title,"MENU");
     clipped_text(x+UI_MENU_MARGIN,y+11,title,x+width-UI_MENU_MARGIN);
-    rect(1,x+UI_MENU_MARGIN,y+23,width-UI_MENU_MARGIN*2,1,UI_RULE);
     if(sound) sound_menu(e,rows,x,y,width);
     else if(pattern) {
         TileValue v=e->score.tiles[e->target].value;
@@ -160,13 +156,13 @@ static void draw_menu(const Editor *e) {
             int gx=x+16+(i%8)*26,gy=y+39+(i/8)*18;
             char digit[2]={v.pattern&((uint32_t)1<<i)?'1':'0',0};
             text(gx+8,gy,digit);
-            if(i==e->pattern_cursor) rect(1,gx+5,gy+10,13,1,UI_INK);
+            if(i==e->pattern_cursor) rect(1,gx+5,gy+9,13,1,UI_INK);
         }
     } else if(picker) {
         for(int k=1;k<TILE_KIND_COUNT;k++) {
             int py=y+32+(k-1)*UI_MENU_ROW;
             clipped_text(x+16,py,score_tile_label((TileKind)k),x+width-16);
-            if(k==(int)e->tile_candidate) rect(1,x+16,py+10,width-32,1,UI_INK);
+            if(k==(int)e->tile_candidate) rect(1,x+16,py+9,width-32,1,UI_INK);
         }
     } else if(!confirm) {
         int first=0;
@@ -180,10 +176,10 @@ static void draw_menu(const Editor *e) {
             char status[64];
             snprintf(status,sizeof(status),"%s",storage_message(e->slot_status));
             if(e->card_free>=0) snprintf(status,sizeof(status),"%s  %d BLK",storage_message(e->slot_status),e->card_free);
-            clipped_text(x+15,y+height-(alert?30:22),status,x+width-15);
+            clipped_text(x+15,y+height-(alert?31:17),status,x+width-15);
         }
     }
-    if(alert) clipped_text(x+15,y+height-14,e->message,x+width-15);
+    if(alert) clipped_text(x+15,y+height-17,e->message,x+width-15);
 }
 static void tile(int depth, int x, int y, int kind) {
     sprite(depth,x,y,kind*16,0,16,16);
