@@ -1,5 +1,7 @@
 # Development
 
+See [C code style](c-style.md) for source formatting and comments.
+
 ## Setup and Execution
 
 The setup requires an Apple Silicon Mac, Xcode Command Line Tools, Homebrew,
