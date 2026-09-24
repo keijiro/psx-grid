@@ -49,7 +49,7 @@ LENGTHS = [2688, 1344, 672, 336, 168, 84, 84, 84, 84, 84]
 WAVES = ['Sine', 'Triangle', 'Saw', 'Square', 'Noise']
 SPU_ADDRESS = 0x1000
 SAMPLE_PEAK = 14336
-PAIR_GAIN = 0x4000//12
+PAIR_GAIN = 0x3fff
 
 
 def wave_samples(wave, bank):

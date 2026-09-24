@@ -135,7 +135,8 @@ static void synthesis_checks(void) {
                 && SPU_CH_LOOP_ADDR(i)==SPU_CH_LOOP_ADDR(i+1);
         // Capture is pre-volume voice output, not the final mixer. The bound
         // scales its observed peak by all twelve complementary gain budgets.
-        log_message("WAVE wave=%d peak=%d pairs=%d bound=%d\n",wave,peak,pairs,(peak*SEQUENCER_VOICES*AUDIO_LEVEL+16383)/16384);
+        log_message("WAVE wave=%d peak=%d pairs=%d bound=%d\n",wave,peak,pairs,
+            (int)(((uint64_t)peak*SEQUENCER_VOICES*AUDIO_LEVEL+16383)/16384));
         report("wave chord");
         audio_platform_update(&editor.score,0,0); frames(2);
     }

@@ -97,7 +97,9 @@ static void envelopes(void) {
             int mix=attack && t<attack?t*AUDIO_LEVEL/attack:
                 release && t<attack+release?(attack+release-t)*AUDIO_LEVEL/release:0;
             assert(gains[0][0]+gains[0][1]==audio.voices[0].level);
-            assert(gains[0][1]==audio.voices[0].level*mix/AUDIO_LEVEL);
+            int expected=audio.voices[0].level*mix/AUDIO_LEVEL;
+            // Shifted control ticks can differ from the unquantized ramp by one gain step.
+            assert(gains[0][1]>=expected-1 && gains[0][1]<=expected+1);
             assert(captured[0].wave_a==wave && captured[0].wave_b==wave);
         }
         sink.advance(sink.context,audio_ms(16003));

@@ -137,6 +137,13 @@ static void voices(void) {
     sink.advance(sink.context,audio_ms(8000)); assert(levels[0]>=AUDIO_LEVEL/2-1 && levels[0]<=(AUDIO_LEVEL+1)/2);
     sink.off(sink.context,audio_ms(8000),long_note);
     sink.advance(sink.context,audio_ms(24000)); assert(!audio.voices[0].active && !levels[0]);
+    AudioTime release_start=audio_ms(25000);
+    uint32_t full_release=sink.on(sink.context,release_start,48,(SoundSettings){0,16000,WAVE_SINE,WAVE_SINE,0,0,0,200,0});
+    sink.advance(sink.context,release_start); assert(levels[0]==AUDIO_LEVEL);
+    sink.off(sink.context,release_start,full_release);
+    sink.advance(sink.context,release_start+audio_ms(8000));
+    assert(levels[0]>=AUDIO_LEVEL/2-1 && levels[0]<=(AUDIO_LEVEL+1)/2+1);
+    sink.advance(sink.context,release_start+audio_ms(16000)); assert(!audio.voices[0].active && !levels[0]);
     // Sequencer gate-offs carry the release captured at note-on.
     base(2); score.sounds[0]=(SoundSettings){0,500,WAVE_SINE,WAVE_SINE,0,0,0,200,0}; put(1,0,score_default(TILE_NOTE)); put(2,0,relative(0,-500));
     snapshot=score; sequencer_start(&seq,&snapshot,sink,0); sequencer_service(&seq,0);

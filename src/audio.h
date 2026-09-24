@@ -3,10 +3,9 @@
 #include "sequencer.h"
 #define AUDIO_HARDWARE_VOICES 24
 #define AUDIO_IDLE_MASK ((1u<<SEQUENCER_VOICES)-1)
-// Give each of the 12 pairs the largest integer gain whose full-scale dry
-// samples can sum without clipping. Complementary gains keep equal-wave
-// pairs within that per-note budget.
-#define AUDIO_LEVEL (0x4000/SEQUENCER_VOICES)
+// Direct SPU voice volume tops out at 0x3fff. Complementary A/B gains keep
+// equal-wave pairs within one voice budget; overlapping pairs can clip.
+#define AUDIO_LEVEL 0x3fff
 // Driver slots and flush masks refer to logical pairs, not SPU channels.
 // Register writes are injected so allocation, envelopes and stale gate-offs
 // use exactly the same code on the console and in the host fixture.

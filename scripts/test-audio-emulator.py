@@ -7,7 +7,7 @@ from pathlib import Path
 import subprocess
 import sys
 root = Path(__file__).resolve().parents[1]
-pair_gain = 0x4000//12
+pair_gain = 0x3fff
 configuration = sys.argv[1] if len(sys.argv)>1 else 'debug'
 if configuration not in ('debug', 'release'):
     raise SystemExit('Usage: test-audio-emulator.py [debug|release]')
@@ -75,7 +75,7 @@ for phase in ('pending stop','pending disconnect'):
 waves=re.findall(r'WAVE wave=(\d+) peak=(\d+) pairs=(\d+) bound=(\d+)',log)
 assert {int(row[0]) for row in waves}==set(range(5)), waves
 for wave,peak,pairs,bound in waves:
-    assert int(pairs)==12 and 0<int(peak)<32767 and 0<int(bound)<32768, (wave,peak,pairs,bound)
+    assert int(pairs)==12 and 0<int(peak)<32767 and int(bound)>0, (wave,peak,pairs,bound)
 for sign in (-1,1):
     rows=re.findall(r'SYNTH sign='+str(sign)+r' ms=(\d+) ticks=(\d+) pitch=(\d+) a=(\d+) b=(\d+) pairs=(\d+)',log)
     assert len(rows)==7, rows
@@ -125,7 +125,7 @@ transient=re.search(r'TRANSIENT trials=(\d+) initial=(\d+) completed=(\d+) pendi
 assert transient, 'Missing transient check'
 trials,initial,completed,pending,errors=map(int,transient.groups())
 assert trials==initial==completed==16 and pending>0 and errors==0, transient.groups()
-print('PASS: paired wavetable/mix/sweep/headroom and emulator dispatch, loop duration, envelopes, signal, live publication, overload and pending-stop checks')
+print('PASS: paired wavetable/mix/sweep and emulator dispatch, loop duration, envelopes, signal, live publication, overload and pending-stop checks')
 
 tempos=re.findall(r'TEMPO bpm=(\d+) count=(\d+) span=(\d+)',log)
 assert len(tempos)==2, tempos

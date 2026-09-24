@@ -2,19 +2,31 @@
 #include <string.h>
 #include "audio_tables.h"
 AudioTime audio_ms(int ms) { return (uint32_t)ms*(SEQUENCER_HZ/1000)+(uint32_t)ms*(SEQUENCER_HZ%1000)/1000; }
+static unsigned gain_shift(uint32_t span) {
+    // Keep clock-tick precision for short envelopes. Longer full-scale ramps
+    // need coarser steps to keep the product and release rounding in 32 bits.
+    uint32_t limit=UINT32_MAX/(AUDIO_LEVEL+1);
+    if(span<=limit) return 0;
+    if((span>>4)<=limit) return 4;
+    if((span>>6)<=limit) return 6;
+    return (span>>8)<=limit?8:9;
+}
 static int level_at(const AudioVoice *v,AudioTime now) {
     if(!v->active) return 0;
     if(v->releasing) {
         if(now>=v->end) return 0;
-        // Discard seven clock bits (30.3 us) before multiplying, keeping
-        // envelope arithmetic in 32 bits on the MIPS I interrupt path.
-        uint32_t left=(uint32_t)(v->end-now)>>7, span=(uint32_t)(v->end-v->release_at)>>7;
+        uint32_t span=(uint32_t)(v->end-v->release_at);
+        unsigned shift=gain_shift(span);
+        uint32_t left=(uint32_t)(v->end-now)>>shift;
+        span>>=shift;
         int level=span?(int)((left*(unsigned)v->release_level+span-1)/span):v->release_level;
         return level?level:v->release_level?1:0;
     }
-    AudioTime attack=audio_ms(v->sound.attack), elapsed=now-v->start;
+    uint32_t attack=(uint32_t)audio_ms(v->sound.attack);
+    AudioTime elapsed=now-v->start;
     if(!attack || elapsed>=attack) return AUDIO_LEVEL;
-    int level=(int)(((uint32_t)elapsed>>7)*AUDIO_LEVEL/((uint32_t)attack>>7));
+    unsigned shift=gain_shift(attack);
+    int level=(int)(((uint32_t)elapsed>>shift)*AUDIO_LEVEL/(attack>>shift));
     return level<AUDIO_LEVEL?level:AUDIO_LEVEL-1;
 }
 static int pitch_at(const AudioVoice *v,AudioTime now) {
@@ -43,8 +55,14 @@ static int pitch_at(const AudioVoice *v,AudioTime now) {
 static int mix_at(const AudioVoice *v,AudioTime now) {
     AudioTime elapsed=v->waiting?0:now-v->modulation_start;
     uint32_t attack=(uint32_t)audio_ms(v->sound.mix_attack), release=(uint32_t)audio_ms(v->sound.mix_release);
-    if(attack && elapsed<attack) return (uint32_t)elapsed*AUDIO_LEVEL/attack;
-    if(release && elapsed<attack+release) return (attack+release-(uint32_t)elapsed)*AUDIO_LEVEL/release;
+    if(attack && elapsed<attack) {
+        unsigned shift=gain_shift(attack);
+        return ((uint32_t)elapsed>>shift)*AUDIO_LEVEL/(attack>>shift);
+    }
+    if(release && elapsed<attack+release) {
+        unsigned shift=gain_shift(release);
+        return ((attack+release-(uint32_t)elapsed)>>shift)*AUDIO_LEVEL/(release>>shift);
+    }
     return 0;
 }
 static void advance(void *ctx,AudioTime now) {

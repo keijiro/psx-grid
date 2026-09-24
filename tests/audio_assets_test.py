@@ -86,4 +86,4 @@ assert actual == expected_data and len(actual) % 64 == 0
 assert generator.SPU_ADDRESS % 64 == 0
 assert generator.SPU_ADDRESS+len(actual) <= 512*1024
 print(f'PASS: generated addresses, exact bytes and zero DMA padding; {len(actual)} SPU bytes, '
-      f'12-pair decoded headroom peak {max(peaks)*12*generator.PAIR_GAIN/16384:.3f} / 32768')
+      f'12-pair decoded sum {max(peaks)*12*generator.PAIR_GAIN/16384:.3f} / 32768')

@@ -409,8 +409,9 @@ emitted bytes, loop flags, aligned addresses, and zero DMA padding. The bank
 occupies 16,080 bytes, padded to 16,128, at SPU addresses `0x1000..0x4eff`.
 The largest decoded peak is 14,419 across both decoders. At the original
 gain of 512, twelve coherent pairs implied a decoded-sample sum of
-5,407.125 / 32,768. The current gain of 1,365 raises that bound to
-14,415.479 / 32,768; neither figure captures the final mixed or analog output.
+5,407.125 / 32,768. At the current maximum voice gain of 16,383, the
+same calculation gives 173,017.439 / 32,768, so coherent chords can clip.
+Neither figure captures the final mixed or analog output.
 The initial asset check exposed a sine loop-junction regression, which was
 corrected in the encoder before rerunning the checks.
 Minimum decoded SNR is 20.30 dB across all waves and 25.16 dB for sine;
@@ -450,7 +451,7 @@ The fourteen sweep readbacks per build have maximum analytical pitch errors
 of 1.041 cents in Debug and 0.715 cents in Release.
 Decoded voice-buffer captures are nonzero for every waveform and remain below
 clipping. Their short windows do not measure the maximum final mixed output;
-the complete-loop decoder bound above is the conservative headroom evidence.
+the complete-loop decoder bound above estimates possible mixer overload.
 
 | Measurement | Debug | Release |
 | --- | ---: | ---: |
