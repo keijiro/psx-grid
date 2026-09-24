@@ -17,6 +17,7 @@
 #define UI_RULE 0x60
 #define UI_MENU_MARGIN 12
 #define UI_MENU_ROW 17
+#define UI_MENU_EDGE 16
 // 35% of the reference light rail over the plane, rounded to an RGB byte.
 #define UI_RAIL 0x60
 #endif

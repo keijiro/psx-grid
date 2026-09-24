@@ -32,6 +32,15 @@ static void *packet(size_t bytes) {
     return p;
 }
 static void rect(int depth, int x, int y, int w, int h, int gray) {
+    // Menu packets stay inside the display edge even when their panel scrolls
+    // beyond it; the plane continues to use the full framebuffer.
+    int top=depth<=2?UI_MENU_EDGE:0;
+    int bottom=depth<=2?SCREEN_H-UI_MENU_EDGE:SCREEN_H;
+    if(x<0) { w+=x; x=0; }
+    if(y<top) { h+=y-top; y=top; }
+    if(x+w>SCREEN_W) w=SCREEN_W-x;
+    if(y+h>bottom) h=bottom-y;
+    if(w<=0 || h<=0) return;
     TILE *p = packet(sizeof(TILE));
     if (!p) return;
     setTile(p); setXY0(p, x, y); setWH(p, w, h); setRGB0(p, gray, gray, gray);
@@ -42,6 +51,13 @@ static void outline(int depth, int x, int y, int w, int h, int gray) {
     rect(depth,x,y,1,h,gray); rect(depth,x+w-1,y,1,h,gray);
 }
 static void sprite(int depth, int x, int y, int u, int v, int w, int h) {
+    int top=depth<=2?UI_MENU_EDGE:0;
+    int bottom=depth<=2?SCREEN_H-UI_MENU_EDGE:SCREEN_H;
+    if(x<0) { u-=x; w+=x; x=0; }
+    if(y<top) { v+=top-y; h+=y-top; y=top; }
+    if(x+w>SCREEN_W) w=SCREEN_W-x;
+    if(y+h>bottom) h=bottom-y;
+    if(w<=0 || h<=0) return;
     SPRT *p = packet(sizeof(SPRT));
     if (!p) return;
     setSprt(p); setXY0(p,x,y); setUV0(p,u,v); setWH(p,w,h);
@@ -90,21 +106,6 @@ static void menu_row(const Editor *e,const EditorRow *row,int index,int x,int y,
     if(value[0]) clipped_text(value_x,y,value,right);
     if(index==e->selected) rect(1,x,y+9,width,1,UI_INK);
 }
-static void sound_menu(const Editor *e,const EditorRow *rows,int x,int y,int w) {
-    // The reference's AMP/MIX pair fits beside each other at atlas size;
-    // the extra pitch and reverb fields continue below it within 240 lines.
-    static const int yy[]={29,43,57,75,89,103,75,89,103,123,137,151,165};
-    const int left=x+15,right=x+151,col=118;
-    for(int i=0;i<13;i++) {
-        int sx=(i>=6 && i<=8)?right:left;
-        int sy=y+yy[i];
-        if(rows[i].kind==ROW_HEADING) {
-            int rule_end=(i==6)?x+w-15:(i==3)?x+133:x+w-15;
-            clipped_text(sx,sy,rows[i].label,rule_end);
-            rect(1,sx,sy+10,62,1,UI_RULE);
-        } else menu_row(e,&rows[i],i,sx,sy,(i>=4 && i<=8)?col:w-30);
-    }
-}
 static void draw_menu(const Editor *e) {
     EditorRow rows[EDITOR_ROWS];
     int count=editor_rows(e,rows);
@@ -112,7 +113,7 @@ static void draw_menu(const Editor *e) {
     int pattern=e->mode==EDIT_PATTERN;
     int picker=e->mode==EDIT_PICKER;
     int confirm=e->mode==EDIT_DELETE;
-    int width=sound?286:pattern?238:confirm?226:picker?220:0;
+    int width=sound?220:pattern?238:confirm?226:picker?220:0;
     char value[48];
     if(!width) {
         int need=0;
@@ -125,19 +126,25 @@ static void draw_menu(const Editor *e) {
         if(width<194) width=194;
         if(width>286) width=286;
     }
-    int visible=count>9?9:count;
     int alert=e->message && e->message[0];
     // Leave ten pixels below the last selection underline, rather than
     // reserving a full unused row. Status and message lines add their own space.
-    int bottom=35+(visible-1)*UI_MENU_ROW+10;
-    if(sound) bottom=165+10;
-    else if(pattern) bottom=39+((e->score.tiles[e->target].value.period-1)/8)*18+10;
+    int bottom=35+(count-1)*UI_MENU_ROW+10;
+    if(pattern) bottom=39+((e->score.tiles[e->target].value.period-1)/8)*18+10;
     else if(picker) bottom=32+(TILE_KIND_COUNT-2)*UI_MENU_ROW+10;
     else if(confirm) bottom=11+7;
     int height=bottom+10;
     if(e->mode==EDIT_MAIN) height+=UI_MENU_ROW;
     if(alert) height+=14;
     int x=(SCREEN_W-width)/2,y=(SCREEN_H-height)/2;
+    if(height>SCREEN_H) {
+        // Keep the entire menu laid out as one panel and move it just enough
+        // to keep the selected row visible within the display margins.
+        int selected_bottom=35+e->selected*UI_MENU_ROW+10;
+        y=UI_MENU_EDGE;
+        if(y+selected_bottom>SCREEN_H-UI_MENU_EDGE)
+            y=SCREEN_H-UI_MENU_EDGE-selected_bottom;
+    }
     menu_panel(x,y,width,height);
     char title[40];
     if(e->mode==EDIT_MAIN) strcpy(title,"JACQUARD / MAIN");
@@ -149,8 +156,7 @@ static void draw_menu(const Editor *e) {
         e->score.lanes[e->lane].source?"DELETE BRANCH LANE?":"DELETE LANE?");
     else strcpy(title,"MENU");
     clipped_text(x+UI_MENU_MARGIN,y+11,title,x+width-UI_MENU_MARGIN);
-    if(sound) sound_menu(e,rows,x,y,width);
-    else if(pattern) {
+    if(pattern) {
         TileValue v=e->score.tiles[e->target].value;
         for(int i=0;i<v.period;i++) {
             int gx=x+16+(i%8)*26,gy=y+39+(i/8)*18;
@@ -165,12 +171,12 @@ static void draw_menu(const Editor *e) {
             if(k==(int)e->tile_candidate) rect(1,x+16,py+9,width-32,1,UI_INK);
         }
     } else if(!confirm) {
-        int first=0;
-        if(e->selected>=visible) first=e->selected-visible+1;
-        if(first>count-visible) first=count-visible;
-        for(int i=first;i<first+visible;i++) {
-            int py=y+35+(i-first)*UI_MENU_ROW;
-            menu_row(e,&rows[i],i,x+15,py,width-30);
+        for(int i=0;i<count;i++) {
+            int py=y+35+i*UI_MENU_ROW;
+            if(rows[i].kind==ROW_HEADING) {
+                clipped_text(x+15,py,rows[i].label,x+width-15);
+                rect(1,x+15,py+10,62,1,UI_RULE);
+            } else menu_row(e,&rows[i],i,x+15,py,width-30);
         }
         if(e->mode==EDIT_MAIN) {
             char status[64];

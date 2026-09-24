@@ -155,13 +155,14 @@ including nested branches, inherit their origin regular lane's channel;
 moving a Jump subtree to another lane changes that inheritance. Regular heads
 show their assigned channel on the score; branch heads retain `B`.
 
-Open `SOUND` on a regular head to edit that channel's shared sound on
-one page. WAVEFORM contains WAVE 1 and WAVE 2; AMP and MIX each contain Attack
-and Release; PITCH contains Sweep and Decay; REVERB is an on/off row (initially
-Off). All rows commit immediately. O returns to the same SOUND row in the head
-menu. Heads assigned to the same channel edit the same settings; changing
-assignment and reopening Sound shows the destination channel's settings. Lane
-divisions, lengths, positions, and lap counts remain independent.
+Open `SOUND` on a regular head to edit that channel's shared sound in a
+single scrolling column. WAVEFORM contains WAVE 1 and WAVE 2; AMP and MIX
+each contain Attack and Release; PITCH contains Sweep and Decay; REVERB is an
+on/off row (initially Off). All rows commit immediately. O returns to the same
+SOUND row in the head menu. Heads assigned to the same channel edit the same
+settings; changing assignment and reopening Sound shows the destination
+channel's settings. Lane divisions, lengths, positions, and lap counts remain
+independent.
 
 | Row | Range | Initial value |
 | --- | --- | --- |

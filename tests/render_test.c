@@ -3,6 +3,7 @@
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>
+#include "ui_style.h"
 
 extern volatile unsigned render_packet_peak, render_overflows;
 static uint32_t *current_ot;
@@ -86,6 +87,22 @@ static void draw(const char *name) {
     render_frame(&e,1);
     if(name) { char path[256]; snprintf(path,sizeof(path),"build/tests/%s.pgm",name); save(path); }
 }
+static void sound_selection(int *x,int *y) {
+    int found=0;
+    for(int i=0;i<counts[1];i++) {
+        TILE *p=primitives[1][i];
+        if(p->w!=190) continue;
+        *x=p->x0; *y=p->y0; found++;
+    }
+    assert(found==1);
+}
+static void assert_menu_edge(void) {
+    for(int depth=0;depth<=2;depth++) for(int i=0;i<counts[depth];i++) {
+        TILE *p=primitives[depth][i];
+        int h=p->code==0x64?((SPRT *)p)->h:p->h;
+        assert(p->y0>=UI_MENU_EDGE && p->y0+h<=SCREEN_H-UI_MENU_EDGE);
+    }
+}
 static int tile_at(int x,int y) { return score_at(&e.score,x,y).tile; }
 
 int main(void) {
@@ -140,8 +157,16 @@ int main(void) {
         e.mode=EDIT_PATTERN; e.pattern_cursor=31; draw("pattern-corner");
         e.mode=EDIT_DELETE; e.target=tile_at(0,1); draw("delete-corner");
     }
-    e.mode=EDIT_SOUND; e.x=1; e.y=1; e.sound_channel=7; e.selected=12;
+    e.mode=EDIT_SOUND; e.x=1; e.y=1; e.sound_channel=7; e.selected=1;
+    draw("sound-top");
+    assert_menu_edge();
+    int top_x,top_y,bottom_x,bottom_y;
+    sound_selection(&top_x,&top_y);
+    e.selected=12;
     draw("sound");
+    assert_menu_edge();
+    sound_selection(&bottom_x,&bottom_y);
+    assert(top_x==bottom_x && top_y<bottom_y && bottom_y<240);
     e.mode=EDIT_PATTERN; e.pattern_cursor=31; draw("pattern");
     e.mode=EDIT_PICKER; draw("picker");
     e.mode=EDIT_DELETE; e.target=tile_at(0,1); draw("delete");
