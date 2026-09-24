@@ -9,6 +9,7 @@
 #define SEQUENCER_BUDGET 2
 #define SEQUENCER_TILE_BUDGET 32
 typedef uint64_t AudioTime;
+
 // on returns zero to drop a note, or a generation token whose low five bits
 // identify a logical slot in 0..11. off receives that same token unchanged.
 typedef struct {
@@ -18,6 +19,7 @@ typedef struct {
     void (*stop)(void *, AudioTime);
     void (*advance)(void *, AudioTime);
 } NoteSink;
+
 typedef struct {
     int origin, lane, step, playing_lane, playing_step;
     uint32_t lap, duration;
@@ -29,7 +31,12 @@ typedef struct {
     uint32_t held_generation[SCORE_HEIGHT];
     int held_count;
 } Runner;
-typedef struct { AudioTime at; uint32_t token; } NoteOff;
+
+typedef struct {
+    AudioTime at;
+    uint32_t token;
+} NoteOff;
+
 typedef struct Sequencer {
     const Score *score;
     NoteSink sink;
@@ -46,6 +53,7 @@ typedef struct Sequencer {
     int slicing, runner_index, visiting, held_index, jump;
     TileId cursor;
 } Sequencer;
+
 void sequencer_start(Sequencer *seq, const Score *snapshot, NoteSink sink, AudioTime now);
 // Both scores must remain immutable through this call. Resync is accepted
 // only between complete slices; failure leaves the old score in use.

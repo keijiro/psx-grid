@@ -9,35 +9,68 @@
 #define SCORE_INITIAL_LENGTH 16
 #define SCORE_TILE_CAPACITY 4096
 #define SCORE_DIVISIONS 12
-typedef enum { TILE_NONE, TILE_NOTE, TILE_CYCLE, TILE_PROBABILITY, TILE_JUMP, TILE_RELATIVE, TILE_KIND_COUNT } TileKind;
+
+typedef enum {
+    TILE_NONE,
+    TILE_NOTE,
+    TILE_CYCLE,
+    TILE_PROBABILITY,
+    TILE_JUMP,
+    TILE_RELATIVE,
+    TILE_KIND_COUNT
+} TileKind;
+
 // Zero is the empty link. Live IDs stay stable across movement and reordering;
 // deletion releases an ID for reuse by a later placement.
 typedef uint16_t TileId;
 // Pitch counts semitones from C0. Length counts twentieths of a step, so all
 // supported 0.05-step edits remain exact without floating point.
 #define SOUND_MAX_MS 16000
-enum { LOCK_ATTACK=1, LOCK_RELEASE=2 };
+
+enum { LOCK_ATTACK = 1, LOCK_RELEASE = 2 };
+
 #define SOUND_MAX_MIX_MS 500
 #define SOUND_MAX_DECAY_MS 2000
 #define SOUND_MAX_SWEEP 24
+
 typedef enum { WAVE_SINE, WAVE_TRIANGLE, WAVE_SAW, WAVE_SQUARE, WAVE_NOISE, WAVE_COUNT } Waveform;
+
 typedef struct {
     int attack, release;
     int wave_a, wave_b, mix_attack, mix_release, sweep, decay, reverb;
 } SoundSettings;
-#define SOUND_DEFAULT ((SoundSettings){5,5,WAVE_SINE,WAVE_SINE,120,280,0,200,0})
+
+#define SOUND_DEFAULT ((SoundSettings){5, 5, WAVE_SINE, WAVE_SINE, 120, 280, 0, 200, 0})
 #define SCORE_MIN_BPM 30
 #define SCORE_MAX_BPM 300
-typedef struct { int size, amount; } ReverbSettings;
-#define REVERB_DEFAULT ((ReverbSettings){1,30})
+
+typedef struct {
+    int size, amount;
+} ReverbSettings;
+
+#define REVERB_DEFAULT ((ReverbSettings){1, 30})
 const char *score_reverb_size(int size);
 const char *score_wave_name(int wave);
-typedef struct { TileKind kind; int pitch, length, period, chance; uint32_t pattern;
+
+typedef struct {
+    TileKind kind;
+    int pitch, length, period, chance;
+    uint32_t pattern;
     int lock_mask, attack, release;
 } TileValue;
-typedef struct { TileValue value; TileId next; int branch; } Tile;
+
+typedef struct {
+    TileValue value;
+    TileId next;
+    int branch;
+} Tile;
+
 // Only regular lanes own a channel index; branches resolve it through source.
-typedef struct { int active, x, y, length, division, channel; TileId source, tiles[SCORE_STEPS]; } Lane;
+typedef struct {
+    int active, x, y, length, division, channel;
+    TileId source, tiles[SCORE_STEPS];
+} Lane;
+
 typedef struct {
     Lane lanes[SCORE_LANES];
     Tile tiles[SCORE_TILE_CAPACITY + 1];
@@ -50,11 +83,35 @@ typedef struct {
     // Allocation stops at UINT32_MAX rather than aliasing an earlier birth.
     uint32_t generation, lane_generation[SCORE_LANES], tile_generation[SCORE_TILE_CAPACITY + 1];
 } Score;
+
 typedef enum { CELL_EMPTY, CELL_HEAD, CELL_STEP, CELL_TILE, CELL_END } CellKind;
-typedef struct { CellKind kind; int lane, step, depth; TileId tile; } Cell;
-typedef enum { SCORE_OK, SCORE_BOUNDS, SCORE_COLLISION, SCORE_FULL, SCORE_TILES, SCORE_INVALID, SCORE_CYCLE } ScoreResult;
-typedef struct { int count; TileValue values[SCORE_HEIGHT]; } Clipboard;
-typedef struct { int sx, sy, x, y; ScoreResult result; } MovePlan;
+
+typedef struct {
+    CellKind kind;
+    int lane, step, depth;
+    TileId tile;
+} Cell;
+
+typedef enum {
+    SCORE_OK,
+    SCORE_BOUNDS,
+    SCORE_COLLISION,
+    SCORE_FULL,
+    SCORE_TILES,
+    SCORE_INVALID,
+    SCORE_CYCLE
+} ScoreResult;
+
+typedef struct {
+    int count;
+    TileValue values[SCORE_HEIGHT];
+} Clipboard;
+
+typedef struct {
+    int sx, sy, x, y;
+    ScoreResult result;
+} MovePlan;
+
 extern const int score_divisions[SCORE_DIVISIONS];
 void score_init(Score *score);
 ScoreResult score_validate_import(const Score *score);

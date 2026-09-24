@@ -2,10 +2,11 @@
 #define AUDIO_H
 #include "sequencer.h"
 #define AUDIO_HARDWARE_VOICES 24
-#define AUDIO_IDLE_MASK ((1u<<SEQUENCER_VOICES)-1)
+#define AUDIO_IDLE_MASK ((1u << SEQUENCER_VOICES) - 1)
 // Direct SPU voice volume tops out at 0x3fff. Complementary A/B gains keep
 // equal-wave pairs within one voice budget; overlapping pairs can clip.
 #define AUDIO_LEVEL 0x3fff
+
 // Driver slots and flush masks refer to logical pairs, not SPU channels.
 // Register writes are injected so allocation, envelopes and stale gate-offs
 // use exactly the same code on the console and in the host fixture.
@@ -18,18 +19,21 @@ typedef struct {
     // Optional: both voices have begun playback after the latest key-on.
     int (*ready)(void *context, int slot);
 } AudioDriver;
+
 typedef struct {
     AudioTime start, release_at, end, modulation_start;
     uint32_t generation;
     SoundSettings sound;
     int active, releasing, waiting, level, release_level, pitch, bank, base_pitch;
 } AudioVoice;
+
 typedef struct {
     AudioVoice voices[SEQUENCER_VOICES];
     AudioDriver driver;
     uint32_t starts, stops, steals, idle_mask;
     AudioTime allocation_time;
 } Audio;
+
 AudioTime audio_ms(int ms);
 void audio_init(Audio *audio, AudioDriver driver);
 NoteSink audio_sink(Audio *audio);
