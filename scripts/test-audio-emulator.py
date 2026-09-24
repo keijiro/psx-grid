@@ -7,6 +7,7 @@ from pathlib import Path
 import subprocess
 import sys
 root = Path(__file__).resolve().parents[1]
+pair_gain = 0x4000//12
 configuration = sys.argv[1] if len(sys.argv)>1 else 'debug'
 if configuration not in ('debug', 'release'):
     raise SystemExit('Usage: test-audio-emulator.py [debug|release]')
@@ -74,7 +75,7 @@ for phase in ('pending stop','pending disconnect'):
 waves=re.findall(r'WAVE wave=(\d+) peak=(\d+) pairs=(\d+) bound=(\d+)',log)
 assert {int(row[0]) for row in waves}==set(range(5)), waves
 for wave,peak,pairs,bound in waves:
-    assert int(pairs)==12 and 0<int(peak)<32767 and 0<int(bound)<12288, (wave,peak,pairs,bound)
+    assert int(pairs)==12 and 0<int(peak)<32767 and 0<int(bound)<32768, (wave,peak,pairs,bound)
 for sign in (-1,1):
     rows=re.findall(r'SYNTH sign='+str(sign)+r' ms=(\d+) ticks=(\d+) pitch=(\d+) a=(\d+) b=(\d+) pairs=(\d+)',log)
     assert len(rows)==7, rows
@@ -86,7 +87,7 @@ for sign in (-1,1):
     previous=0 if sign<0 else 16384
     for ms,ticks,pitch,a,b,pairs in rows:
         ms,ticks,pitch,a,b,pairs=map(int,(ms,ticks,pitch,a,b,pairs))
-        assert pairs==12 and a+b==512, (sign,ms,a,b,pairs)
+        assert pairs==12 and a+b==pair_gain, (sign,ms,a,b,pairs)
         t=ticks/4233600
         # The fixture records the last completed service timestamp together
         # with the registers, avoiding main-loop and diagnostic output delays.
@@ -98,7 +99,7 @@ for sign in (-1,1):
         assert abs(pitch-expected_pitch)<=tolerance, (sign,ms,t,pitch,expected_pitch)
         assert (pitch>=previous if sign<0 else pitch<=previous), (sign,ms,pitch,previous)
         previous=pitch
-        def mix(at): return max(0,min(at/.1,(.2-at)/.1,1))*512
+        def mix(at): return max(0,min(at/.1,(.2-at)/.1,1))*pair_gain
         expected_gain=mix(t)
         assert abs(b-expected_gain)<=2, (sign,ms,t,b,expected_gain)
     assert int(rows[-1][1])>=846720 and int(rows[-1][2])==base, rows
@@ -158,12 +159,12 @@ for wet in (0,1):
     for phase in ('held','edited','release'):
         state=states[phase]
         assert state['send']==(3 if wet else 12) and state['count']==2, (wet,phase,state)
-        assert state['a']>0 and state['b']==512 and state['wave_a']!=state['wave_b'], (wet,phase,state)
+        assert state['a']>0 and state['b']==pair_gain and state['wave_a']!=state['wave_b'], (wet,phase,state)
     for phase in ('retired','completed'):
-        assert states[phase]['send']==other and states[phase]['a']==0 and states[phase]['b']==512, (wet,phase,states[phase])
+        assert states[phase]['send']==other and states[phase]['a']==0 and states[phase]['b']==pair_gain, (wet,phase,states[phase])
     for phase in ('reuse','restart'):
         state=states[phase]
-        assert state['send']==(0 if wet else 15) and state['a']==state['b']==512, (wet,phase,state)
+        assert state['send']==(0 if wet else 15) and state['a']==state['b']==pair_gain, (wet,phase,state)
     assert states['reuse']['count']==3 and states['restart']['count']==2, states
     assert states['stopped']['send']==states['stopped']['a']==states['stopped']['b']==0, states
     assert all(state['left']==state['right']==16383 for state in states.values()), states

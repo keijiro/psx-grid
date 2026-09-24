@@ -114,9 +114,9 @@ static void voices(void) {
     audio_init(&audio,(AudioDriver){NULL,driver_start,driver_volume,driver_pitch,driver_flush,NULL}); NoteSink sink=audio_sink(&audio);
     uint32_t tokens[SEQUENCER_VOICES];
     for(int i=0;i<SEQUENCER_VOICES;i++) tokens[i]=sink.on(sink.context,0,48+i,(SoundSettings){100,200,WAVE_SINE,WAVE_SINE,0,0,0,200,0});
-    sink.advance(sink.context,audio_ms(50)); assert(levels[0]>=255 && levels[0]<=256 && starts==1);
+    sink.advance(sink.context,audio_ms(50)); assert(levels[0]>=AUDIO_LEVEL/2-1 && levels[0]<=(AUDIO_LEVEL+1)/2 && starts==1);
     sink.off(sink.context,audio_ms(50),tokens[0]); sink.advance(sink.context,audio_ms(150));
-    assert(levels[0]>=127 && levels[0]<=129);
+    assert(levels[0]>=AUDIO_LEVEL/4-1 && levels[0]<=(AUDIO_LEVEL+3)/4+1);
     uint32_t replacement=sink.on(sink.context,audio_ms(150),80,(SoundSettings){0,5,WAVE_SINE,WAVE_SINE,0,0,0,200,0});
     assert((replacement&31)==0 && audio.steals==1);
     sink.off(sink.context,audio_ms(160),tokens[0]); assert(!audio.voices[0].releasing);
@@ -134,7 +134,7 @@ static void voices(void) {
     assert(audio.voices[fresh&31].active && levels[fresh&31]==AUDIO_LEVEL);
     sink.stop(sink.context,audio_ms(1001)); sink.advance(sink.context,audio_ms(1006));
     uint32_t long_note=sink.on(sink.context,0,48,(SoundSettings){16000,16000,WAVE_SINE,WAVE_SINE,0,0,0,200,0});
-    sink.advance(sink.context,audio_ms(8000)); assert(levels[0]>=255 && levels[0]<=256);
+    sink.advance(sink.context,audio_ms(8000)); assert(levels[0]>=AUDIO_LEVEL/2-1 && levels[0]<=(AUDIO_LEVEL+1)/2);
     sink.off(sink.context,audio_ms(8000),long_note);
     sink.advance(sink.context,audio_ms(24000)); assert(!audio.voices[0].active && !levels[0]);
     // Sequencer gate-offs carry the release captured at note-on.

@@ -407,9 +407,10 @@ ADPCM decoding checks the first and two repeated traversals with both rounded
 prediction and Redux's separate predictor truncations. Tests also verify the
 emitted bytes, loop flags, aligned addresses, and zero DMA padding. The bank
 occupies 16,080 bytes, padded to 16,128, at SPU addresses `0x1000..0x4eff`.
-The largest decoded peak is 14,419 across both decoders. Twelve coherent pairs
-at the fixed gain imply a worst decoded-sample sum of 5,407.125 / 32,768;
-this is a computed bound, not a capture of the final mixed or analog output.
+The largest decoded peak is 14,419 across both decoders. At the original
+gain of 512, twelve coherent pairs implied a decoded-sample sum of
+5,407.125 / 32,768. The current gain of 1,365 raises that bound to
+14,415.479 / 32,768; neither figure captures the final mixed or analog output.
 The initial asset check exposed a sine loop-junction regression, which was
 corrected in the encoder before rerunning the checks.
 Minimum decoded SNR is 20.30 dB across all waves and 25.16 dB for sine;

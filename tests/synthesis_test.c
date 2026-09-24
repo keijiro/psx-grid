@@ -146,7 +146,7 @@ static void transients(void) {
         assert(!audio.voices[0].waiting && audio.voices[0].start==origin);
         assert(gains[0][1]==AUDIO_LEVEL && pitches[0]==initial);
         sink.advance(sink.context,onset+audio_ms(1)/2);
-        assert(gains[0][1]>=255 && gains[0][1]<=257 && pitches[0]<initial);
+        assert(gains[0][1]>=AUDIO_LEVEL/2-1 && gains[0][1]<=(AUDIO_LEVEL+1)/2+1 && pitches[0]<initial);
         sink.advance(sink.context,onset+audio_ms(1));
         assert(!gains[0][1] && pitches[0]==audio.voices[0].base_pitch);
         sink.off(sink.context,onset+audio_ms(2),token);
