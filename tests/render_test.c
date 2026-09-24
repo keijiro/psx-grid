@@ -91,7 +91,7 @@ static void sound_selection(int *x,int *y) {
     int found=0;
     for(int i=0;i<counts[1];i++) {
         TILE *p=primitives[1][i];
-        if(p->w!=190) continue;
+        if(p->w<=62) continue;
         *x=p->x0; *y=p->y0; found++;
     }
     assert(found==1);

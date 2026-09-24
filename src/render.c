@@ -113,17 +113,41 @@ static void draw_menu(const Editor *e) {
     int pattern=e->mode==EDIT_PATTERN;
     int picker=e->mode==EDIT_PICKER;
     int confirm=e->mode==EDIT_DELETE;
-    int width=sound?220:pattern?238:confirm?226:picker?220:0;
+    char title[40];
+    if(e->mode==EDIT_MAIN) strcpy(title,"JACQUARD / MAIN");
+    else if(e->mode==EDIT_REVERB) strcpy(title,"REVERB / GLOBAL");
+    else if(sound) snprintf(title,sizeof(title),"SOUND CH %d",e->sound_channel+1);
+    else if(pattern) strcpy(title,"CYCLE PATTERN");
+    else if(picker) strcpy(title,"CREATE TILE");
+    else if(confirm) strcpy(title,e->target?"DELETE JUMP BRANCH?":
+        e->score.lanes[e->lane].source?"DELETE BRANCH LANE?":"DELETE LANE?");
+    else strcpy(title,"MENU");
+    char status[64]="";
+    if(e->mode==EDIT_MAIN) {
+        snprintf(status,sizeof(status),"%s",storage_message(e->slot_status));
+        if(e->card_free>=0) snprintf(status,sizeof(status),"%s  %d BLK",storage_message(e->slot_status),e->card_free);
+    }
     char value[48];
-    if(!width) {
-        int need=0;
+    // Size each panel around its visible text. The pattern grid keeps a fixed
+    // width because its eight columns need a stable 26-pixel pitch.
+    int width=pattern?232:text_width(title)+2*UI_MENU_MARGIN;
+    if(!pattern) {
         for(int i=0;i<count;i++) {
             editor_row_value(e,rows[i].id,value,sizeof(value));
-            int row_width=text_width(rows[i].label)+text_width(value)+(value[0]?24:0);
-            if(row_width>need) need=row_width;
+            int row_width=text_width(rows[i].label)+text_width(value)+(value[0]?12:0)+30;
+            if(row_width>width) width=row_width;
         }
-        width=need+30;
-        if(width<194) width=194;
+        if(picker) for(int k=1;k<TILE_KIND_COUNT;k++) {
+            int row_width=text_width(score_tile_label((TileKind)k))+32;
+            if(row_width>width) width=row_width;
+        }
+        int status_width=text_width(status)+30;
+        if(status_width>width) width=status_width;
+        if(e->message) {
+            int message_width=text_width(e->message)+30;
+            if(message_width>width) width=message_width;
+        }
+        if(width<128) width=128;
         if(width>286) width=286;
     }
     int alert=e->message && e->message[0];
@@ -146,15 +170,6 @@ static void draw_menu(const Editor *e) {
             y=SCREEN_H-UI_MENU_EDGE-selected_bottom;
     }
     menu_panel(x,y,width,height);
-    char title[40];
-    if(e->mode==EDIT_MAIN) strcpy(title,"JACQUARD / MAIN");
-    else if(e->mode==EDIT_REVERB) strcpy(title,"REVERB / GLOBAL");
-    else if(sound) snprintf(title,sizeof(title),"SOUND CH %d",e->sound_channel+1);
-    else if(pattern) strcpy(title,"CYCLE PATTERN");
-    else if(picker) strcpy(title,"CREATE TILE");
-    else if(confirm) strcpy(title,e->target?"DELETE JUMP BRANCH?":
-        e->score.lanes[e->lane].source?"DELETE BRANCH LANE?":"DELETE LANE?");
-    else strcpy(title,"MENU");
     clipped_text(x+UI_MENU_MARGIN,y+11,title,x+width-UI_MENU_MARGIN);
     if(pattern) {
         TileValue v=e->score.tiles[e->target].value;
@@ -179,9 +194,6 @@ static void draw_menu(const Editor *e) {
             } else menu_row(e,&rows[i],i,x+15,py,width-30);
         }
         if(e->mode==EDIT_MAIN) {
-            char status[64];
-            snprintf(status,sizeof(status),"%s",storage_message(e->slot_status));
-            if(e->card_free>=0) snprintf(status,sizeof(status),"%s  %d BLK",storage_message(e->slot_status),e->card_free);
             clipped_text(x+15,y+height-(alert?31:17),status,x+width-15);
         }
     }
