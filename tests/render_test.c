@@ -1,5 +1,15 @@
+/*
+ * render_test.c - Host GPU packet and framebuffer checks
+ *
+ * Implementation notes:
+ *
+ * SDK GPU stubs interpret the renderer packet stream so geometry, clipping
+ * and capacity can be inspected without a console.
+ */
+
 #include "render.h"
 #include "ui_style.h"
+
 #include <psxgpu.h>
 #include <assert.h>
 #include <stdio.h>
@@ -7,8 +17,12 @@
 
 extern volatile unsigned render_packet_peak, render_overflows;
 
-static uint32_t *current_ot;
-static void *primitives[8][2048];
+/*
+ * Packet captures retain ordering-table depth and VRAM pixels so the test
+ * can inspect both submitted commands and their rendered result.
+ */
+static uint32_t* current_ot;
+static void* primitives[8][2048];
 static int counts[8], frame_count;
 static uint16_t vram[512][1024];
 static uint8_t output[240][320];
@@ -16,18 +30,23 @@ static int capture;
 _Static_assert(sizeof(TILE) == 16 && sizeof(SPRT) == 20 && sizeof(DR_TPAGE) == 8,
                "SDK packet sizes");
 
-void addPrim(uint32_t *ot, void *packet) {
+/*
+ * Records packet order before rasterization because the SDK's ordering table
+ * reverses insertion within each depth bucket.
+ */
+void addPrim(uint32_t* ot, void* packet)
+{
     int depth = (int)(ot - current_ot);
     assert(depth >= 0 && depth < 8 && counts[depth] < 2048);
     primitives[depth][counts[depth]++] = packet;
-    if ((((DR_TPAGE *)packet)->code >> 24) == 0xe1)
+    if ((((DR_TPAGE*)packet)->code >> 24) == 0xe1)
         return;
 
-    TILE *p = packet;
+    TILE* p = packet;
     assert(p->r0 == p->g0 && p->g0 == p->b0);
     int w = p->w, h = p->h;
     if (p->code == 0x64) {
-        SPRT *s = packet;
+        SPRT* s = packet;
         w = s->w;
         h = s->h;
         assert(s->u0 + w <= 256 && s->v0 + h <= 96);
@@ -38,11 +57,12 @@ void addPrim(uint32_t *ot, void *packet) {
     assert(p->x0 >= 0 && p->y0 >= 0 && w > 0 && h > 0);
     assert(p->x0 + w <= 320 && p->y0 + h <= 240);
 }
-int LoadImage(const RECT *r, const uint32_t *data) {
+int LoadImage(const RECT* r, const uint32_t* data)
+{
     assert(r->x == 640 &&
            ((r->y == 0 && r->w == 64 && r->h == 96) || (r->y == 96 && r->w == 16 && r->h == 1)));
 
-    const uint16_t *src = (const uint16_t *)data;
+    const uint16_t* src = (const uint16_t*)data;
     for (int y = 0; y < r->h; y++)
         for (int x = 0; x < r->w; x++)
             vram[r->y + y][r->x + x] = *src++;
@@ -57,27 +77,33 @@ int LoadImage(const RECT *r, const uint32_t *data) {
     return 0;
 }
 
-void ResetGraph(int mode) {
+void ResetGraph(int mode)
+{
     (void)mode;
 }
 
-void SetVideoMode(int mode) {
+void SetVideoMode(int mode)
+{
     (void)mode;
 }
 
-void SetDispMask(int mode) {
+void SetDispMask(int mode)
+{
     (void)mode;
 }
 
-void DrawSync(int mode) {
+void DrawSync(int mode)
+{
     (void)mode;
 }
 
-void VSync(int mode) {
+void VSync(int mode)
+{
     (void)mode;
 }
 
-void SetDefDrawEnv(DRAWENV *p, int x, int y, int w, int h) {
+void SetDefDrawEnv(DRAWENV* p, int x, int y, int w, int h)
+{
     (void)p;
     (void)x;
     (void)y;
@@ -85,7 +111,8 @@ void SetDefDrawEnv(DRAWENV *p, int x, int y, int w, int h) {
     (void)h;
 }
 
-void SetDefDispEnv(DISPENV *p, int x, int y, int w, int h) {
+void SetDefDispEnv(DISPENV* p, int x, int y, int w, int h)
+{
     (void)p;
     (void)x;
     (void)y;
@@ -93,17 +120,20 @@ void SetDefDispEnv(DISPENV *p, int x, int y, int w, int h) {
     (void)h;
 }
 
-void ClearOTagR(uint32_t *p, int n) {
+void ClearOTagR(uint32_t* p, int n)
+{
     memset(p, 0, n * sizeof(*p));
     current_ot = p;
     memset(counts, 0, sizeof(counts));
 }
 
-void PutDispEnv(DISPENV *p) {
+void PutDispEnv(DISPENV* p)
+{
     (void)p;
 }
 
-void DrawOTagEnv(uint32_t *p, DRAWENV *e) {
+void DrawOTagEnv(uint32_t* p, DRAWENV* e)
+{
     assert(p == current_ot + 7);
     frame_count++;
     assert(e->r0 == e->g0 && e->g0 == e->b0);
@@ -112,14 +142,14 @@ void DrawOTagEnv(uint32_t *p, DRAWENV *e) {
     int page = -1;
     for (int depth = 7; depth >= 0; depth--)
         for (int i = counts[depth] - 1; i >= 0; i--) {
-            void *packet = primitives[depth][i];
-            if ((((DR_TPAGE *)packet)->code >> 24) == 0xe1) {
-                page = ((DR_TPAGE *)packet)->code & 0x1ff;
+            void* packet = primitives[depth][i];
+            if ((((DR_TPAGE*)packet)->code >> 24) == 0xe1) {
+                page = ((DR_TPAGE*)packet)->code & 0x1ff;
                 assert(page == getTPage(0, 0, 640, 0));
                 continue;
             }
-            TILE *t = packet;
-            SPRT *s = packet;
+            TILE* t = packet;
+            SPRT* s = packet;
             int textured = t->code == 0x64;
             if (textured)
                 assert(page == getTPage(0, 0, 640, 0));
@@ -143,8 +173,12 @@ void DrawOTagEnv(uint32_t *p, DRAWENV *e) {
         }
 }
 
-static void save(const char *path) {
-    FILE *f = fopen(path, "wb");
+/*
+ * Writes the current host framebuffer as a grayscale PGM for visual review.
+ */
+static void save(const char* path)
+{
+    FILE* f = fopen(path, "wb");
     assert(f);
     fprintf(f, "P5\n320 240\n255\n");
     fwrite(output, 1, sizeof(output), f);
@@ -153,7 +187,11 @@ static void save(const char *path) {
 
 static Editor e;
 
-static void draw(const char *name) {
+/*
+ * Submits one frame and optionally saves its rendered grayscale image.
+ */
+static void draw(const char* name)
+{
     render_frame(&e, 1);
     if (name) {
         char path[256];
@@ -162,10 +200,15 @@ static void draw(const char *name) {
     }
 }
 
-static void sound_selection(int *x, int *y) {
+/*
+ * Finds sound-menu coordinates from rendered output to check selection
+ * placement.
+ */
+static void sound_selection(int* x, int* y)
+{
     int found = 0;
     for (int i = 0; i < counts[1]; i++) {
-        TILE *p = primitives[1][i];
+        TILE* p = primitives[1][i];
         if (p->w <= 62)
             continue;
         *x = p->x0;
@@ -175,20 +218,29 @@ static void sound_selection(int *x, int *y) {
     assert(found == 1);
 }
 
-static void assert_menu_edge(void) {
+/*
+ * Checks that menu clipping does not draw into the protected display margin.
+ */
+static void assert_menu_edge(void)
+{
     for (int depth = 0; depth <= 2; depth++)
         for (int i = 0; i < counts[depth]; i++) {
-            TILE *p = primitives[depth][i];
-            int h = p->code == 0x64 ? ((SPRT *)p)->h : p->h;
+            TILE* p = primitives[depth][i];
+            int h = p->code == 0x64 ? ((SPRT*)p)->h : p->h;
             assert(p->y0 >= UI_MENU_EDGE && p->y0 + h <= SCREEN_H - UI_MENU_EDGE);
         }
 }
 
-static int tile_at(int x, int y) {
+/*
+ * Resolves the model tile beneath a grid coordinate for packet assertions.
+ */
+static int tile_at(int x, int y)
+{
     return score_at(&e.score, x, y).tile;
 }
 
-int main(void) {
+int main(void)
+{
     editor_init(&e);
     render_init();
     capture = 1;
@@ -229,7 +281,7 @@ int main(void) {
     // Exercise the renderer's full 300-cell view; bypass model admission here
     // because the fixture intentionally exceeds persistence and lane limits.
     for (int lane = 0; lane < SCORE_LANES; lane++) {
-        Lane *l = &e.score.lanes[lane];
+        Lane* l = &e.score.lanes[lane];
         l->active = 1;
         l->x = lane * 8;
         l->y = 0;
@@ -250,7 +302,7 @@ int main(void) {
     }
     for (int lane = 0; lane < SCORE_LANES; lane++)
         for (int step = 0; step < 64; step++) {
-        e.score.lanes[lane].tiles[step] = (TileId)(1 + lane * 64 + step);
+            e.score.lanes[lane].tiles[step] = (TileId)(1 + lane * 64 + step);
         }
 
     e.mode = EDIT_PLANE;
@@ -310,5 +362,6 @@ int main(void) {
 
     assert(render_overflows == 0);
     printf("PASS: %d render frames; peak %u / 65536 bytes; no overflow or screen escape\n",
-           frame_count, render_packet_peak);
+           frame_count,
+           render_packet_peak);
 }

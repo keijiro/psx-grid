@@ -1,5 +1,14 @@
-// Run only with a private disposable card image: this fixture writes slot 01.
+/*
+ * card_file_fixture.c - Console memory-card filesystem fixture
+ *
+ * Implementation notes:
+ *
+ * Run only with a private disposable card image: this fixture writes
+ * logical slot 01 to exercise BIOS-backed file operations.
+ */
+
 #include "storage.h"
+
 #include <psxapi.h>
 #include <psxetc.h>
 #include <stdint.h>
@@ -8,21 +17,28 @@
 static Storage storage;
 static Score score;
 
-static void report(const char *stage, StorageResult result) {
+static void report(const char* stage, StorageResult result)
+{
     static char line[96];
-    snprintf(line, sizeof(line), "CARD_FILE stage=%s result=%d free=%d\n", stage, result,
+    snprintf(line,
+             sizeof(line),
+             "CARD_FILE stage=%s result=%d free=%d\n",
+             stage,
+             result,
              storage.free_blocks);
-    *(const char *volatile *)0x1f802084 = line;
+    *(const char* volatile*)0x1f802084 = line;
 }
 
-static void finish(int code) {
-    *(const char *volatile *)0x1f802084 = code ? "CARD_FILE FAILED\n" : "CARD_FILE COMPLETE\n";
-    *(volatile short *)0x1f802082 = code;
+static void finish(int code)
+{
+    *(const char* volatile*)0x1f802084 = code ? "CARD_FILE FAILED\n" : "CARD_FILE COMPLETE\n";
+    *(volatile short*)0x1f802082 = code;
     for (;;) {
     }
 }
 
-int main(void) {
+int main(void)
+{
     // The BIOS fixture has no audio or custom pad initialization. Timer 2 is
     // the backend's polling deadline source and has no interrupt enabled.
     TIMER_CTRL(2) = 0x0200;

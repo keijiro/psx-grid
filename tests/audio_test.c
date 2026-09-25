@@ -1,8 +1,19 @@
+/*
+ * audio_test.c - Host audio and sequencer regression tests
+ *
+ * Implementation notes:
+ *
+ * A recording sink and fake driver inspect event timing, voice allocation
+ * and live editor publication without SPU hardware.
+ */
+
 #include "audio.h"
 #include "editor.h"
+
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>
+
 static Score score, snapshot, updated;
 static Sequencer seq;
 static Audio audio;
@@ -20,37 +31,43 @@ static int count, off_count, slot, levels[SEQUENCER_VOICES], pitches[SEQUENCER_V
     stops;
 static uint32_t serial;
 
-static uint32_t note(void *ctx, AudioTime at, int pitch, SoundSettings sound) {
+static uint32_t note(void* ctx, AudioTime at, int pitch, SoundSettings sound)
+{
     (void)ctx;
     assert(count < 4096);
     events[count++] = (Event){at, pitch, sound};
     return (++serial << 5) | (slot++ % SEQUENCER_VOICES);
 }
 
-static void off(void *ctx, AudioTime at, uint32_t token) {
+static void off(void* ctx, AudioTime at, uint32_t token)
+{
     (void)ctx;
     (void)token;
     offs[off_count++] = at;
 }
 
-static void stop(void *ctx, AudioTime at) {
+static void stop(void* ctx, AudioTime at)
+{
     (void)ctx;
     (void)at;
 }
 
 static NoteSink trace = {NULL, note, off, stop, NULL};
 
-static void base(int length) {
+static void base(int length)
+{
     score_init(&score);
     assert(!score_create(&score, 0, 0, length));
     count = off_count = slot = 0;
 }
 
-static void put(int x, int y, TileValue v) {
+static void put(int x, int y, TileValue v)
+{
     assert(!score_place_value(&score, x, y, v));
 }
 
-static TileValue relative(int a, int r) {
+static TileValue relative(int a, int r)
+{
     TileValue v = score_default(TILE_RELATIVE);
     v.lock_mask = 3;
     v.attack = a;
@@ -58,13 +75,18 @@ static TileValue relative(int a, int r) {
     return v;
 }
 
-static void start(void) {
+static void start(void)
+{
     snapshot = score;
     sequencer_start(&seq, &snapshot, trace, 0);
     sequencer_service(&seq, 0);
 }
 
-static void timing(void) {
+/*
+ * Checks step and gate deadlines against exact sequencer tick arithmetic.
+ */
+static void timing(void)
+{
     for (int d = 0; d < SCORE_DIVISIONS; d++) {
         base(16);
         assert(!score_set_division(&score, 0, score_divisions[d]));
@@ -99,7 +121,11 @@ static void timing(void) {
     assert(!seq.playing);
 }
 
-static void locks(void) {
+/*
+ * Checks lock inheritance and release timing across adjacent steps.
+ */
+static void locks(void)
+{
     base(2);
     put(1, 0, score_default(TILE_NOTE));
     put(1, 1, relative(100, -5));
@@ -164,7 +190,12 @@ static void locks(void) {
     assert(events[1].sound.attack == 35);
 }
 
-static void gates_branches(void) {
+/*
+ * Exercises conditional tiles and jump branches while verifying emitted note
+ * order.
+ */
+static void gates_branches(void)
+{
     base(1);
     TileValue gate = score_default(TILE_CYCLE);
     gate.period = 3;
@@ -231,33 +262,42 @@ static void gates_branches(void) {
     assert(seq.runners[0].origin == 1 && events[0].sound.attack == 105);
 }
 
-static void driver_start(void *ctx, int voice, int bank, SoundSettings sound) {
+static void driver_start(void* ctx, int voice, int bank, SoundSettings sound)
+{
     (void)ctx;
     (void)voice;
     (void)bank;
     (void)sound;
 }
 
-static void driver_pitch(void *ctx, int voice, int pitch) {
+static void driver_pitch(void* ctx, int voice, int pitch)
+{
     (void)ctx;
     assert(pitch > 0 && pitch < 0x4000);
     pitches[voice] = pitch;
 }
 
-static void driver_volume(void *ctx, int voice, int a, int b) {
+static void driver_volume(void* ctx, int voice, int a, int b)
+{
     (void)ctx;
     assert(a >= 0 && b >= 0 && a + b <= AUDIO_LEVEL);
     levels[voice] = a + b;
 }
 
-static void driver_flush(void *ctx, uint32_t on, uint32_t off_bits) {
+static void driver_flush(void* ctx, uint32_t on, uint32_t off_bits)
+{
     (void)ctx;
     assert(!(on & off_bits));
     starts += (on != 0);
     stops += (off_bits != 0);
 }
 
-static void voices(void) {
+/*
+ * Checks pair allocation, stealing, and generation-safe note release through
+ * the fake driver.
+ */
+static void voices(void)
+{
     audio_init(&audio,
                (AudioDriver){NULL, driver_start, driver_volume, driver_pitch, driver_flush, NULL});
     NoteSink sink = audio_sink(&audio);
@@ -348,7 +388,12 @@ static void voices(void) {
     assert(!audio.voices[0].active);
 }
 
-static void overload(void) {
+/*
+ * Exercises service limits under dense input so missed work does not become a
+ * late note burst.
+ */
+static void overload(void)
+{
     base(1);
     put(1, 0, score_default(TILE_NOTE));
     start();
@@ -363,7 +408,8 @@ static void overload(void) {
     assert(count == 2);
 }
 
-static void model_editor(void) {
+static void model_editor(void)
+{
     base(4);
     TileValue v = relative(-16000, 16000);
     put(1, 0, v);
@@ -435,7 +481,12 @@ static void model_editor(void) {
     assert(input_update(&input, 1, INPUT_START).start);
 }
 
-static void dense_and_rollback(void) {
+/*
+ * Uses a dense score to check bounded traversal and rejection without score
+ * mutation.
+ */
+static void dense_and_rollback(void)
+{
     base(64);
     TileId id = 1;
     for (int j = 0; j < 64; j++) {
@@ -490,20 +541,27 @@ static void dense_and_rollback(void) {
     assert(events[count - 1].sound.attack == 5);
 }
 
-static void publish(AudioTime now) {
-    Score *spare = seq.score == &snapshot ? &updated : &snapshot;
+static void publish(AudioTime now)
+{
+    Score* spare = seq.score == &snapshot ? &updated : &snapshot;
     *spare = score;
     assert(sequencer_resync(&seq, spare, now));
 }
 
-static Runner *runner(int origin) {
+static Runner* runner(int origin)
+{
     for (int i = 0; i < SCORE_LANES; i++)
         if (seq.runners[i].active && seq.runners[i].origin == origin)
             return &seq.runners[i];
     return NULL;
 }
 
-static void live_values(void) {
+/*
+ * Publishes edits while playing and checks that a runner reads the new values
+ * at a safe boundary.
+ */
+static void live_values(void)
+{
     AudioTime step = SEQUENCER_HZ / 8;
     base(2);
     TileValue v = score_default(TILE_NOTE);
@@ -542,7 +600,11 @@ static void live_values(void) {
     assert(off_count >= 4 && offs[3] == 4 * step);
 }
 
-static void live_holds(void) {
+/*
+ * Checks held locks after their tile values or birth generations change.
+ */
+static void live_holds(void)
+{
     AudioTime step = SEQUENCER_HZ / 8;
     base(2);
     assert(!score_set_division(&score, 0, 4));
@@ -579,7 +641,12 @@ static void live_holds(void) {
     assert(events[5].sound.attack == 5);
 }
 
-static void live_lanes(void) {
+/*
+ * Checks runner ownership when root or branch lanes are edited during
+ * playback.
+ */
+static void live_lanes(void)
+{
     AudioTime step = SEQUENCER_HZ / 8;
     base(4);
     put(1, 0, score_default(TILE_NOTE));
@@ -637,7 +704,11 @@ static void live_lanes(void) {
     assert(count == 7 && runner(0)->next == 7 * step + 1);
 }
 
-static void live_final_step(void) {
+/*
+ * Exercises edits at the final step where lap and publication boundaries meet.
+ */
+static void live_final_step(void)
+{
     AudioTime step = SEQUENCER_HZ / 8;
     base(2);
     put(1, 0, score_default(TILE_NOTE));
@@ -656,7 +727,11 @@ static void live_final_step(void) {
     assert(count == 4 && events[3].at == 4 * step);
 }
 
-static void live_gates(void) {
+/*
+ * Checks pending gate-offs across live edits and slot reuse.
+ */
+static void live_gates(void)
+{
     AudioTime step = SEQUENCER_HZ / 8;
     base(1);
     TileValue v = score_default(TILE_CYCLE);
@@ -692,7 +767,12 @@ static void live_gates(void) {
     assert(count == 1 && events[0].at == step && seq.random == random);
 }
 
-static void live_branch(void) {
+/*
+ * Checks traversal after a jump source or its branch changes in a published
+ * score.
+ */
+static void live_branch(void)
+{
     AudioTime step = SEQUENCER_HZ / 8;
     base(2);
     put(1, 0, score_default(TILE_JUMP));
@@ -710,7 +790,11 @@ static void live_branch(void) {
     assert(runner(0)->playing_lane == 0 && runner(0)->playing_step == 0);
 }
 
-static void live_split(void) {
+/*
+ * Exercises publication while a dense slice spans multiple service calls.
+ */
+static void live_split(void)
+{
     base(1);
     for (int i = 0; i < 63; i++)
         put(1, i, relative(1, 1));
@@ -734,7 +818,11 @@ static void live_split(void) {
     assert(!seq.slicing && count == 2 && events[1].pitch == 72 && events[1].sound.attack == 68);
 }
 
-static void channels(void) {
+/*
+ * Checks sound selection and lock scope when multiple channels play together.
+ */
+static void channels(void)
+{
     AudioTime step = SEQUENCER_HZ / 8;
     base(2);
     assert(!score_set_division(&score, 0, 4));
@@ -833,7 +921,12 @@ static void channels(void) {
          "split publication and 16 lanes");
 }
 
-static void tempo_changes(void) {
+/*
+ * Checks that a tempo edit affects future steps without moving an already
+ * scheduled gate.
+ */
+static void tempo_changes(void)
+{
     for (int bpm = SCORE_MIN_BPM; bpm <= SCORE_MAX_BPM; bpm++) {
         base(1);
         put(1, 0, score_default(TILE_NOTE));
@@ -860,7 +953,8 @@ static void tempo_changes(void) {
     assert(count == 3 && offs[1] == old + old / 2);
 }
 
-int main(void) {
+int main(void)
+{
     channels();
     tempo_changes();
     timing();

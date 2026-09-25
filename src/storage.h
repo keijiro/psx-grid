@@ -1,9 +1,20 @@
+/*
+ * storage.h - Transactional score persistence on a memory card
+ *
+ * A Storage instance owns fixed buffers and uses one CardBackend session per
+ * operation. Save, readback and cleanup preserve the previous valid file.
+ */
+
 #ifndef STORAGE_H
 #define STORAGE_H
+
 #include "card.h"
 #include "score_format.h"
+
+// Logical score slots supported by the card filename scheme.
 #define STORAGE_SLOTS 15
 
+// User-facing outcomes, including card errors and cleanup failures.
 typedef enum {
     STORAGE_UNKNOWN,
     STORAGE_EMPTY,
@@ -23,6 +34,7 @@ typedef enum {
     STORAGE_GENERATION_FULL
 } StorageResult;
 
+// Scratch buffers, directory inventory and staged incoming score.
 typedef struct {
     CardBackend card;
     StorageResult slots[STORAGE_SLOTS];
@@ -34,9 +46,15 @@ typedef struct {
     Score incoming;
 } Storage;
 
-void storage_init(Storage *storage, CardBackend backend);
-StorageResult storage_refresh(Storage *storage, int slot);
-StorageResult storage_save(Storage *storage, int slot, const Score *score);
-StorageResult storage_load(Storage *storage, int slot);
-const char *storage_message(StorageResult result);
-#endif
+/* Initializes caller-owned storage using a complete backend callback table. */
+void storage_init(Storage* storage, CardBackend backend);
+/* Discovers card status and refreshes one 1-based slot's visible result. */
+StorageResult storage_refresh(Storage* storage, int slot);
+/* Saves a snapshot to a 1-based slot and verifies it before retiring old files. */
+StorageResult storage_save(Storage* storage, int slot, const Score* score);
+/* Loads a 1-based slot into `storage->incoming` on success. */
+StorageResult storage_load(Storage* storage, int slot);
+/* Returns the UI message associated with a storage result. */
+const char* storage_message(StorageResult result);
+
+#endif // STORAGE_H

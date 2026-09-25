@@ -1,17 +1,33 @@
+/*
+ * score.c - Editable score model and geometry validation
+ *
+ * Implementation notes:
+ *
+ * Public edits keep the grid geometry, branch ancestry and fixed save-file
+ * capacity consistent as one model boundary.
+ */
+
 #include "score.h"
 #include "score_format.h"
+
 #include <string.h>
+
 const int score_divisions[] = {1, 2, 3, 4, 6, 8, 12, 16, 24, 32, 48, 64};
-// A single scratch score makes multi-object edits atomic without heap allocation
-// or large console-stack frames. Model calls are synchronous and non-reentrant.
+/*
+ * A single scratch score makes multi-object edits atomic without heap
+ * allocation or large console-stack frames. Model calls are synchronous and
+ * non-reentrant; occupied is the scratch geometry map used by validation.
+ */
 static Score scratch;
 static uint8_t occupied[SCORE_HEIGHT][SCORE_WIDTH];
 
-static int valid(const Score *s, int i) {
+static int valid(const Score* s, int i)
+{
     return i >= 0 && i < SCORE_LANES && s->lanes[i].active;
 }
 
-void score_init(Score *s) {
+void score_init(Score* s)
+{
     memset(s, 0, sizeof(*s));
     for (int i = 0; i < SCORE_CHANNELS; i++)
         s->sounds[i] = SOUND_DEFAULT;
@@ -19,26 +35,42 @@ void score_init(Score *s) {
     s->reverb = REVERB_DEFAULT;
 }
 
-TileValue score_default(TileKind k) {
+TileValue score_default(TileKind k)
+{
     TileValue v = {k, 48, 20, 4, 50, 1, 0, 0, 0};
     return v;
 }
 
-const char *score_note_name(int p) {
-    static const char *n[] = {"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"};
+const char* score_note_name(int p)
+{
+    static const char* n[] = {"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"};
     return n[p % 12];
 }
 
-static int value_valid(TileValue v) {
-    return v.kind > TILE_NONE && v.kind < TILE_KIND_COUNT && v.pitch >= 0 && v.pitch <= 108 &&
-           v.length >= 5 && v.length <= 1280 && v.period >= 2 && v.period <= 32 && v.chance >= 0 &&
-           v.chance <= 100 && v.lock_mask >= 0 && v.lock_mask <= 3 && v.attack >= -SOUND_MAX_MS &&
-           v.attack <= SOUND_MAX_MS && v.release >= -SOUND_MAX_MS && v.release <= SOUND_MAX_MS &&
-           ((v.lock_mask & LOCK_ATTACK) || !v.attack) &&
+/*
+ * Rejects tile settings that would make playback arithmetic or saved-file
+ * interpretation invalid.
+ */
+static int value_valid(TileValue v)
+{
+    if (v.kind <= TILE_NONE || v.kind >= TILE_KIND_COUNT)
+        return 0;
+    if (v.pitch < 0 || v.pitch > 108 || v.length < 5 || v.length > 1280)
+        return 0;
+    if (v.period < 2 || v.period > 32 || v.chance < 0 || v.chance > 100)
+        return 0;
+    if (v.lock_mask < 0 || v.lock_mask > 3)
+        return 0;
+    if (v.attack < -SOUND_MAX_MS || v.attack > SOUND_MAX_MS)
+        return 0;
+    if (v.release < -SOUND_MAX_MS || v.release > SOUND_MAX_MS)
+        return 0;
+    return ((v.lock_mask & LOCK_ATTACK) || !v.attack) &&
            ((v.lock_mask & LOCK_RELEASE) || !v.release);
 }
 
-ScoreResult score_edit(Score *s, TileId id, TileValue v) {
+ScoreResult score_edit(Score* s, TileId id, TileValue v)
+{
     if (!id || id > SCORE_TILE_CAPACITY || s->tiles[id].value.kind != v.kind || !value_valid(v))
         return SCORE_INVALID;
     s->tiles[id].value = v;
@@ -46,7 +78,12 @@ ScoreResult score_edit(Score *s, TileId id, TileValue v) {
     return SCORE_OK;
 }
 
-static int owner(const Score *s, TileId id) {
+/*
+ * Follows live stack links to recover the lane owning a branch source tile
+ * without a second mutable parent index.
+ */
+static int owner(const Score* s, TileId id)
+{
     for (int i = 0; i < SCORE_LANES; i++)
         if (valid(s, i))
             for (int j = 0; j < s->lanes[i].length; j++)
@@ -56,7 +93,8 @@ static int owner(const Score *s, TileId id) {
     return -1;
 }
 
-int score_division(const Score *s, int i) {
+int score_division(const Score* s, int i)
+{
     for (int n = 0; n < SCORE_LANES && valid(s, i); n++) {
         if (!s->lanes[i].source)
             return s->lanes[i].division;
@@ -65,7 +103,8 @@ int score_division(const Score *s, int i) {
     return 16;
 }
 
-int score_channel(const Score *s, int i) {
+int score_channel(const Score* s, int i)
+{
     for (int n = 0; n < SCORE_LANES && valid(s, i); n++) {
         if (!s->lanes[i].source)
             return s->lanes[i].channel;
@@ -74,7 +113,8 @@ int score_channel(const Score *s, int i) {
     return -1;
 }
 
-ScoreResult score_set_channel(Score *s, int i, int channel) {
+ScoreResult score_set_channel(Score* s, int i, int channel)
+{
     if (!valid(s, i) || s->lanes[i].source || channel < 0 || channel >= SCORE_CHANNELS)
         return SCORE_INVALID;
     s->lanes[i].channel = channel;
@@ -82,7 +122,8 @@ ScoreResult score_set_channel(Score *s, int i, int channel) {
     return SCORE_OK;
 }
 
-ScoreResult score_set_division(Score *s, int i, int d) {
+ScoreResult score_set_division(Score* s, int i, int d)
+{
     if (!valid(s, i) || s->lanes[i].source)
         return SCORE_INVALID;
     for (int j = 0; j < SCORE_DIVISIONS; j++)
@@ -94,10 +135,11 @@ ScoreResult score_set_division(Score *s, int i, int d) {
     return SCORE_INVALID;
 }
 
-Cell score_at(const Score *s, int x, int y) {
+Cell score_at(const Score* s, int x, int y)
+{
     Cell c = {CELL_EMPTY, -1, -1, 0, 0};
     for (int i = 0; i < SCORE_LANES; i++) {
-        const Lane *l = &s->lanes[i];
+        const Lane* l = &s->lanes[i];
         if (!l->active || x < l->x || x > l->x + l->length + 1 || y < l->y)
             continue;
         int step = x - l->x - 1, depth = y - l->y;
@@ -114,7 +156,8 @@ Cell score_at(const Score *s, int x, int y) {
     return c;
 }
 
-Cell score_resolve(const Score *s, int x, int y) {
+Cell score_resolve(const Score* s, int x, int y)
+{
     Cell c = score_at(s, x, y);
     if (c.kind != CELL_EMPTY)
         return c;
@@ -130,7 +173,8 @@ Cell score_resolve(const Score *s, int x, int y) {
     return (Cell){CELL_EMPTY, -1, -1, 0, 0};
 }
 
-static ScoreResult mark(int x, int y) {
+static ScoreResult mark(int x, int y)
+{
     if (x < 0 || x >= SCORE_WIDTH || y < 0 || y >= SCORE_HEIGHT)
         return SCORE_BOUNDS;
     if (occupied[y][x])
@@ -139,11 +183,16 @@ static ScoreResult mark(int x, int y) {
     return SCORE_OK;
 }
 
-static ScoreResult validate(const Score *s) {
+/*
+ * Checks rendered geometry and branch ancestry after all links are known to be
+ * safe to traverse.
+ */
+static ScoreResult validate(const Score* s)
+{
     memset(occupied, 0, sizeof(occupied));
     for (int i = 0; i < SCORE_LANES; i++)
         if (valid(s, i)) {
-            const Lane *l = &s->lanes[i];
+            const Lane* l = &s->lanes[i];
             if (l->length < 1 || l->length > SCORE_STEPS)
                 return SCORE_BOUNDS;
             for (int j = -1; j <= l->length; j++) {
@@ -172,19 +221,27 @@ static ScoreResult validate(const Score *s) {
     return SCORE_OK;
 }
 
-static ScoreResult admission(const Score *s) {
+/*
+ * Applies both grid geometry and fixed save-file capacity before a staged edit
+ * may commit.
+ */
+static ScoreResult admission(const Score* s)
+{
     ScoreResult r = validate(s);
-    return r ? r : score_format_measure(s) > SCORE_FILE_BYTES ? SCORE_FULL : SCORE_OK;
+    if (r)
+        return r;
+    return score_format_measure(s) > SCORE_FILE_BYTES ? SCORE_FULL : SCORE_OK;
 }
 
-ScoreResult score_validate_import(const Score *s) {
+ScoreResult score_validate_import(const Score* s)
+{
     uint8_t seen[SCORE_TILE_CAPACITY + 1] = {0};
     // Establish finite, uniquely owned links before the geometry validator or
     // ancestry lookup can traverse untrusted input. The codec builds links,
     // but this boundary also protects future importers from pool corruption.
     for (int i = 0; i < SCORE_LANES; i++)
         if (s->lanes[i].active) {
-            const Lane *l = &s->lanes[i];
+            const Lane* l = &s->lanes[i];
             if (l->length < 1 || l->length > SCORE_STEPS || l->x < 0 || l->x >= SCORE_WIDTH ||
                 l->y < 0 || l->y >= SCORE_HEIGHT)
                 return SCORE_INVALID;
@@ -205,7 +262,7 @@ ScoreResult score_validate_import(const Score *s) {
                     if (t > SCORE_TILE_CAPACITY || seen[t] || ++depth > SCORE_HEIGHT - l->y)
                         return SCORE_INVALID;
                     seen[t] = 1;
-                    const Tile *v = &s->tiles[t];
+                    const Tile* v = &s->tiles[t];
                     if (!value_valid(v->value))
                         return SCORE_INVALID;
                     if (v->value.kind == TILE_JUMP &&
@@ -227,7 +284,12 @@ ScoreResult score_validate_import(const Score *s) {
     return validate(s);
 }
 
-static ScoreResult commit(Score *s) {
+/*
+ * Publishes the shared scratch score only after admission, preserving the
+ * caller score on failure.
+ */
+static ScoreResult commit(Score* s)
+{
     ScoreResult r = admission(&scratch);
     if (!r) {
         scratch.revision = s->revision + 1;
@@ -236,12 +298,17 @@ static ScoreResult commit(Score *s) {
     return r;
 }
 
-static int new_lane(Score *s, int x, int y, int n, TileId source) {
+/*
+ * Assigns a fresh birth generation even when a previously occupied lane slot
+ * is reused.
+ */
+static int new_lane(Score* s, int x, int y, int n, TileId source)
+{
     if (s->generation == UINT32_MAX)
         return -1;
     for (int i = 0; i < SCORE_LANES; i++)
         if (!valid(s, i)) {
-            Lane *l = &s->lanes[i];
+            Lane* l = &s->lanes[i];
             memset(l, 0, sizeof(*l));
             s->lane_generation[i] = ++s->generation;
             l->active = 1;
@@ -256,14 +323,16 @@ static int new_lane(Score *s, int x, int y, int n, TileId source) {
     return -1;
 }
 
-ScoreResult score_can_create(const Score *s, int x, int y, int n) {
+ScoreResult score_can_create(const Score* s, int x, int y, int n)
+{
     scratch = *s;
     if (new_lane(&scratch, x, y, n, 0) < 0)
         return SCORE_FULL;
     return admission(&scratch);
 }
 
-ScoreResult score_create(Score *s, int x, int y, int n) {
+ScoreResult score_create(Score* s, int x, int y, int n)
+{
     ScoreResult r = score_can_create(s, x, y, n);
     if (!r) {
         scratch.revision = s->revision + 1;
@@ -272,7 +341,8 @@ ScoreResult score_create(Score *s, int x, int y, int n) {
     return r;
 }
 
-ScoreResult score_can_resize(const Score *s, int i, int n) {
+ScoreResult score_can_resize(const Score* s, int i, int n)
+{
     if (!valid(s, i))
         return SCORE_INVALID;
     if (n < 1 || n > SCORE_STEPS)
@@ -285,7 +355,8 @@ ScoreResult score_can_resize(const Score *s, int i, int n) {
     return admission(&scratch);
 }
 
-ScoreResult score_resize(Score *s, int i, int n) {
+ScoreResult score_resize(Score* s, int i, int n)
+{
     ScoreResult r = score_can_resize(s, i, n);
     if (!r) {
         scratch.revision = s->revision + 1;
@@ -294,24 +365,38 @@ ScoreResult score_resize(Score *s, int i, int n) {
     return r;
 }
 
-static TileId *link_at(Score *s, Cell c) {
-    TileId *p = &s->lanes[c.lane].tiles[c.step];
+/*
+ * Returns the owning link for a stack depth, allowing insertion and removal
+ * without a predecessor search.
+ */
+static TileId* link_at(Score* s, Cell c)
+{
+    TileId* p = &s->lanes[c.lane].tiles[c.step];
     for (int d = 0; d < c.depth && *p; d++)
         p = &s->tiles[*p].next;
     return p;
 }
 
-static void erase_lane(Score *s, int i);
+static void erase_lane(Score* s, int i);
 
-static void erase_tile(Score *s, TileId id) {
-    Tile *t = &s->tiles[id];
+/*
+ * Deletes the branch owned by a jump before recycling its tile ID.
+ */
+static void erase_tile(Score* s, TileId id)
+{
+    Tile* t = &s->tiles[id];
     if (t->value.kind == TILE_JUMP)
         erase_lane(s, t->branch);
     memset(t, 0, sizeof(*t));
 }
 
-static void erase_lane(Score *s, int i) {
-    Lane *l = &s->lanes[i];
+/*
+ * Recursively clears dependent branches so no live jump points into a released
+ * lane.
+ */
+static void erase_lane(Score* s, int i)
+{
+    Lane* l = &s->lanes[i];
     for (int j = 0; j < l->length; j++)
         for (TileId t = l->tiles[j], next; t; t = next) {
             next = s->tiles[t].next;
@@ -320,14 +405,15 @@ static void erase_lane(Score *s, int i) {
     memset(l, 0, sizeof(*l));
 }
 
-ScoreResult score_delete(Score *s, int i) {
+ScoreResult score_delete(Score* s, int i)
+{
     if (!valid(s, i))
         return SCORE_INVALID;
     TileId source = s->lanes[i].source;
     if (source) {
         int p = owner(s, source);
         for (int j = 0; j < s->lanes[p].length; j++)
-            for (TileId *t = &s->lanes[p].tiles[j]; *t; t = &s->tiles[*t].next)
+            for (TileId* t = &s->lanes[p].tiles[j]; *t; t = &s->tiles[*t].next)
                 if (*t == source) {
                     *t = s->tiles[source].next;
                     erase_tile(s, source);
@@ -340,21 +426,27 @@ ScoreResult score_delete(Score *s, int i) {
     return SCORE_OK;
 }
 
-ScoreResult score_remove(Score *s, int x, int y) {
+ScoreResult score_remove(Score* s, int x, int y)
+{
     Cell c = score_at(s, x, y);
     if (c.kind != CELL_TILE)
         return SCORE_INVALID;
-    TileId *p = link_at(s, c);
+    TileId* p = link_at(s, c);
     *p = s->tiles[c.tile].next;
     erase_tile(s, c.tile);
     s->revision++;
     return SCORE_OK;
 }
 
-static ScoreResult insert(Score *s, Cell c, TileValue v) {
+/*
+ * Allocates a tile in staged state and searches for an unobstructed branch
+ * location when the tile is a jump.
+ */
+static ScoreResult insert(Score* s, Cell c, TileValue v)
+{
     if (!value_valid(v) || (c.kind != CELL_STEP && c.kind != CELL_END))
         return SCORE_INVALID;
-    Lane *l = &s->lanes[c.lane];
+    Lane* l = &s->lanes[c.lane];
     if (c.kind == CELL_END) {
         if (l->length == SCORE_STEPS)
             return SCORE_BOUNDS;
@@ -366,7 +458,7 @@ static ScoreResult insert(Score *s, Cell c, TileValue v) {
     if (id > SCORE_TILE_CAPACITY || s->generation == UINT32_MAX)
         return SCORE_FULL;
     s->tile_generation[id] = ++s->generation;
-    TileId *p = link_at(s, c);
+    TileId* p = link_at(s, c);
     s->tiles[id] = (Tile){v, *p, -1};
     *p = id;
     if (v.kind == TILE_JUMP) {
@@ -400,17 +492,20 @@ static ScoreResult insert(Score *s, Cell c, TileValue v) {
     return SCORE_OK;
 }
 
-ScoreResult score_place_value(Score *s, int x, int y, TileValue v) {
+ScoreResult score_place_value(Score* s, int x, int y, TileValue v)
+{
     scratch = *s;
     ScoreResult r = insert(&scratch, score_resolve(s, x, y), v);
     return r ? r : commit(s);
 }
 
-ScoreResult score_place(Score *s, int x, int y, TileKind k) {
+ScoreResult score_place(Score* s, int x, int y, TileKind k)
+{
     return score_place_value(s, x, y, score_default(k));
 }
 
-void score_copy(const Score *s, int x, int y, Clipboard *b) {
+void score_copy(const Score* s, int x, int y, Clipboard* b)
+{
     Cell c = score_at(s, x, y);
     if (c.kind != CELL_TILE)
         return;
@@ -422,7 +517,8 @@ void score_copy(const Score *s, int x, int y, Clipboard *b) {
         *b = copy;
 }
 
-ScoreResult score_paste(Score *s, int x, int y, const Clipboard *b) {
+ScoreResult score_paste(Score* s, int x, int y, const Clipboard* b)
+{
     if (b->count < 1 || b->count > SCORE_HEIGHT)
         return SCORE_INVALID;
     scratch = *s;
@@ -436,7 +532,12 @@ ScoreResult score_paste(Score *s, int x, int y, const Clipboard *b) {
     return commit(s);
 }
 
-static ScoreResult move(const Score *s, int sx, int sy, int x, int y) {
+/*
+ * Stages lane or stack movement and validates the final geometry before
+ * returning a preview result.
+ */
+static ScoreResult move(const Score* s, int sx, int sy, int x, int y)
+{
     Cell a = score_at(s, sx, sy), b = score_resolve(s, x, y);
     scratch = *s;
     if (a.kind != CELL_HEAD && a.kind != CELL_TILE)
@@ -466,17 +567,19 @@ static ScoreResult move(const Score *s, int sx, int sy, int x, int y) {
             return SCORE_BOUNDS;
         scratch.lanes[b.lane].length++;
     }
-    TileId *to = link_at(&scratch, b);
+    TileId* to = link_at(&scratch, b);
     scratch.tiles[tail].next = *to;
     *to = a.tile;
     return admission(&scratch);
 }
 
-MovePlan score_plan_move(const Score *s, int sx, int sy, int x, int y) {
+MovePlan score_plan_move(const Score* s, int sx, int sy, int x, int y)
+{
     return (MovePlan){sx, sy, x, y, move(s, sx, sy, x, y)};
 }
 
-ScoreResult score_apply_move(Score *s, MovePlan p) {
+ScoreResult score_apply_move(Score* s, MovePlan p)
+{
     if (p.sx == p.x && p.sy == p.y)
         return move(s, p.sx, p.sy, p.x, p.y);
     ScoreResult r = move(s, p.sx, p.sy, p.x, p.y);
@@ -487,14 +590,16 @@ ScoreResult score_apply_move(Score *s, MovePlan p) {
     return r;
 }
 
-const char *score_tile_label(TileKind k) {
-    static const char *v[] = {
+const char* score_tile_label(TileKind k)
+{
+    static const char* v[] = {
         "EMPTY", "NOTE", "CYCLE GATE", "PROBABILITY GATE", "JUMP", "RELATIVE LOCK"};
     return k >= 0 && k < TILE_KIND_COUNT ? v[k] : "?";
 }
 
-const char *score_message(ScoreResult r) {
-    static const char *v[] = {"",
+const char* score_message(ScoreResult r)
+{
+    static const char* v[] = {"",
                               "LIMIT / EDGE",
                               "COLLISION",
                               "SCORE FULL",
@@ -504,17 +609,20 @@ const char *score_message(ScoreResult r) {
     return v[r];
 }
 
-const char *score_wave_name(int wave) {
-    static const char *names[] = {"SINE", "TRIANGLE", "SAW", "SQUARE", "NOISE"};
+const char* score_wave_name(int wave)
+{
+    static const char* names[] = {"SINE", "TRIANGLE", "SAW", "SQUARE", "NOISE"};
     return wave >= 0 && wave < WAVE_COUNT ? names[wave] : "?";
 }
 
-const char *score_reverb_size(int size) {
-    static const char *names[] = {"SMALL", "MEDIUM", "LARGE"};
+const char* score_reverb_size(int size)
+{
+    static const char* names[] = {"SMALL", "MEDIUM", "LARGE"};
     return size >= 0 && size < 3 ? names[size] : "?";
 }
 
-ScoreResult score_set_bpm(Score *s, int bpm) {
+ScoreResult score_set_bpm(Score* s, int bpm)
+{
     if (bpm < SCORE_MIN_BPM || bpm > SCORE_MAX_BPM)
         return SCORE_INVALID;
     s->bpm = bpm;
@@ -522,7 +630,8 @@ ScoreResult score_set_bpm(Score *s, int bpm) {
     return SCORE_OK;
 }
 
-ScoreResult score_set_reverb(Score *s, ReverbSettings reverb) {
+ScoreResult score_set_reverb(Score* s, ReverbSettings reverb)
+{
     if (reverb.size < 0 || reverb.size > 2 || reverb.amount < 0 || reverb.amount > 100)
         return SCORE_INVALID;
     s->reverb = reverb;
@@ -530,7 +639,8 @@ ScoreResult score_set_reverb(Score *s, ReverbSettings reverb) {
     return SCORE_OK;
 }
 
-ScoreResult score_set_sound(Score *s, int channel, SoundSettings sound) {
+ScoreResult score_set_sound(Score* s, int channel, SoundSettings sound)
+{
     if (channel < 0 || channel >= SCORE_CHANNELS)
         return SCORE_INVALID;
     if (sound.reverb < 0 || sound.reverb > 1)

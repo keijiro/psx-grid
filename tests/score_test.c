@@ -1,4 +1,14 @@
+/*
+ * score_test.c - Score model and editor regression tests
+ *
+ * Implementation notes:
+ *
+ * State snapshots verify failed edits preserve the model while geometry,
+ * branches and commands are exercised.
+ */
+
 #include "editor.h"
+
 #include <assert.h>
 #include <stdio.h>
 #include <stddef.h>
@@ -7,25 +17,34 @@
 static Score s, before;
 static Editor e;
 
-static void snapshot(void) {
+static void snapshot(void)
+{
     before = s;
 }
 
-static void unchanged(ScoreResult r) {
+static void unchanged(ScoreResult r)
+{
     assert(r != SCORE_OK);
     assert(!memcmp(&s, &before, sizeof(s)));
 }
 
-static TileId id(int x, int y) {
+static TileId id(int x, int y)
+{
     return score_at(&s, x, y).tile;
 }
 
-static void base(void) {
+static void base(void)
+{
     score_init(&s);
     assert(!score_create(&s, 0, 0, 4));
 }
 
-static void model(void) {
+/*
+ * Checks geometry, branch ancestry and failure atomicity through the public
+ * score API.
+ */
+static void model(void)
+{
     base();
     assert(!score_place(&s, 1, 0, TILE_CYCLE));
     assert(!score_place(&s, 1, 1, TILE_NOTE));
@@ -229,7 +248,12 @@ static void model(void) {
     unchanged(score_place(&s, 5, 0, TILE_NOTE));
 }
 
-static void generations(void) {
+/*
+ * Checks that recycled lane and tile IDs receive new births for live playback
+ * reconciliation.
+ */
+static void generations(void)
+{
     base();
     uint32_t lane = s.lane_generation[0];
     assert(lane);
@@ -275,21 +299,25 @@ static void generations(void) {
 
 static Input input;
 
-static void frame(int connected, int held) {
+static void frame(int connected, int held)
+{
     editor_update(&e, input_update(&input, connected, (uint16_t)held));
 }
 
-static void tap(int key) {
+static void tap(int key)
+{
     frame(1, key);
     frame(1, 0);
 }
 
-static void context(void) {
+static void context(void)
+{
     tap(INPUT_CROSS);
     assert(e.mode == EDIT_MENU);
 }
 
-static void select_action(EditorAction action) {
+static void select_action(EditorAction action)
+{
     EditorRow rows[EDITOR_ROWS];
     int n = editor_rows(&e, rows), target = -1;
     for (int i = 0; i < n; i++)
@@ -303,19 +331,26 @@ static void select_action(EditorAction action) {
     assert(e.selected == target);
 }
 
-static void action(EditorAction a) {
+static void action(EditorAction a)
+{
     context();
     select_action(a);
     tap(INPUT_CROSS);
 }
 
-static void editor_setup(void) {
+static void editor_setup(void)
+{
     editor_init(&e);
     input_init(&input);
     frame(1, 0);
 }
 
-static void controls(void) {
+/*
+ * Exercises grid gestures and context actions through normalized controller
+ * frames.
+ */
+static void controls(void)
+{
     editor_setup();
     frame(1, INPUT_CROSS);
     assert(e.mode == EDIT_PLANE);
@@ -411,7 +446,12 @@ static void controls(void) {
     assert(e.mode == EDIT_PLANE && !e.score.lanes[0].active);
 }
 
-static void rejected_inline_resize(void) {
+/*
+ * Checks that a failed inline length change preserves both score and editor
+ * selection.
+ */
+static void rejected_inline_resize(void)
+{
     editor_setup();
     assert(!score_create(&e.score, 0, 0, 64));
     assert(!score_create(&e.score, 70, 0, 4));
@@ -432,7 +472,12 @@ static void rejected_inline_resize(void) {
     assert(e.mode == EDIT_PLANE);
 }
 
-static void sound_controls(void) {
+/*
+ * Checks sound rows and their value bounds through the editor interaction
+ * path.
+ */
+static void sound_controls(void)
+{
     static const struct {
         size_t offset;
         int step;
@@ -453,7 +498,7 @@ static void sound_controls(void) {
         assert(e.mode == EDIT_SOUND && e.selected == 1);
         for (unsigned j = 0; j < i; j++)
             tap(INPUT_DOWN);
-        int *value = (int *)((char *)&e.score.sounds[0] + cases[i].offset);
+        int* value = (int*)((char*)&e.score.sounds[0] + cases[i].offset);
         int start = *value;
         uint32_t revision = e.score.revision;
         tap(INPUT_R1);
@@ -465,7 +510,7 @@ static void sound_controls(void) {
         s = e.score;
         for (int boundary = 0; boundary < 2; boundary++) {
             SoundSettings invalid = s.sounds[0];
-            *(int *)((char *)&invalid + cases[i].offset) =
+            *(int*)((char*)&invalid + cases[i].offset) =
                 boundary ? cases[i].max + 1 : cases[i].min - 1;
             snapshot();
             unchanged(score_set_sound(&s, 0, invalid));
@@ -473,7 +518,11 @@ static void sound_controls(void) {
     }
 }
 
-static void main_controls(void) {
+/*
+ * Checks main-menu tempo, reverb and storage selection controls.
+ */
+static void main_controls(void)
+{
     editor_setup();
     tap(INPUT_SELECT);
     assert(e.mode == EDIT_MAIN && e.selected == 0);
@@ -518,7 +567,12 @@ static void main_controls(void) {
     unchanged(score_set_reverb(&s, (ReverbSettings){3, 30}));
 }
 
-static void channels(void) {
+/*
+ * Checks channel inheritance and editor presentation for root and branch
+ * lanes.
+ */
+static void channels(void)
+{
     base();
     SoundSettings initial = SOUND_DEFAULT;
     for (int ch = 0; ch < SCORE_CHANNELS; ch++) {
@@ -555,8 +609,8 @@ static void channels(void) {
     custom.reverb = 1;
     assert(!score_set_sound(&s, 2, custom));
     assert(!score_set_channel(&s, 0, 2));
-    assert(!memcmp(&s.sounds[score_channel(&s, 0)], &s.sounds[score_channel(&s, other)],
-                   sizeof(custom)));
+    assert(!memcmp(
+        &s.sounds[score_channel(&s, 0)], &s.sounds[score_channel(&s, other)], sizeof(custom)));
     assert(!score_delete(&s, other));
     assert(!score_delete(&s, 0));
     assert(!memcmp(&s.sounds[2], &custom, sizeof(custom)));
@@ -587,7 +641,8 @@ static void channels(void) {
     assert(e.score.sounds[0].wave_a == WAVE_TRIANGLE);
 }
 
-int main(void) {
+int main(void)
+{
     model();
     generations();
     controls();

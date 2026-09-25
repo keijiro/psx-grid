@@ -1,4 +1,14 @@
+/*
+ * storage_editor_test.c - Editor storage-menu regression tests
+ *
+ * Implementation notes:
+ *
+ * Synthetic input frames exercise storage actions and visible state without
+ * invoking a physical card session.
+ */
+
 #include "editor.h"
+
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>
@@ -6,22 +16,30 @@
 static Editor editor;
 static Input input;
 
-static void frame(uint16_t held) {
+static void frame(uint16_t held)
+{
     editor_update(&editor, input_update(&input, 1, held));
 }
 
-static void tap(uint16_t button) {
+static void tap(uint16_t button)
+{
     frame(button);
     frame(0);
 }
 
-static void init(void) {
+static void init(void)
+{
     editor_init(&editor);
     input_init(&input);
     frame(0);
 }
 
-static void chooser_and_requests(void) {
+/*
+ * Checks that slot selection and card actions become main-loop requests
+ * without immediate I/O.
+ */
+static void chooser_and_requests(void)
+{
     init();
     assert(editor.storage_slot == 1);
     assert(editor.slot_status == STORAGE_UNKNOWN);
@@ -83,7 +101,12 @@ static void chooser_and_requests(void) {
     assert(editor.mode == EDIT_PLANE);
 }
 
-static void waiting_load_lock(void) {
+/*
+ * Checks that score edits remain disabled while a staged load awaits audio
+ * adoption.
+ */
+static void waiting_load_lock(void)
+{
     init();
     assert(!score_create(&editor.score, 1, 1, 4));
     editor_refresh_capacity(&editor);
@@ -140,7 +163,11 @@ static void waiting_load_lock(void) {
     assert(editor.storage_request == STORAGE_ACTION_NONE);
 }
 
-static void inline_value_controls(void) {
+/*
+ * Checks fine and coarse adjustments on storage-facing editor rows.
+ */
+static void inline_value_controls(void)
+{
     init();
     tap(INPUT_SELECT);
     assert(editor.mode == EDIT_MAIN && editor.selected == 0);
@@ -156,7 +183,11 @@ static void inline_value_controls(void) {
     assert(editor.score.revision == revision);
 }
 
-static void adoption_and_capacity(void) {
+/*
+ * Checks capacity display after an adopted score replaces the editable one.
+ */
+static void adoption_and_capacity(void)
+{
     init();
     Score incoming;
     score_init(&incoming);
@@ -186,7 +217,12 @@ static void adoption_and_capacity(void) {
     assert(editor.free_bytes == SCORE_FILE_BYTES - (int)score_format_measure(&incoming));
 }
 
-static void resume_requires_all_buttons_up(void) {
+/*
+ * Checks that held buttons from a card session cannot trigger editor actions
+ * on resume.
+ */
+static void resume_requires_all_buttons_up(void)
+{
     init();
     editor.mode = EDIT_MAIN;
     editor.selected = 4;
@@ -207,7 +243,8 @@ static void resume_requires_all_buttons_up(void) {
     assert(editor.storage_request == STORAGE_ACTION_SAVE);
 }
 
-int main(void) {
+int main(void)
+{
     chooser_and_requests();
     waiting_load_lock();
     inline_value_controls();

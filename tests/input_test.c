@@ -1,13 +1,25 @@
+/*
+ * input_test.c - Host controller input regression tests
+ *
+ * Implementation notes:
+ *
+ * Queued button samples exercise edge detection, reconnection and
+ * independent repeat clocks through the editor.
+ */
+
 #include "input.h"
 #include "editor.h"
+
 #include <assert.h>
 #include <stdio.h>
+
 static Editor editor;
 static Input input;
 static InputQueue queue;
 static int moves, presses, releases;
 
-static void drain(void) {
+static void drain(void)
+{
     InputSample s;
     while (input_queue_pop(&queue, &s)) {
         EditorMode before = editor.mode;
@@ -21,7 +33,12 @@ static void drain(void) {
     }
 }
 
-static void value_repeat_and_conflicts(void) {
+/*
+ * Checks that opposing buttons cancel adjustment and each repeat clock
+ * restarts on a new hold.
+ */
+static void value_repeat_and_conflicts(void)
+{
     Input i;
     input_init(&i);
     input_update(&i, 1, 0);
@@ -93,7 +110,8 @@ static void value_repeat_and_conflicts(void) {
     assert(f.dx == 1);
 }
 
-int main(void) {
+int main(void)
+{
     value_repeat_and_conflicts();
     editor_init(&editor);
     input_init(&input);

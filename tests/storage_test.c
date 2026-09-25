@@ -1,12 +1,27 @@
+/*
+ * storage_test.c - Transactional storage regression tests
+ *
+ * Implementation notes:
+ *
+ * An in-memory card backend injects failures during discovery, readback and
+ * cleanup to check durable slot behavior.
+ */
+
 #include "storage.h"
+
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>
 
+// One card directory entry and its complete one-block save payload.
 typedef struct {
     CardFile info;
     uint8_t data[SCORE_FILE_BYTES];
 } File;
+/*
+ * Failure switches and counters keep each injected fault local to a card
+ * operation, while `mutate` probes whether save captured its input snapshot.
+ */
 typedef struct {
     File files[15];
     int count, begun, ends, handle, creating;
@@ -14,11 +29,12 @@ typedef struct {
     int short_read, short_write, reads, fail_read_at, short_read_at;
     int lists, fail_list_at;
     CardResult failure;
-    Score *mutate;
+    Score* mutate;
 } MemoryCard;
 
-static CardResult begin(void *context) {
-    MemoryCard *c = context;
+static CardResult begin(void* context)
+{
+    MemoryCard* c = context;
     if (c->fail_begin)
         return c->failure;
     assert(!c->begun);
@@ -27,21 +43,28 @@ static CardResult begin(void *context) {
     return CARD_OK;
 }
 
-static void end(void *context) {
-    MemoryCard *c = context;
+static void end(void* context)
+{
+    MemoryCard* c = context;
     assert(c->begun && c->handle == -1);
     c->begun = 0;
     c->ends++;
 }
 
-static CardResult check(void *context) {
-    MemoryCard *c = context;
+static CardResult check(void* context)
+{
+    MemoryCard* c = context;
     assert(c->begun);
     return c->fail_check ? c->failure : CARD_OK;
 }
 
-static CardResult list(void *context, int index, CardFile *file) {
-    MemoryCard *c = context;
+/*
+ * Injects directory failures and preserves card enumeration order for
+ * generation tie checks.
+ */
+static CardResult list(void* context, int index, CardFile* file)
+{
+    MemoryCard* c = context;
     assert(c->begun && c->handle == -1);
     c->lists++;
 
@@ -53,8 +76,9 @@ static CardResult list(void *context, int index, CardFile *file) {
     return CARD_OK;
 }
 
-static CardResult open_read(void *context, const char *name) {
-    MemoryCard *c = context;
+static CardResult open_read(void* context, const char* name)
+{
+    MemoryCard* c = context;
     assert(c->begun && c->handle == -1);
     for (int i = 0; i < c->count; i++)
         if (!strcmp(c->files[i].info.name, name)) {
@@ -65,8 +89,12 @@ static CardResult open_read(void *context, const char *name) {
     return CARD_IO;
 }
 
-static CardResult open_create(void *context, const char *name) {
-    MemoryCard *c = context;
+/*
+ * Enforces the card's 15-file ceiling if storage tries to create past it.
+ */
+static CardResult open_create(void* context, const char* name)
+{
+    MemoryCard* c = context;
     assert(c->begun && c->handle == -1);
     if (c->fail_create)
         return c->failure;
@@ -76,7 +104,7 @@ static CardResult open_create(void *context, const char *name) {
     for (int i = 0; i < c->count; i++)
         assert(strcmp(c->files[i].info.name, name));
 
-    File *f = &c->files[c->count];
+    File* f = &c->files[c->count];
     memset(f, 0, sizeof(*f));
     strcpy(f->info.name, name);
     f->info.size = SCORE_FILE_BYTES;
@@ -85,8 +113,13 @@ static CardResult open_create(void *context, const char *name) {
     return CARD_OK;
 }
 
-static CardResult read_file(void *context, uint8_t *data, int size) {
-    MemoryCard *c = context;
+/*
+ * Injects transfer failures and short reads at chosen calls to test readback
+ * handling.
+ */
+static CardResult read_file(void* context, uint8_t* data, int size)
+{
+    MemoryCard* c = context;
     assert(c->begun && c->handle >= 0 && !c->creating && size == SCORE_FILE_BYTES);
     c->reads++;
     if (c->fail_read || c->reads == c->fail_read_at)
@@ -97,8 +130,13 @@ static CardResult read_file(void *context, uint8_t *data, int size) {
     return short_read ? CARD_IO : CARD_OK;
 }
 
-static CardResult write_file(void *context, const uint8_t *data, int size) {
-    MemoryCard *c = context;
+/*
+ * Injects write failures and short writes without changing the previous valid
+ * file.
+ */
+static CardResult write_file(void* context, const uint8_t* data, int size)
+{
+    MemoryCard* c = context;
     assert(c->begun && c->handle >= 0 && c->creating && size == SCORE_FILE_BYTES);
     if (c->fail_write)
         return c->failure;
@@ -110,16 +148,18 @@ static CardResult write_file(void *context, const uint8_t *data, int size) {
     return c->short_write ? CARD_IO : CARD_OK;
 }
 
-static CardResult close_file(void *context) {
-    MemoryCard *c = context;
+static CardResult close_file(void* context)
+{
+    MemoryCard* c = context;
     assert(c->begun && c->handle >= 0);
     int creating = c->creating;
     c->handle = -1;
     return c->fail_close && creating ? c->failure : CARD_OK;
 }
 
-static CardResult erase_file(void *context, const char *name) {
-    MemoryCard *c = context;
+static CardResult erase_file(void* context, const char* name)
+{
+    MemoryCard* c = context;
     assert(c->begun && c->handle == -1);
     if (c->fail_erase)
         return c->failure;
@@ -133,12 +173,23 @@ static CardResult erase_file(void *context, const char *name) {
     return CARD_IO;
 }
 
-static CardBackend backend(MemoryCard *c) {
-    return (CardBackend){c,           begin,     end,        check,      list,      open_read,
-                         open_create, read_file, write_file, close_file, erase_file};
+static CardBackend backend(MemoryCard* c)
+{
+    return (CardBackend){c,
+                         begin,
+                         end,
+                         check,
+                         list,
+                         open_read,
+                         open_create,
+                         read_file,
+                         write_file,
+                         close_file,
+                         erase_file};
 }
 
-static Score make_score(int bpm) {
+static Score make_score(int bpm)
+{
     Score s;
     score_init(&s);
     s.bpm = bpm;
@@ -147,12 +198,14 @@ static Score make_score(int bpm) {
     return s;
 }
 
-static void put32(uint8_t *p, uint32_t v) {
+static void put32(uint8_t* p, uint32_t v)
+{
     for (int i = 0; i < 4; i++)
         p[i] = (uint8_t)(v >> (8 * i));
 }
 
-static uint32_t checksum(const uint8_t *p, size_t n) {
+static uint32_t checksum(const uint8_t* p, size_t n)
+{
     uint32_t crc = UINT32_MAX;
     for (size_t i = 0; i < n; i++) {
         crc ^= i >= 20 && i < 24 ? 0 : p[i];
@@ -162,15 +215,20 @@ static uint32_t checksum(const uint8_t *p, size_t n) {
     return ~crc;
 }
 
-static void set_newer(File *file) {
-    uint8_t *header = file->data + SCORE_FILE_WRAPPER;
+/*
+ * Changes a valid fixture to a newer format version and repairs its checksum.
+ */
+static void set_newer(File* file)
+{
+    uint8_t* header = file->data + SCORE_FILE_WRAPPER;
     header[4] = 2;
     uint32_t bytes = (uint32_t)header[12] | (uint32_t)header[13] << 8 | (uint32_t)header[14] << 16 |
                      (uint32_t)header[15] << 24;
     put32(header + 20, checksum(header, 32 + bytes));
 }
 
-static StorageResult load(MemoryCard *c, Score *score) {
+static StorageResult load(MemoryCard* c, Score* score)
+{
     Storage s;
     storage_init(&s, backend(c));
     StorageResult r = storage_load(&s, 1);
@@ -180,7 +238,8 @@ static StorageResult load(MemoryCard *c, Score *score) {
     return r;
 }
 
-static void save(MemoryCard *c, int bpm) {
+static void save(MemoryCard* c, int bpm)
+{
     Storage s;
     Score score = make_score(bpm);
     storage_init(&s, backend(c));
@@ -188,7 +247,12 @@ static void save(MemoryCard *c, int bpm) {
     assert(!c->begun);
 }
 
-static void basic_recovery(void) {
+/*
+ * Checks save and load through valid generations after an earlier file remains
+ * present.
+ */
+static void basic_recovery(void)
+{
     MemoryCard c = {0};
     Score recovered;
     c.failure = CARD_IO;
@@ -202,7 +266,12 @@ static void basic_recovery(void) {
     assert(load(&c, &recovered) == STORAGE_CORRUPT);
 }
 
-static void write_failures(void) {
+/*
+ * Injects write failures before verification to confirm the previous
+ * generation remains loadable.
+ */
+static void write_failures(void)
+{
     for (int failure = 0; failure < 4; failure++) {
         MemoryCard c = {0};
         Storage s;
@@ -222,7 +291,12 @@ static void write_failures(void) {
     }
 }
 
-static void readback_failures(void) {
+/*
+ * Injects readback failures so an unverified new file cannot replace the valid
+ * one.
+ */
+static void readback_failures(void)
+{
     for (int failure = 0; failure < 2; failure++) {
         MemoryCard c = {0};
         Storage s;
@@ -243,14 +317,19 @@ static void readback_failures(void) {
     }
 }
 
-static void capacity_and_cleanup(void) {
+/*
+ * Checks full-card behavior and cleanup only after a new generation is
+ * verified.
+ */
+static void capacity_and_cleanup(void)
+{
     MemoryCard c = {0};
     Storage s;
     Score score = make_score(202), recovered;
     c.failure = CARD_IO;
     save(&c, 101);
     for (int i = 1; i < 15; i++) {
-        File *f = &c.files[c.count++];
+        File* f = &c.files[c.count++];
         snprintf(f->info.name, sizeof(f->info.name), "OTHER%02d", i);
         f->info.size = SCORE_FILE_BYTES;
         memset(f->data, i, sizeof(f->data));
@@ -272,13 +351,17 @@ static void capacity_and_cleanup(void) {
     assert(c.count == 1 && load(&c, &recovered) == STORAGE_SAVED && recovered.bpm == 250);
 }
 
-static void corrupt_higher_and_overflow(void) {
+/*
+ * Checks corrupt high generations and exhaustion of the generation counter.
+ */
+static void corrupt_higher_and_overflow(void)
+{
     MemoryCard c = {0};
     Storage s;
     Score score = make_score(202), recovered;
     c.failure = CARD_IO;
     save(&c, 101);
-    File *partial = &c.files[c.count++];
+    File* partial = &c.files[c.count++];
     memset(partial, 0, sizeof(*partial));
     strcpy(partial->info.name, "BIJACQUARD0100000009");
     partial->info.size = SCORE_FILE_BYTES;
@@ -291,13 +374,18 @@ static void corrupt_higher_and_overflow(void) {
     assert(storage_save(&s, 1, &score) == STORAGE_GENERATION_FULL);
 }
 
-static void newer_and_generation_ties(void) {
+/*
+ * Checks newer-version precedence and deterministic selection among equal
+ * generations.
+ */
+static void newer_and_generation_ties(void)
+{
     MemoryCard c = {0};
     Storage s;
     Score recovered, newer = make_score(202);
     c.failure = CARD_IO;
     save(&c, 101);
-    File *file = &c.files[c.count++];
+    File* file = &c.files[c.count++];
     memset(file, 0, sizeof(*file));
     strcpy(file->info.name, "BIJACQUARD0100000002");
     file->info.size = SCORE_FILE_BYTES;
@@ -318,13 +406,21 @@ static void newer_and_generation_ties(void) {
     assert(load(&c, &recovered) == STORAGE_SAVED && recovered.bpm == 101);
 }
 
-static void directory_and_result_errors(void) {
+/*
+ * Checks malformed directory entries and backend results before slot
+ * discovery.
+ */
+static void directory_and_result_errors(void)
+{
     static const struct {
         CardResult card;
         StorageResult storage;
-    } cases[] = {{CARD_MISSING, STORAGE_NO_CARD},      {CARD_TIMEOUT, STORAGE_TIMEOUT},
-                 {CARD_CHANGED, STORAGE_CHANGED},      {CARD_UNFORMATTED, STORAGE_UNFORMATTED},
-                 {CARD_DAMAGED, STORAGE_CARD_DAMAGED}, {CARD_IO, STORAGE_IO}};
+    } cases[] = {{CARD_MISSING, STORAGE_NO_CARD},
+                 {CARD_TIMEOUT, STORAGE_TIMEOUT},
+                 {CARD_CHANGED, STORAGE_CHANGED},
+                 {CARD_UNFORMATTED, STORAGE_UNFORMATTED},
+                 {CARD_DAMAGED, STORAGE_CARD_DAMAGED},
+                 {CARD_IO, STORAGE_IO}};
     Score score = make_score(120);
     for (unsigned i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
         MemoryCard c = {.fail_begin = 1, .failure = cases[i].card};
@@ -345,7 +441,12 @@ static void directory_and_result_errors(void) {
     assert(storage_refresh(&s, 1) == STORAGE_CARD_DAMAGED && !c.begun && c.ends == 1);
 }
 
-static void card_change_during_operations(void) {
+/*
+ * Injects media changes at I/O boundaries so a mixed-card operation cannot
+ * succeed.
+ */
+static void card_change_during_operations(void)
+{
     for (int operation = 0; operation < 4; operation++) {
         MemoryCard c = {0};
         Storage s;
@@ -373,7 +474,12 @@ static void card_change_during_operations(void) {
     }
 }
 
-static void session_failures(void) {
+/*
+ * Checks that failed session entry and teardown do not leave a usable stale
+ * handle.
+ */
+static void session_failures(void)
+{
     MemoryCard c = {0};
     Storage s;
     Score score = make_score(202);
@@ -386,7 +492,8 @@ static void session_failures(void) {
     assert(storage_save(&s, 1, &score) == STORAGE_CHANGED && !c.begun && c.ends == 1);
 }
 
-int main(void) {
+int main(void)
+{
     basic_recovery();
     write_failures();
     readback_failures();

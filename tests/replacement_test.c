@@ -1,13 +1,19 @@
+/*
+ * replacement_test.c - Host sequencer replacement regression tests
+ *
+ * Implementation notes:
+ *
+ * A recording sink checks complete-slice adoption, note ownership and
+ * replacement timing without hardware callbacks.
+ */
+
 #include "sequencer.h"
+
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>
 
-typedef enum {
-    EVENT_ON,
-    EVENT_OFF,
-    EVENT_STOP
-} EventKind;
+typedef enum { EVENT_ON, EVENT_OFF, EVENT_STOP } EventKind;
 
 typedef struct {
     EventKind kind;
@@ -21,7 +27,8 @@ static Event events[512];
 static int event_count, slot;
 static uint32_t serial;
 
-static uint32_t note(void *context, AudioTime at, int pitch, SoundSettings sound) {
+static uint32_t note(void* context, AudioTime at, int pitch, SoundSettings sound)
+{
     (void)context;
     assert(event_count < (int)(sizeof(events) / sizeof(events[0])));
     uint32_t token = (++serial << 5) | (slot++ % SEQUENCER_VOICES);
@@ -29,13 +36,15 @@ static uint32_t note(void *context, AudioTime at, int pitch, SoundSettings sound
     return token;
 }
 
-static void off(void *context, AudioTime at, uint32_t token) {
+static void off(void* context, AudioTime at, uint32_t token)
+{
     (void)context;
     assert(event_count < (int)(sizeof(events) / sizeof(events[0])));
     events[event_count++] = (Event){.kind = EVENT_OFF, .at = at, .token = token};
 }
 
-static void stop(void *context, AudioTime at) {
+static void stop(void* context, AudioTime at)
+{
     (void)context;
     assert(event_count < (int)(sizeof(events) / sizeof(events[0])));
     events[event_count++] = (Event){.kind = EVENT_STOP, .at = at};
@@ -43,11 +52,13 @@ static void stop(void *context, AudioTime at) {
 
 static NoteSink trace = {NULL, note, off, stop, NULL};
 
-static void reset_trace(void) {
+static void reset_trace(void)
+{
     event_count = slot = 0;
 }
 
-static void lane(Score *score, int x, int y, int length, int division, int channel, int pitch) {
+static void lane(Score* score, int x, int y, int length, int division, int channel, int pitch)
+{
     assert(!score_create(score, x, y, length));
     int id = score_at(score, x, y).lane;
     assert(id >= 0);
@@ -58,7 +69,8 @@ static void lane(Score *score, int x, int y, int length, int division, int chann
     assert(!score_place_value(score, x + 1, y, value));
 }
 
-static int count(EventKind kind, AudioTime at, int pitch) {
+static int count(EventKind kind, AudioTime at, int pitch)
+{
     int result = 0;
     for (int i = 0; i < event_count; i++)
         if (events[i].kind == kind && events[i].at == at &&
@@ -67,14 +79,16 @@ static int count(EventKind kind, AudioTime at, int pitch) {
     return result;
 }
 
-static const Event *find_note(AudioTime at, int pitch) {
+static const Event* find_note(AudioTime at, int pitch)
+{
     for (int i = 0; i < event_count; i++)
         if (events[i].kind == EVENT_ON && events[i].at == at && events[i].pitch == pitch)
             return &events[i];
     return NULL;
 }
 
-static int count_off(uint32_t token, AudioTime before_or_at) {
+static int count_off(uint32_t token, AudioTime before_or_at)
+{
     int result = 0;
     for (int i = 0; i < event_count; i++)
         if (events[i].kind == EVENT_OFF && events[i].token == token && events[i].at <= before_or_at)
@@ -82,7 +96,8 @@ static int count_off(uint32_t token, AudioTime before_or_at) {
     return result;
 }
 
-static int count_off_at(uint32_t token, AudioTime at) {
+static int count_off_at(uint32_t token, AudioTime at)
+{
     int result = 0;
     for (int i = 0; i < event_count; i++)
         if (events[i].kind == EVENT_OFF && events[i].token == token && events[i].at == at)
@@ -90,13 +105,19 @@ static int count_off_at(uint32_t token, AudioTime at) {
     return result;
 }
 
-static Sequencer *service_until(Sequencer *active, Sequencer *expected, AudioTime now) {
+static Sequencer* service_until(Sequencer* active, Sequencer* expected, AudioTime now)
+{
     for (int i = 0; i < 16 && active != expected; i++)
         active = sequencer_service(active, now);
     return active;
 }
 
-static void mixed_divisions_and_master(void) {
+/*
+ * Checks that the selected master lap controls takeover even when other lanes
+ * use different divisions.
+ */
+static void mixed_divisions_and_master(void)
+{
     Score old, incoming;
     Sequencer current, prepared;
     score_init(&old);
@@ -113,7 +134,7 @@ static void mixed_divisions_and_master(void) {
     assert(sequencer_replace(&current, &prepared, 1));
     assert(!sequencer_replace(&current, &prepared, 1));
     AudioTime half = SEQUENCER_HZ / 16, step = SEQUENCER_HZ / 8, seam = 2 * step;
-    Sequencer *active = sequencer_service(&current, half);
+    Sequencer* active = sequencer_service(&current, half);
     active = sequencer_service(active, step);
     active = sequencer_service(active, step + half);
     active = service_until(active, &prepared, seam);
@@ -123,7 +144,12 @@ static void mixed_divisions_and_master(void) {
     assert(count(EVENT_ON, seam, 70) == 1 && count(EVENT_ON, seam, 80) == 1);
 }
 
-static void branch_lap_and_gate_transfer(void) {
+/*
+ * Checks branch traversal at the seam and carries outstanding gate-offs into
+ * the new state.
+ */
+static void branch_lap_and_gate_transfer(void)
+{
     Score old, incoming;
     Sequencer current, prepared;
     score_init(&old);
@@ -132,7 +158,7 @@ static void branch_lap_and_gate_transfer(void) {
     assert(!score_place_value(&old, 1, 0, jump));
     int branch = old.tiles[score_at(&old, 1, 0).tile].branch;
     assert(!score_resize(&old, branch, 2));
-    Lane *b = &old.lanes[branch];
+    Lane* b = &old.lanes[branch];
     TileValue held = score_default(TILE_RELATIVE);
     held.lock_mask = LOCK_ATTACK;
     held.attack = 100;
@@ -149,9 +175,9 @@ static void branch_lap_and_gate_transfer(void) {
     sequencer_start(&prepared, &incoming, trace, 0);
     assert(sequencer_replace(&current, &prepared, 1));
     AudioTime step = SEQUENCER_HZ / 8, seam = 3 * step;
-    Sequencer *active = sequencer_service(&current, step);
+    Sequencer* active = sequencer_service(&current, step);
     active = sequencer_service(active, 2 * step);
-    const Event *outgoing = find_note(2 * step, 60);
+    const Event* outgoing = find_note(2 * step, 60);
     assert(outgoing);
     uint32_t outgoing_token = outgoing->token;
     active = service_until(active, &prepared, seam);
@@ -164,7 +190,11 @@ static void branch_lap_and_gate_transfer(void) {
     assert(active == &prepared && count_off_at(outgoing_token, gate) == 1);
 }
 
-static void conditional_branch_seams(void) {
+/*
+ * Exercises replacement after a gate suppresses or redirects a branch visit.
+ */
+static void conditional_branch_seams(void)
+{
     AudioTime step = SEQUENCER_HZ / 8;
     for (int taken = 0; taken <= 1; taken++) {
         Score old, incoming;
@@ -191,7 +221,7 @@ static void conditional_branch_seams(void) {
         sequencer_start(&current, &old, trace, 0);
         sequencer_start(&prepared, &incoming, trace, 0);
         assert(sequencer_replace(&current, &prepared, 0));
-        Sequencer *active = sequencer_service(&current, 0);
+        Sequencer* active = sequencer_service(&current, 0);
         assert(active == &current && count(EVENT_ON, 0, 73) == 0);
         if (taken) {
             active = sequencer_service(active, step);
@@ -205,7 +235,11 @@ static void conditional_branch_seams(void) {
     }
 }
 
-static void empty_and_stop_adoption(void) {
+/*
+ * Checks immediate adoption when no active lap can establish a future seam.
+ */
+static void empty_and_stop_adoption(void)
+{
     Score empty, incoming;
     Sequencer current, prepared;
     score_init(&empty);
@@ -215,7 +249,7 @@ static void empty_and_stop_adoption(void) {
     sequencer_start(&current, &empty, trace, 100);
     sequencer_start(&prepared, &incoming, trace, 0);
     assert(sequencer_replace(&current, &prepared, 100));
-    Sequencer *active = sequencer_service(&current, 100);
+    Sequencer* active = sequencer_service(&current, 100);
     assert(active == &prepared && count(EVENT_ON, 100, 65) == 1);
 
     Score old;
@@ -233,7 +267,12 @@ static void empty_and_stop_adoption(void) {
     assert(count(EVENT_ON, 10, 65) == 0);
 }
 
-static void split_slice_discovers_seam(void) {
+/*
+ * Checks that replacement waits for a dense slice to finish after its lap
+ * boundary is discovered.
+ */
+static void split_slice_discovers_seam(void)
+{
     Score old, incoming;
     Sequencer current, prepared;
     score_init(&old);
@@ -251,11 +290,15 @@ static void split_slice_discovers_seam(void) {
     assert(current.slicing);
     sequencer_start(&prepared, &incoming, trace, 0);
     assert(sequencer_replace(&current, &prepared, 1));
-    Sequencer *active = sequencer_service(&current, SEQUENCER_HZ / 8);
+    Sequencer* active = sequencer_service(&current, SEQUENCER_HZ / 8);
     assert(active == &prepared && count(EVENT_ON, SEQUENCER_HZ / 8, 90) == 1);
 }
 
-static void replacement_preempts_pending_lane(void) {
+/*
+ * Checks takeover before a pending lane can emit a note from the old snapshot.
+ */
+static void replacement_preempts_pending_lane(void)
+{
     Score old, published, incoming;
     Sequencer current, prepared;
     score_init(&old);
@@ -279,14 +322,15 @@ static void replacement_preempts_pending_lane(void) {
     sequencer_start(&prepared, &incoming, trace, 0);
     assert(sequencer_replace(&current, &prepared, 1));
     AudioTime step = SEQUENCER_HZ / 8, seam = 2 * step;
-    Sequencer *active = sequencer_service(&current, step);
+    Sequencer* active = sequencer_service(&current, step);
     active = service_until(active, &prepared, seam);
-    const Event *adopted = find_note(seam, 76);
+    const Event* adopted = find_note(seam, 76);
     assert(active == &prepared && adopted && adopted->sound.attack == 321);
     assert(count(EVENT_ON, seam, 52) == 0);
 }
 
-int main(void) {
+int main(void)
+{
     mixed_divisions_and_master();
     branch_lap_and_gate_transfer();
     conditional_branch_seams();

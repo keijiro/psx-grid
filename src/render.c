@@ -1,19 +1,33 @@
+/*
+ * render.c - Double-buffered grid and menu rendering
+ *
+ * Implementation notes:
+ *
+ * GPU primitives are allocated from fixed packet buffers. Ordering-table
+ * depths control layering while host checks measure packet use.
+ */
+
 #include "render.h"
+
 #include <psxgpu.h>
 #include <psxetc.h>
 #include <stdio.h>
 #include <string.h>
 #include <stddef.h>
+
 #include "ui_style.h"
 #include "ui_atlas.h"
+
 // A full 20-by-15 view can contain 300 labeled tiles and their rail dots.
 // Both buffers still fit in main RAM at the measured 64 KiB packet budget.
 #define PACKET_BYTES 65536
 #define OT_SIZE 8
 
-// OT traverses high depths first and reverses insertion within each bucket.
-// 7: texture setup/lattice, 6: rails, 5: tiles, 4: endpoint, 3: cursor,
-// 2: panels and shadows, 1: underlines, 0: text.
+/*
+ * OT traverses high depths first and reverses insertion within each bucket.
+ * 7: texture setup/lattice, 6: rails, 5: tiles, 4: endpoint, 3: cursor,
+ * 2: panels and shadows, 1: underlines, 0: text.
+ */
 typedef struct {
     DRAWENV draw;
     DISPENV disp;
@@ -21,25 +35,39 @@ typedef struct {
     uint32_t packets[PACKET_BYTES / 4];
 } Buffer;
 
+/*
+ * One command buffer is submitted while the other remains visible. used
+ * counts packet bytes only in the buffer under construction.
+ */
 static Buffer buffers[2];
 static int active, camera_x, camera_y;
 static size_t used;
 // Debugger-visible counters; overflow is rejected before touching memory.
 volatile unsigned render_packet_peak, render_overflows;
 
-static void *packet(size_t bytes) {
+/*
+ * Rejects a primitive before touching either packet buffer when the fixed
+ * command budget is exhausted.
+ */
+static void* packet(size_t bytes)
+{
     if (bytes > PACKET_BYTES - used) {
         render_overflows++;
         return NULL;
     }
-    void *p = (uint8_t *)buffers[active].packets + used;
+    void* p = (uint8_t*)buffers[active].packets + used;
     used += bytes;
     if (used > render_packet_peak)
         render_packet_peak = used;
     return p;
 }
 
-static void rect(int depth, int x, int y, int w, int h, int gray) {
+/*
+ * Clips panel-depth primitives to display margins while leaving grid-depth
+ * primitives available across the full frame.
+ */
+static void rect(int depth, int x, int y, int w, int h, int gray)
+{
     // Menu packets stay inside the display edge even when their panel scrolls
     // beyond it; the plane continues to use the full framebuffer.
     int top = depth <= 2 ? UI_MENU_EDGE : 0;
@@ -58,7 +86,7 @@ static void rect(int depth, int x, int y, int w, int h, int gray) {
         h = bottom - y;
     if (w <= 0 || h <= 0)
         return;
-    TILE *p = packet(sizeof(TILE));
+    TILE* p = packet(sizeof(TILE));
     if (!p)
         return;
     setTile(p);
@@ -68,14 +96,20 @@ static void rect(int depth, int x, int y, int w, int h, int gray) {
     addPrim(&buffers[active].ot[depth], p);
 }
 
-static void outline(int depth, int x, int y, int w, int h, int gray) {
+static void outline(int depth, int x, int y, int w, int h, int gray)
+{
     rect(depth, x, y, w, 1, gray);
     rect(depth, x, y + h - 1, w, 1, gray);
     rect(depth, x, y, 1, h, gray);
     rect(depth, x + w - 1, y, 1, h, gray);
 }
 
-static void sprite(int depth, int x, int y, int u, int v, int w, int h) {
+/*
+ * Clips both destination and texture origin so partial sprites keep their
+ * source pixels aligned.
+ */
+static void sprite(int depth, int x, int y, int u, int v, int w, int h)
+{
     int top = depth <= 2 ? UI_MENU_EDGE : 0;
     int bottom = depth <= 2 ? SCREEN_H - UI_MENU_EDGE : SCREEN_H;
     if (x < 0) {
@@ -94,7 +128,7 @@ static void sprite(int depth, int x, int y, int u, int v, int w, int h) {
         h = bottom - y;
     if (w <= 0 || h <= 0)
         return;
-    SPRT *p = packet(sizeof(SPRT));
+    SPRT* p = packet(sizeof(SPRT));
     if (!p)
         return;
     setSprt(p);
@@ -106,11 +140,13 @@ static void sprite(int depth, int x, int y, int u, int v, int w, int h) {
     addPrim(&buffers[active].ot[depth], p);
 }
 
-static int glyph(unsigned char ch) {
+static int glyph(unsigned char ch)
+{
     return ch >= 32 && ch <= 126 ? ch - 32 : '?' - 32;
 }
 
-static void text(int x, int y, const char *s) {
+static void text(int x, int y, const char* s)
+{
     while (*s) {
         int i = glyph((unsigned char)*s++), advance = ui_advance[i];
         if (i != 0)
@@ -119,14 +155,20 @@ static void text(int x, int y, const char *s) {
     }
 }
 
-static int text_width(const char *s) {
+static int text_width(const char* s)
+{
     int width = 0;
     while (*s)
         width += ui_advance[glyph((unsigned char)*s++)];
     return width;
 }
 
-static void clipped_text(int x, int y, const char *s, int right) {
+/*
+ * Stops before a whole glyph would cross the panel limit, avoiding partial
+ * labels in the small font.
+ */
+static void clipped_text(int x, int y, const char* s, int right)
+{
     while (*s) {
         int i = glyph((unsigned char)*s++), advance = ui_advance[i];
         if (x + advance > right)
@@ -137,7 +179,11 @@ static void clipped_text(int x, int y, const char *s, int right) {
     }
 }
 
-static void clipped_panel(int x, int y, int w, int h, int gray) {
+/*
+ * Fills a panel with clipped horizontal strips, including its angled edges.
+ */
+static void clipped_panel(int x, int y, int w, int h, int gray)
+{
     // Match the reference's diagonal cuts at native resolution. Scanline
     // strips keep the panel and its shadow on the same integer pixel edge.
     const int top = 9, bottom = 9;
@@ -148,12 +194,18 @@ static void clipped_panel(int x, int y, int w, int h, int gray) {
         rect(2, x, y + h - bottom + i, w - i - 1, 1, gray);
 }
 
-static void menu_panel(int x, int y, int w, int h) {
+static void menu_panel(int x, int y, int w, int h)
+{
     clipped_panel(x, y, w, h, UI_PANEL);
     clipped_panel(x + 4, y + 4, w, h, UI_SHADOW);
 }
 
-static void menu_row(const Editor *e, const EditorRow *row, int index, int x, int y, int width) {
+/*
+ * Right-aligns a row value while clipping its label before the value begins;
+ * selection underlines stay in a shallower ordering-table bucket.
+ */
+static void menu_row(const Editor* e, const EditorRow* row, int index, int x, int y, int width)
+{
     char value[48];
     editor_row_value(e, row->id, value, sizeof(value));
     int right = x + width;
@@ -165,7 +217,12 @@ static void menu_row(const Editor *e, const EditorRow *row, int index, int x, in
         rect(1, x, y + 9, width, 1, UI_INK);
 }
 
-static void draw_menu(const Editor *e) {
+/*
+ * Builds the current menu, picker, pattern editor or deletion confirmation
+ * from the same editor state consumed by the grid view.
+ */
+static void draw_menu(const Editor* e)
+{
     EditorRow rows[EDITOR_ROWS];
     int count = editor_rows(e, rows);
     int sound = e->mode == EDIT_SOUND;
@@ -183,17 +240,23 @@ static void draw_menu(const Editor *e) {
         strcpy(title, "CYCLE PATTERN");
     else if (picker)
         strcpy(title, "CREATE TILE");
-    else if (confirm)
-        strcpy(title, e->target                        ? "DELETE JUMP BRANCH?"
-                      : e->score.lanes[e->lane].source ? "DELETE BRANCH LANE?"
-                                                       : "DELETE LANE?");
-    else
+    else if (confirm) {
+        if (e->target)
+            strcpy(title, "DELETE JUMP BRANCH?");
+        else if (e->score.lanes[e->lane].source)
+            strcpy(title, "DELETE BRANCH LANE?");
+        else
+            strcpy(title, "DELETE LANE?");
+    } else
         strcpy(title, "MENU");
     char status[64] = "";
     if (e->mode == EDIT_MAIN) {
         snprintf(status, sizeof(status), "%s", storage_message(e->slot_status));
         if (e->card_free >= 0)
-            snprintf(status, sizeof(status), "%s  %d BLK", storage_message(e->slot_status),
+            snprintf(status,
+                     sizeof(status),
+                     "%s  %d BLK",
+                     storage_message(e->slot_status),
                      e->card_free);
     }
     char value[48];
@@ -286,11 +349,13 @@ static void draw_menu(const Editor *e) {
         clipped_text(x + 15, y + height - 17, e->message, x + width - 15);
 }
 
-static void tile(int depth, int x, int y, int kind) {
+static void tile(int depth, int x, int y, int kind)
+{
     sprite(depth, x, y, kind * 16, 0, 16, 16);
 }
 
-static void cursor(int x, int y) {
+static void cursor(int x, int y)
+{
     // The body spans x+2..14 and y+1..14. Brackets at x+1..15 and
     // y+0..15 touch its straight edges without covering the body.
     const int width = 15, height = 16, arm = 4;
@@ -302,11 +367,17 @@ static void cursor(int x, int y) {
         }
 }
 
-static int clamp(int v, int max) {
+static int clamp(int v, int max)
+{
     return v < 0 ? 0 : v > max ? max : v;
 }
 
-static int follow(int camera, int cursor, int size, int bound) {
+/*
+ * Keeps two grid cells of context around the cursor when possible and clamps
+ * at score edges.
+ */
+static int follow(int camera, int cursor, int size, int bound)
+{
     if (cursor < camera + 2)
         camera = cursor - 2;
     if (cursor >= camera + size - 2)
@@ -314,7 +385,8 @@ static int follow(int camera, int cursor, int size, int bound) {
     return clamp(camera, bound - size);
 }
 
-void render_init(void) {
+void render_init(void)
+{
     ResetGraph(0);
     SetVideoMode(MODE_NTSC);
     // 4-bit texels occupy 64x96 VRAM words at x=640. CLUT sits immediately
@@ -335,11 +407,15 @@ void render_init(void) {
     SetDispMask(1);
 }
 
-static void small(int x, int y, const char *s, int dark, int shift, int first_shift) {
-    const char *chars = "0123456789ABCDEFG+LR%h";
+/*
+ * Draws the tile's compact atlas glyphs centered within one grid cell.
+ */
+static void small(int x, int y, const char* s, int dark, int shift, int first_shift)
+{
+    const char* chars = "0123456789ABCDEFG+LR%h";
     // Tight spacing after the compact plus keeps sharp labels inside the tile body.
     int width = 0, advance = 0, compact = 0;
-    for (const char *p = s; *p; p++) {
+    for (const char* p = s; *p; p++) {
         advance = *p == '+' || (compact && *p >= '0' && *p <= '9') ? 3 : 4;
         width += advance;
         compact = *p == '+' || (compact && *p >= '0' && *p <= '9');
@@ -352,7 +428,7 @@ static void small(int x, int y, const char *s, int dark, int shift, int first_sh
     compact = 0;
     while (*s) {
         char ch = *s++;
-        const char *p = strchr(chars, ch);
+        const char* p = strchr(chars, ch);
         if (p)
             sprite(5, x + first_shift, y, (int)(p - chars) * 4, dark ? 56 : 48, 3, 5);
         first_shift = 0;
@@ -361,14 +437,25 @@ static void small(int x, int y, const char *s, int dark, int shift, int first_sh
     }
 }
 
-static void draw_cell(const Score *s, Cell c, int x, int y) {
+/*
+ * Maps one resolved model cell to its atlas sprite and optional text label.
+ */
+static void draw_cell(const Score* s, Cell c, int x, int y)
+{
     if (c.kind == CELL_EMPTY)
         return;
-    int kind = c.kind == CELL_HEAD                            ? (s->lanes[c.lane].source ? 5 : 0)
-               : c.kind == CELL_END                           ? 7
-               : c.kind == CELL_STEP                          ? 8
-               : s->tiles[c.tile].value.kind == TILE_RELATIVE ? 6
-                                                              : s->tiles[c.tile].value.kind;
+    int kind;
+    if (c.kind == CELL_HEAD)
+        kind = s->lanes[c.lane].source ? 5 : 0;
+    else if (c.kind == CELL_END)
+        kind = 7;
+    else if (c.kind == CELL_STEP)
+        kind = 8;
+    else {
+        kind = s->tiles[c.tile].value.kind;
+        if (kind == TILE_RELATIVE)
+            kind = 6;
+    }
     char label[16] = "";
     int shift = 0, first_shift = 0;
     if (c.kind == CELL_HEAD) {
@@ -383,7 +470,7 @@ static void draw_cell(const Score *s, Cell c, int x, int y) {
         TileValue v = s->tiles[c.tile].value;
         if (v.kind == TILE_NOTE) {
             snprintf(label, sizeof(label), "%s%d", score_note_name(v.pitch), v.pitch / 12);
-            for (char *p = label; *p; p++)
+            for (char* p = label; *p; p++)
                 if (*p == '#')
                     *p = '+';
             // The plus and octave already align; only the note letter needs a nudge.
@@ -393,7 +480,10 @@ static void draw_cell(const Score *s, Cell c, int x, int y) {
                 shift = 1;
         }
         if (v.kind == TILE_RELATIVE)
-            snprintf(label, sizeof(label), "%s%s", v.lock_mask & LOCK_ATTACK ? "A" : "",
+            snprintf(label,
+                     sizeof(label),
+                     "%s%s",
+                     v.lock_mask & LOCK_ATTACK ? "A" : "",
                      v.lock_mask & LOCK_RELEASE ? "R" : "");
         if (v.kind == TILE_CYCLE)
             snprintf(label, sizeof(label), "C%d", v.period);
@@ -405,23 +495,28 @@ static void draw_cell(const Score *s, Cell c, int x, int y) {
     tile(5, x, y, kind);
 }
 
-static int screen_x(int x) {
+static int screen_x(int x)
+{
     return VIEW_X + clamp(x - camera_x, VIEW_COLS - 1) * CELL_SIZE;
 }
 
-static int screen_y(int y) {
+static int screen_y(int y)
+{
     return VIEW_Y + clamp(y - camera_y, VIEW_ROWS - 1) * CELL_SIZE;
 }
 
-static int visible(int x, int y) {
+static int visible(int x, int y)
+{
     return x >= camera_x && x < camera_x + VIEW_COLS && y >= camera_y && y < camera_y + VIEW_ROWS;
 }
 
-static void marker(int x, int y, int gray) {
+static void marker(int x, int y, int gray)
+{
     outline(4, screen_x(x) + 1, screen_y(y) + 1, 14, 14, gray);
 }
 
-void render_frame(const Editor *e, int connected) {
+void render_frame(const Editor* e, int connected)
+{
     camera_x = follow(camera_x, e->x, VIEW_COLS, SCORE_WIDTH);
     camera_y = follow(camera_y, e->y, VIEW_ROWS, SCORE_HEIGHT);
     used = 0;
@@ -433,7 +528,7 @@ void render_frame(const Editor *e, int connected) {
             rect(7, x + 8, y + 8, 1, 1, UI_DOT);
             if (c.kind == CELL_EMPTY)
                 continue;
-            const Lane *l = &e->score.lanes[c.lane];
+            const Lane* l = &e->score.lanes[c.lane];
             if (!c.depth)
                 for (int dx = 0; dx < CELL_SIZE; dx += 4) {
                     int logical = (camera_x + col - l->x) * CELL_SIZE + dx - 8;
@@ -446,20 +541,28 @@ void render_frame(const Editor *e, int connected) {
         }
     for (int i = 0; i < SCORE_LANES; i++)
         if (e->score.lanes[i].active) {
-            const Lane *l = &e->score.lanes[i];
+            const Lane* l = &e->score.lanes[i];
             for (int j = 0; j < l->length; j++) {
                 int d = 0;
                 for (TileId t = l->tiles[j]; t; t = e->score.tiles[t].next, d++)
                     if (e->score.tiles[t].value.kind == TILE_JUMP) {
-                        const Lane *b = &e->score.lanes[e->score.tiles[t].branch];
+                        const Lane* b = &e->score.lanes[e->score.tiles[t].branch];
                         int sx = l->x + j + 1, sy = l->y + d;
                         if (!visible(sx, sy) && !visible(b->x, b->y))
                             continue;
                         int x1 = screen_x(sx) + 8, y1 = screen_y(sy) + 8, x2 = screen_x(b->x) + 8,
                             y2 = screen_y(b->y) + 8;
-                        rect(6, x1 < x2 ? x1 : x2, y1, (x1 < x2 ? x2 - x1 : x1 - x2) + 1, 1,
+                        rect(6,
+                             x1 < x2 ? x1 : x2,
+                             y1,
+                             (x1 < x2 ? x2 - x1 : x1 - x2) + 1,
+                             1,
                              UI_BORDER);
-                        rect(6, x2, y1 < y2 ? y1 : y2, 1, (y1 < y2 ? y2 - y1 : y1 - y2) + 1,
+                        rect(6,
+                             x2,
+                             y1 < y2 ? y1 : y2,
+                             1,
+                             (y1 < y2 ? y2 - y1 : y1 - y2) + 1,
                              UI_BORDER);
                         if (!visible(b->x, b->y))
                             marker(b->x, b->y, UI_INK);
@@ -494,7 +597,7 @@ void render_frame(const Editor *e, int connected) {
     if (e->mode != EDIT_PLANE && e->mode != EDIT_MOVE)
         draw_menu(e);
     (void)connected;
-    DR_TPAGE *page = packet(sizeof(DR_TPAGE));
+    DR_TPAGE* page = packet(sizeof(DR_TPAGE));
     if (page) {
         setDrawTPage(page, 0, 0, getTPage(0, 0, 640, 0));
         addPrim(&buffers[active].ot[7], page);

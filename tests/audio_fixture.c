@@ -1,14 +1,24 @@
-// Standalone development fixture; never compiled into the editor executable.
+/*
+ * audio_fixture.c - Console audio timing and synthesis fixture
+ *
+ * Implementation notes:
+ *
+ * This standalone development fixture runs outside the editor executable
+ * and reports hardware counters for emulator-driven checks.
+ */
+
 #include "audio.h"
 #include "pad.h"
 #include "editor.h"
 #include "render.h"
+
 #include <psxetc.h>
 #include <psxgpu.h>
 #include <psxapi.h>
 #include <psxspu.h>
 #include <stdio.h>
 #include <stdarg.h>
+
 extern volatile uint32_t audio_service_peak, audio_interval_peak, audio_services;
 extern volatile uint32_t audio_voice_steals, audio_skipped_notes, audio_overloads;
 extern volatile uint32_t audio_dispatch_peak, audio_note_count, audio_first_note, audio_last_note;
@@ -16,7 +26,8 @@ extern volatile uint32_t audio_started, audio_control_time, audio_modulation_sta
 static Editor editor;
 static uint32_t capture[256];
 
-static void log_message(const char *format, ...) {
+static void log_message(const char* format, ...)
+{
     char message[256];
     va_list args;
     va_start(args, format);
@@ -25,10 +36,11 @@ static void log_message(const char *format, ...) {
     // The emulator's BIOS character output can duplicate characters when
     // preempted by a timer IRQ. Submit a complete diagnostic through Redux's
     // message port, leaving interrupts enabled while formatting the text.
-    *(const char *volatile *)0x1f802084 = message;
+    *(const char* volatile*)0x1f802084 = message;
 }
 
-static void report(const char *phase) {
+static void report(const char* phase)
+{
     EnterCriticalSection();
     uint32_t v[] = {audio_services,
                     audio_service_peak,
@@ -67,7 +79,8 @@ static void report(const char *phase) {
                 (unsigned)v[10]);
 }
 
-static void frames(int count) {
+static void frames(int count)
+{
     for (int i = 0; i < count; i++) {
         editor.x = i % 128;
         editor.y = (i / 4) % 64;
@@ -78,7 +91,12 @@ static void frames(int count) {
     }
 }
 
-static void publish_revisions(const char *phase, int count) {
+/*
+ * Publishes repeated edits while playback is active to expose missed or
+ * coalesced revision handoffs.
+ */
+static void publish_revisions(const char* phase, int count)
+{
     uint32_t copy_peak = 0, adopt_peak = 0;
     int adopted = 0;
     TileId tile = editor.score.lanes[0].tiles[0];
@@ -115,7 +133,12 @@ static void publish_revisions(const char *phase, int count) {
     report(phase);
 }
 
-static void stop_pending(int disconnect) {
+/*
+ * Stops transport with a publication outstanding to check that the next start
+ * owns a complete score.
+ */
+static void stop_pending(int disconnect)
+{
     int pending = 0;
     uint32_t before = 0;
     for (int i = 0; i < 32 && !pending; i++) {
@@ -144,7 +167,12 @@ static void stop_pending(int disconnect) {
     report(disconnect ? "pending disconnect" : "pending stop");
 }
 
-static void coalesce_revision(void) {
+/*
+ * Exercises rapid main-thread edits while the interrupt still owns the
+ * previous snapshot.
+ */
+static void coalesce_revision(void)
+{
     int pending = 0, deferred = 0;
     for (int i = 0; i < 32 && !pending; i++) {
         int channel = (editor.score.lanes[0].channel + 1) % SCORE_CHANNELS;
@@ -176,7 +204,11 @@ static void coalesce_revision(void) {
                 audio_platform_playing());
 }
 
-static void synthesis_checks(void) {
+/*
+ * Samples audible voice behavior and timing counters on the actual SPU path.
+ */
+static void synthesis_checks(void)
+{
     for (int wave = 0; wave < WAVE_COUNT; wave++) {
         score_init(&editor.score);
         score_create(&editor.score, 0, 0, 1);
@@ -192,7 +224,7 @@ static void synthesis_checks(void) {
         SpuRead(capture, sizeof(capture));
         SpuIsTransferCompleted(SPU_TRANSFER_WAIT);
         int peak = 0;
-        const int16_t *pcm = (const int16_t *)capture;
+        const int16_t* pcm = (const int16_t*)capture;
         for (int j = 0; j < 512; j++) {
             int n = pcm[j] < 0 ? -pcm[j] : pcm[j];
             if (n > peak)
@@ -267,7 +299,12 @@ static void synthesis_checks(void) {
     }
 }
 
-static void transient_checks(void) {
+/*
+ * Observes whether deferred hardware key-on preserves the short second-wave
+ * transient.
+ */
+static void transient_checks(void)
+{
     unsigned errors = 0, initial = 0, completed = 0, pending = 0;
     for (int trial = 0; trial < 16; trial++) {
         score_init(&editor.score);
@@ -318,11 +355,13 @@ static void transient_checks(void) {
                 errors);
 }
 
-static unsigned reverb_mask(void) {
+static unsigned reverb_mask(void)
+{
     return (unsigned)SPU_REVERB_ON1 | ((unsigned)SPU_REVERB_ON2 << 16);
 }
 
-static void channel_sample(int wet, const char *phase) {
+static void channel_sample(int wet, const char* phase)
+{
     EnterCriticalSection();
     unsigned mask = reverb_mask(), a = SPU_CH_VOL_L(0), b = SPU_CH_VOL_L(2);
     unsigned wave_a = SPU_CH_LOOP_ADDR(0), wave_b = SPU_CH_LOOP_ADDR(2);
@@ -342,12 +381,18 @@ static void channel_sample(int wet, const char *phase) {
         right);
 }
 
-static void channel_wait(int ms) {
+static void channel_wait(int ms)
+{
     while (audio_platform_time() - audio_started < audio_ms(ms)) {
     }
 }
 
-static void channel_checks(void) {
+/*
+ * Checks that channel sound settings and wet sends reach the hardware pair
+ * selected by the score.
+ */
+static void channel_checks(void)
+{
     log_message("RAM score=%u sequencer=%u editor=%u\n",
                 (unsigned)sizeof(Score),
                 (unsigned)sizeof(Sequencer),
@@ -453,7 +498,12 @@ static void channel_checks(void) {
     frames(2);
 }
 
-static void menu_audio_checks(void) {
+/*
+ * Drives sound-menu edits during playback to expose publication and modulation
+ * timing errors.
+ */
+static void menu_audio_checks(void)
+{
     for (int bpm = 60; bpm <= 240; bpm *= 4) {
         score_init(&editor.score);
         score_create(&editor.score, 0, 0, 1);
@@ -535,7 +585,8 @@ static void menu_audio_checks(void) {
     }
 }
 
-int main(void) {
+int main(void)
+{
     editor_init(&editor);
     render_init();
     audio_platform_init();
@@ -595,7 +646,7 @@ int main(void) {
         SpuRead(capture, sizeof(capture));
         SpuIsTransferCompleted(SPU_TRANSFER_WAIT);
         int peak = 0;
-        const int16_t *pcm = (const int16_t *)capture;
+        const int16_t* pcm = (const int16_t*)capture;
         for (int j = 0; j < 512; j++) {
             int n = pcm[j] < 0 ? -pcm[j] : pcm[j];
             if (n > peak)
@@ -646,7 +697,7 @@ int main(void) {
     score_init(&editor.score);
     TileId id = 1;
     for (int i = 0; i < 16; i++) {
-        Lane *lane = &editor.score.lanes[i];
+        Lane* lane = &editor.score.lanes[i];
         *lane = (Lane){.active = 1,
                        .x = i * 6,
                        .y = 0,
@@ -673,7 +724,7 @@ int main(void) {
     log_message("AUDIO FIXTURE COMPLETE\n");
     // PCSX-Redux development exit port; -testmode makes this terminate the
     // emulator. Physical hardware must use the ordinary editor executable.
-    *(volatile int16_t *)0x1f802082 = 0;
+    *(volatile int16_t*)0x1f802082 = 0;
     for (;;)
         VSync(0);
 }

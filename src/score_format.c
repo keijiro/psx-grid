@@ -1,9 +1,24 @@
+/*
+ * score_format.c - Versioned fixed-size score file codec
+ *
+ * Implementation notes:
+ *
+ * Wire fields are emitted explicitly in little-endian order; measurement
+ * and encoding share the same traversal to enforce capacity.
+ */
+
 #include "score_format.h"
+
 #include <string.h>
 
 enum { HEADER = 32, CHUNK = 12, GLOBAL = 1, SOUNDS = 2, LANES = 3, STEPS = 4 };
 
-static int wave_tag(int wave) {
+/*
+ * Wire waveform tags are explicit so changing the in-memory enum cannot
+ * silently reinterpret an existing score file.
+ */
+static int wave_tag(int wave)
+{
     switch (wave) {
     case WAVE_SINE:
         return 0;
@@ -20,7 +35,9 @@ static int wave_tag(int wave) {
     }
 }
 
-static int wave_value(unsigned tag) {
+/* Returns -1 for an unknown tag so the decoder can report a newer format. */
+static int wave_value(unsigned tag)
+{
     switch (tag) {
     case 0:
         return WAVE_SINE;
@@ -37,26 +54,36 @@ static int wave_value(unsigned tag) {
     }
 }
 
-static uint32_t get(const uint8_t *p, int n) {
+/* Reads an n-byte little-endian integer without host alignment assumptions. */
+static uint32_t get(const uint8_t* p, int n)
+{
     uint32_t v = 0;
     for (int i = 0; i < n; i++)
         v |= (uint32_t)p[i] << (8 * i);
     return v;
 }
 
-static void put(uint8_t *p, uint32_t v, int n) {
+/* Writes an n-byte little-endian integer without host layout assumptions. */
+static void put(uint8_t* p, uint32_t v, int n)
+{
     for (int i = 0; i < n; i++)
         p[i] = (uint8_t)(v >> (8 * i));
 }
 
-static int zero(const uint8_t *p, size_t n) {
+static int zero(const uint8_t* p, size_t n)
+{
     for (size_t i = 0; i < n; i++)
         if (p[i])
             return 0;
     return 1;
 }
 
-static uint32_t checksum(const uint8_t *p, size_t n) {
+/*
+ * Treats the checksum field as zero while covering the versioned header and
+ * payload, allowing the stored checksum to verify itself.
+ */
+static uint32_t checksum(const uint8_t* p, size_t n)
+{
     uint32_t crc = UINT32_MAX;
     for (size_t i = 0; i < n; i++) {
         crc ^= i >= 20 && i < 24 ? 0 : p[i];
@@ -69,24 +96,31 @@ static uint32_t checksum(const uint8_t *p, size_t n) {
 // Measurement walks exactly the same fields as encoding, with no output buffer.
 // Stable wire tags are explicit here rather than coupled to TileKind ordinals.
 typedef struct {
-    uint8_t *data;
+    uint8_t* data;
     size_t at;
 } Writer;
 
-static void emit(Writer *w, uint32_t v, int n) {
+static void emit(Writer* w, uint32_t v, int n)
+{
     if (w->data)
         put(w->data + w->at, v, n);
     w->at += n;
 }
 
-static void chunk(Writer *w, int tag, size_t bytes) {
+static void chunk(Writer* w, int tag, size_t bytes)
+{
     emit(w, tag, 2);
     emit(w, 1, 2);
     emit(w, 1, 4);
     emit(w, (uint32_t)bytes, 4);
 }
 
-static int lane_order(const Score *s, int order[SCORE_LANES], int indices[SCORE_LANES]) {
+/*
+ * Serializes lanes by position and maps pool indices to wire indices so
+ * equivalent visible scores have stable output.
+ */
+static int lane_order(const Score* s, int order[SCORE_LANES], int indices[SCORE_LANES])
+{
     int count = 0;
     for (int i = 0; i < SCORE_LANES; i++) {
         indices[i] = -1;
@@ -106,9 +140,14 @@ static int lane_order(const Score *s, int order[SCORE_LANES], int indices[SCORE_
     return count;
 }
 
-static void steps(Writer *w, const Score *s, const int *order, int count, const int *indices) {
+/*
+ * Emits tagged tile payloads using positional branch indices rather than
+ * transient tile pool IDs.
+ */
+static void steps(Writer* w, const Score* s, const int* order, int count, const int* indices)
+{
     for (int i = 0; i < count; i++) {
-        const Lane *l = &s->lanes[order[i]];
+        const Lane* l = &s->lanes[order[i]];
         for (int j = 0; j < l->length; j++) {
             int n = 0;
             for (TileId t = l->tiles[j]; t; t = s->tiles[t].next)
@@ -154,7 +193,12 @@ static void steps(Writer *w, const Score *s, const int *order, int count, const 
     }
 }
 
-static size_t payload(const Score *s, uint8_t *data) {
+/*
+ * Uses a dry Writer pass for the variable-size steps chunk, then emits the
+ * same traversal into the output buffer.
+ */
+static size_t payload(const Score* s, uint8_t* data)
+{
     int order[SCORE_LANES], indices[SCORE_LANES];
     int count = lane_order(s, order, indices);
     Writer w = {data, 0};
@@ -179,7 +223,7 @@ static size_t payload(const Score *s, uint8_t *data) {
     }
     chunk(&w, LANES, count * 12);
     for (int i = 0; i < count; i++) {
-        const Lane *l = &s->lanes[order[i]];
+        const Lane* l = &s->lanes[order[i]];
         emit(&w, l->x, 1);
         emit(&w, l->y, 1);
         emit(&w, l->length, 1);
@@ -196,14 +240,14 @@ static size_t payload(const Score *s, uint8_t *data) {
     return w.at;
 }
 
-size_t score_format_measure(const Score *s) {
+size_t score_format_measure(const Score* s)
+{
     return SCORE_FILE_WRAPPER + HEADER + payload(s, NULL);
 }
 
-FormatResult score_format_encode(const Score *s,
-                                 uint8_t block[SCORE_FILE_BYTES],
-                                 int slot,
-                                 uint32_t generation) {
+FormatResult
+score_format_encode(const Score* s, uint8_t block[SCORE_FILE_BYTES], int slot, uint32_t generation)
+{
     ScoreResult valid = score_validate_import(s);
     if (valid == SCORE_FULL)
         return FORMAT_FULL;
@@ -238,7 +282,7 @@ FormatResult score_format_encode(const Score *s,
         for (int x = 0; x < 16; x++)
             if (x == 2 || y == 13 || (y == 3 && x > 2 && x < 13) || (x == 12 && y < 14 && y > 2))
                 block[128 + y * 8 + x / 2] |= 1 << ((x & 1) * 4);
-    uint8_t *h = block + SCORE_FILE_WRAPPER;
+    uint8_t* h = block + SCORE_FILE_WRAPPER;
     memcpy(h, "JQSC", 4);
     put(h + 4, 1, 2);
     put(h + 6, 1, 2);
@@ -251,18 +295,20 @@ FormatResult score_format_encode(const Score *s,
     return FORMAT_OK;
 }
 
-void score_format_set_generation(uint8_t block[SCORE_FILE_BYTES], uint32_t generation) {
-    uint8_t *h = block + SCORE_FILE_WRAPPER;
+void score_format_set_generation(uint8_t block[SCORE_FILE_BYTES], uint32_t generation)
+{
+    uint8_t* h = block + SCORE_FILE_WRAPPER;
     put(h + 24, generation, 4);
     put(h + 20, checksum(h, HEADER + get(h + 12, 4)), 4);
 }
 
 FormatResult
-score_format_decode(const uint8_t *block, size_t size, Score *s, int *slot, uint32_t *generation) {
+score_format_decode(const uint8_t* block, size_t size, Score* s, int* slot, uint32_t* generation)
+{
     if (size < SCORE_FILE_WRAPPER + HEADER || size > SCORE_FILE_BYTES || memcmp(block, "SC", 2) ||
         block[2] != 0x11 || block[3] != 1)
         return FORMAT_CORRUPT;
-    const uint8_t *h = block + SCORE_FILE_WRAPPER;
+    const uint8_t* h = block + SCORE_FILE_WRAPPER;
     if (memcmp(h, "JQSC", 4))
         return FORMAT_CORRUPT;
     size_t header = get(h + 8, 2), bytes = get(h + 12, 4);
@@ -275,13 +321,13 @@ score_format_decode(const uint8_t *block, size_t size, Score *s, int *slot, uint
         return FORMAT_NEWER;
     if (!zero(h + 10, 2) || !zero(h + 29, 3) || h[28] < 1 || h[28] > 15 || !get(h + 24, 4))
         return FORMAT_CORRUPT;
-    const uint8_t *chunks[5] = {0};
+    const uint8_t* chunks[5] = {0};
     size_t lengths[5] = {0};
     unsigned seen = 0;
     for (size_t at = header; at < header + bytes;) {
         if (header + bytes - at < CHUNK)
             return FORMAT_CORRUPT;
-        const uint8_t *c = h + at;
+        const uint8_t* c = h + at;
         unsigned tag = get(c, 2), schema = get(c + 2, 2), flags = get(c + 4, 4);
         size_t n = get(c + 8, 4);
         at += CHUNK;
@@ -305,7 +351,7 @@ score_format_decode(const uint8_t *block, size_t size, Score *s, int *slot, uint
         lengths[LANES] / 12 > SCORE_LANES)
         return FORMAT_CORRUPT;
     score_init(s);
-    const uint8_t *p = chunks[GLOBAL];
+    const uint8_t* p = chunks[GLOBAL];
     if (!zero(p + 4, 4) || score_set_bpm(s, get(p, 2)) ||
         score_set_reverb(s, (ReverbSettings){p[2], p[3]}))
         return FORMAT_CORRUPT;
@@ -337,7 +383,7 @@ score_format_decode(const uint8_t *block, size_t size, Score *s, int *slot, uint
         if (i &&
             (p[1] < s->lanes[i - 1].y || (p[1] == s->lanes[i - 1].y && p[0] <= s->lanes[i - 1].x)))
             return FORMAT_CORRUPT;
-        Lane *l = &s->lanes[i];
+        Lane* l = &s->lanes[i];
         l->active = 1;
         l->x = p[0];
         l->y = p[1];
@@ -349,7 +395,7 @@ score_format_decode(const uint8_t *block, size_t size, Score *s, int *slot, uint
             return FORMAT_CORRUPT;
     }
     p = chunks[STEPS];
-    const uint8_t *end = p + lengths[STEPS];
+    const uint8_t* end = p + lengths[STEPS];
     TileId next = 1;
     for (int i = 0; i < count; i++)
         for (int j = 0; j < s->lanes[i].length; j++) {
@@ -358,7 +404,7 @@ score_format_decode(const uint8_t *block, size_t size, Score *s, int *slot, uint
             int n = *p++;
             if (n > SCORE_HEIGHT - s->lanes[i].y)
                 return FORMAT_CORRUPT;
-            TileId *link = &s->lanes[i].tiles[j];
+            TileId* link = &s->lanes[i].tiles[j];
             for (int k = 0; k < n; k++) {
                 if (end - p < 2 || next > SCORE_TILE_CAPACITY)
                     return FORMAT_CORRUPT;
@@ -394,7 +440,7 @@ score_format_decode(const uint8_t *block, size_t size, Score *s, int *slot, uint
                 if (len != expected)
                     return FORMAT_CORRUPT;
                 TileId id = next++;
-                Tile *t = &s->tiles[id];
+                Tile* t = &s->tiles[id];
                 t->value = score_default(kind);
                 t->branch = -1;
                 *link = id;

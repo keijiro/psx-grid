@@ -1,20 +1,37 @@
+/*
+ * audio_psx.c - PlayStation SPU and timer transport
+ *
+ * Implementation notes:
+ *
+ * The timer callback owns the active sequencer while the main thread owns
+ * score preparation, SPU resource setup and card-session handoffs.
+ */
+
 #include "audio.h"
 #include "pad.h"
+
 #include <psxspu.h>
 #include <psxetc.h>
 #include <psxapi.h>
+
 #include "wave_samples.h"
 
-// The main thread owns the spare until it publishes it. The interrupt owns
-// both buffers while one is pending, and releases the old one only after a
-// whole slice has finished. No score copy needs to mask timer interrupts.
+/*
+ * The main thread owns the spare until it publishes it. The interrupt owns
+ * both buffers while one is pending, and releases the old one only after a
+ * whole slice has finished. No score copy needs to mask timer interrupts.
+ */
 static Score snapshots[2];
 static volatile int active_snapshot, pending_snapshot = -1;
 static Sequencer states[2];
-static Sequencer *volatile seq = &states[0];
+static Sequencer* volatile seq = &states[0];
 
 enum { REPLACE_IDLE, REPLACE_PREPARING, REPLACE_WAITING, REPLACE_ADOPTED };
 
+/*
+ * Replacement moves from main-thread preparation to interrupt adoption and
+ * remains acknowledged until the editor takes the new snapshot.
+ */
 static volatile int replacement_state;
 static int replacement_snapshot;
 static Audio audio;
@@ -30,10 +47,12 @@ volatile uint32_t audio_dispatch_peak, audio_note_count, audio_first_note, audio
 volatile uint32_t audio_started, audio_control_time, audio_modulation_start;
 static AudioTime read_clock(void);
 
-// Small/medium/large use the documented Room, Studio Medium and Hall networks:
-// https://psx-spx.consoledev.net/soundprocessingunitspu/#spu-reverb-examples
-// Keeping the feedback coefficients together avoids unstable combinations of
-// raw SPU controls. Amount changes only the wet return; dry gain stays fixed.
+/*
+ * Small/medium/large use the documented Room, Studio Medium and Hall networks:
+ * https://psx-spx.consoledev.net/soundprocessingunitspu/#spu-reverb-examples
+ * Keeping the feedback coefficients together avoids unstable combinations of
+ * raw SPU controls. Amount changes only the wet return; dry gain stays fixed.
+ */
 static const uint16_t reverb_presets[3][32] = {
     {0x007d, 0x005b, 0x6d80, 0x54b8, 0xbed0, 0,      0,      0xba80, 0x5800, 0x5300, 0x04d6,
      0x0333, 0x03f0, 0x0227, 0x0374, 0x01ef, 0x0334, 0x01b5, 0,      0,      0,      0,
@@ -49,7 +68,12 @@ _Static_assert(WAVE_SPU_ADDRESS + sizeof(wave_data) <= REVERB_BASE,
                "Waves overlap reverb work area");
 static int reverb_size = -1, reverb_amount = -1;
 
-static void update_reverb(const Score *score) {
+/*
+ * Reconfigures the shared SPU network only after muting and clearing its delay
+ * area; amount edits preserve the selected network.
+ */
+static void update_reverb(const Score* score)
+{
     if (reverb_size != score->reverb.size) {
         static const uint32_t silence[256] = {0};
         // Retire the old tail before changing delay addresses. DMA runs only
@@ -64,7 +88,7 @@ static void update_reverb(const Score *score) {
         }
         static const unsigned sizes[] = {0x26c0, 0x4840, 0xade0};
         SpuSetReverbAddr(0x80000 - sizes[score->reverb.size]);
-        volatile uint16_t *registers = (volatile uint16_t *)0x1f801dc0;
+        volatile uint16_t* registers = (volatile uint16_t*)0x1f801dc0;
         for (int i = 0; i < 32; i++)
             registers[i] = reverb_presets[score->reverb.size][i];
         SPU_CTRL |= 0x80;
@@ -78,9 +102,18 @@ static void update_reverb(const Score *score) {
     }
 }
 
+/*
+ * Register caches avoid redundant SPU writes in the timer callback. -1 forces
+ * initial writes; volume entries are also reset after a card-session handoff.
+ */
 static int cached_volume[AUDIO_HARDWARE_VOICES], cached_pitch[SEQUENCER_VOICES];
 
-static void start_voice(void *ctx, int slot, int bank, SoundSettings sound) {
+/*
+ * Prepares both hardware halves from the same pitch bank while software
+ * envelopes retain the score's millisecond attack and release settings.
+ */
+static void start_voice(void* ctx, int slot, int bank, SoundSettings sound)
+{
     (void)ctx;
     for (int half = 0; half < 2; half++) {
         int voice = slot * 2 + half, wave = half ? sound.wave_b : sound.wave_a;
@@ -94,7 +127,8 @@ static void start_voice(void *ctx, int slot, int bank, SoundSettings sound) {
     }
 }
 
-static void volume(void *ctx, int slot, int a, int b) {
+static void volume(void* ctx, int slot, int a, int b)
+{
     (void)ctx;
     for (int half = 0; half < 2; half++) {
         int voice = slot * 2 + half, level = half ? b : a;
@@ -105,7 +139,8 @@ static void volume(void *ctx, int slot, int a, int b) {
     }
 }
 
-static void pitch(void *ctx, int slot, int value) {
+static void pitch(void* ctx, int slot, int value)
+{
     (void)ctx;
     if (cached_pitch[slot] == value)
         return;
@@ -114,14 +149,16 @@ static void pitch(void *ctx, int slot, int value) {
     SpuSetVoicePitch(slot * 2 + 1, value);
 }
 
-static int ready(void *ctx, int slot) {
+static int ready(void* ctx, int slot)
+{
     (void)ctx;
     // Redux reports 1 for a pending key-on, including a stolen voice whose
     // old envelope was nonzero. Wait for both halves of the logical pair.
     return (SPU_CH_ADSR_VOL(slot * 2) & 0x7fff) > 1 && (SPU_CH_ADSR_VOL(slot * 2 + 1) & 0x7fff) > 1;
 }
 
-static uint32_t hardware_mask(uint32_t logical) {
+static uint32_t hardware_mask(uint32_t logical)
+{
     uint32_t mask = 0;
     for (int i = 0; i < SEQUENCER_VOICES; i++)
         if (logical & (1u << i))
@@ -129,7 +166,12 @@ static uint32_t hardware_mask(uint32_t logical) {
     return mask;
 }
 
-static void flush(void *ctx, uint32_t starts, uint32_t stops) {
+/*
+ * Commits logical key masks as paired hardware channels and rejects starts
+ * that missed the one-millisecond dispatch deadline.
+ */
+static void flush(void* ctx, uint32_t starts, uint32_t stops)
+{
     (void)ctx;
     if (!(starts | stops))
         return;
@@ -169,14 +211,24 @@ static void flush(void *ctx, uint32_t starts, uint32_t stops) {
     }
 }
 
-static AudioTime read_clock(void) {
+/*
+ * Extends a wrapping 16-bit hardware counter into the transport clock; callers
+ * must sample before an entire wrap elapses.
+ */
+static AudioTime read_clock(void)
+{
     uint16_t counter = (uint16_t)TIMER_VALUE(2);
     clock_ticks += (uint16_t)(counter - last_counter);
     last_counter = counter;
     return clock_ticks;
 }
 
-static void replacement_adopted(Sequencer *next) {
+/*
+ * Publishes the adopted state and its score revision only after the sequencer
+ * returns the new active pointer.
+ */
+static void replacement_adopted(Sequencer* next)
+{
     if (next == seq)
         return;
     seq = next;
@@ -185,7 +237,12 @@ static void replacement_adopted(Sequencer *next) {
     replacement_state = REPLACE_ADOPTED;
 }
 
-static void service(void) {
+/*
+ * Shares the timer callback between pad polling, score publication and bounded
+ * audio work, then records deadline diagnostics.
+ */
+static void service(void)
+{
     AudioTime now = read_clock();
     uint32_t interval = (uint32_t)(now - service_previous);
     service_previous = now;
@@ -218,7 +275,8 @@ static void service(void) {
     audio_services++;
 }
 
-void audio_platform_init(void) {
+void audio_platform_init(void)
+{
     SpuInit();
     reverb_size = reverb_amount = -1;
     SpuSetCommonMasterVolume(0x3fff, 0x3fff);
@@ -257,7 +315,8 @@ void audio_platform_init(void) {
     ExitCriticalSection();
 }
 
-void audio_platform_card_stop(void) {
+void audio_platform_card_stop(void)
+{
     EnterCriticalSection();
     if (enabled) {
         replacement_adopted(sequencer_stop(seq, read_clock()));
@@ -283,7 +342,8 @@ void audio_platform_card_stop(void) {
     ExitCriticalSection();
 }
 
-void audio_platform_card_resume(const Score *score) {
+void audio_platform_card_resume(const Score* score)
+{
     // BIOS work may span arbitrarily many Timer 2 wraps. Discard that
     // interval instead of turning it into an overdue musical service.
     reverb_size = reverb_amount = -1;
@@ -299,7 +359,8 @@ void audio_platform_card_resume(const Score *score) {
     ExitCriticalSection();
 }
 
-void audio_platform_update(const Score *score, int connected, int start) {
+void audio_platform_update(const Score* score, int connected, int start)
+{
     if (replacement_state == REPLACE_IDLE)
         update_reverb(score);
     if (!connected || (start && enabled)) {
@@ -359,22 +420,26 @@ void audio_platform_update(const Score *score, int connected, int start) {
     }
 }
 
-int audio_platform_playing(void) {
+int audio_platform_playing(void)
+{
     return enabled;
 }
 
-uint32_t audio_platform_revision(void) {
+uint32_t audio_platform_revision(void)
+{
     return published_revision;
 }
 
-AudioTime audio_platform_time(void) {
+AudioTime audio_platform_time(void)
+{
     EnterCriticalSection();
     AudioTime now = read_clock();
     ExitCriticalSection();
     return now;
 }
 
-int audio_platform_replace(const Score *incoming) {
+int audio_platform_replace(const Score* incoming)
+{
     EnterCriticalSection();
     if (replacement_state != REPLACE_IDLE) {
         ExitCriticalSection();
@@ -385,7 +450,7 @@ int audio_platform_replace(const Score *incoming) {
     replacement_snapshot = 1 - active_snapshot;
     ExitCriticalSection();
     snapshots[replacement_snapshot] = *incoming;
-    Sequencer *prepared = seq == &states[0] ? &states[1] : &states[0];
+    Sequencer* prepared = seq == &states[0] ? &states[1] : &states[0];
     sequencer_start(prepared, &snapshots[replacement_snapshot], audio_sink(&audio), 0);
     EnterCriticalSection();
     if (enabled) {
@@ -399,7 +464,8 @@ int audio_platform_replace(const Score *incoming) {
     return 1;
 }
 
-int audio_platform_take_replacement(Score *score) {
+int audio_platform_take_replacement(Score* score)
+{
     if (replacement_state != REPLACE_ADOPTED)
         return 0;
     // Publication remains locked through the editor copy and effect update.
@@ -413,6 +479,7 @@ int audio_platform_take_replacement(Score *score) {
     return 1;
 }
 
-int audio_platform_replacing(void) {
+int audio_platform_replacing(void)
+{
     return replacement_state != REPLACE_IDLE;
 }

@@ -1,6 +1,15 @@
-// Standalone development fixture for platform replacement ownership and timing.
+/*
+ * replacement_fixture.c - Console score-replacement timing fixture
+ *
+ * Implementation notes:
+ *
+ * This standalone development fixture observes platform replacement
+ * ownership and timer behavior under emulation.
+ */
+
 #include "audio.h"
 #include "pad.h"
+
 #include <psxapi.h>
 #include <psxetc.h>
 #include <psxgpu.h>
@@ -13,18 +22,21 @@ extern volatile uint32_t audio_service_peak, audio_interval_peak, audio_services
 extern volatile uint32_t audio_dispatch_peak, audio_note_count;
 static Score score, candidate;
 
-static void log_line(const char *line) {
-    *(const char *volatile *)0x1f802084 = line;
+static void log_line(const char* line)
+{
+    *(const char* volatile*)0x1f802084 = line;
 }
 
-static void finish(int code) {
+static void finish(int code)
+{
     log_line(code ? "REPLACEMENT FIXTURE FAILED\n" : "REPLACEMENT FIXTURE COMPLETE\n");
-    *(volatile int16_t *)0x1f802082 = code;
+    *(volatile int16_t*)0x1f802082 = code;
     for (;;)
         VSync(0);
 }
 
-static void report(const char *name, int a, int b, AudioTime ticks) {
+static void report(const char* name, int a, int b, AudioTime ticks)
+{
     char line[256];
     snprintf(line,
              sizeof(line),
@@ -44,7 +56,8 @@ static void report(const char *name, int a, int b, AudioTime ticks) {
     log_line(line);
 }
 
-static void frames(int count) {
+static void frames(int count)
+{
     for (int i = 0; i < count; i++) {
         AudioTime begin = audio_platform_time();
         while (audio_platform_time() - begin < SEQUENCER_HZ / 60) {
@@ -55,7 +68,8 @@ static void frames(int count) {
     }
 }
 
-static void make_score(Score *score, int bpm, int size, int pitch) {
+static void make_score(Score* score, int bpm, int size, int pitch)
+{
     score_init(score);
     score_create(score, 0, 0, 1);
     score_set_bpm(score, bpm);
@@ -70,7 +84,12 @@ static void make_score(Score *score, int bpm, int size, int pitch) {
     }
 }
 
-static AudioTime wait_adopt(Score *score) {
+/*
+ * Waits for the platform to publish a prepared score without assuming an exact
+ * timer interrupt count.
+ */
+static AudioTime wait_adopt(Score* score)
+{
     AudioTime begin = audio_platform_time();
     while (!audio_platform_take_replacement(score)) {
         frames(1);
@@ -80,7 +99,8 @@ static AudioTime wait_adopt(Score *score) {
     return audio_platform_time() - begin;
 }
 
-static uint32_t reverb_word(void) {
+static uint32_t reverb_word(void)
+{
     uint32_t value = 0;
     SpuSetTransferStartAddr(REVERB_BASE);
     SpuRead(&value, sizeof(value));
@@ -88,13 +108,15 @@ static uint32_t reverb_word(void) {
     return value;
 }
 
-static void set_reverb_word(uint32_t value) {
+static void set_reverb_word(uint32_t value)
+{
     SpuSetTransferStartAddr(REVERB_BASE);
     SpuWrite(&value, sizeof(value));
     SpuIsTransferCompleted(SPU_TRANSFER_WAIT);
 }
 
-int main(void) {
+int main(void)
+{
     log_line("REPLACEMENT checkpoint=boot\n");
     ResetGraph(0);
     SetVideoMode(MODE_NTSC);

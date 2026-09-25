@@ -1,12 +1,29 @@
+/*
+ * audio.c - Logical voice envelopes and allocation
+ *
+ * Implementation notes:
+ *
+ * The same callback-driven state machine feeds hardware and host drivers.
+ * It keeps envelope math in bounded integer ranges for timer service.
+ */
+
 #include "audio.h"
+
 #include <string.h>
+
 #include "audio_tables.h"
 
-AudioTime audio_ms(int ms) {
+AudioTime audio_ms(int ms)
+{
     return (uint32_t)ms * (SEQUENCER_HZ / 1000) + (uint32_t)ms * (SEQUENCER_HZ % 1000) / 1000;
 }
 
-static unsigned gain_shift(uint32_t span) {
+/*
+ * Returns the shift shared by a ramp's numerator and denominator so their
+ * integer ratio stays bounded without changing the envelope endpoints.
+ */
+static unsigned gain_shift(uint32_t span)
+{
     // Keep clock-tick precision for short envelopes. Longer full-scale ramps
     // need coarser steps to keep the product and release rounding in 32 bits.
     uint32_t limit = UINT32_MAX / (AUDIO_LEVEL + 1);
@@ -19,7 +36,12 @@ static unsigned gain_shift(uint32_t span) {
     return (span >> 8) <= limit ? 8 : 9;
 }
 
-static int level_at(const AudioVoice *v, AudioTime now) {
+/*
+ * Preserves a nonzero release level until its deadline even after integer
+ * rounding would otherwise silence the tail early.
+ */
+static int level_at(const AudioVoice* v, AudioTime now)
+{
     if (!v->active)
         return 0;
     if (v->releasing) {
@@ -42,7 +64,12 @@ static int level_at(const AudioVoice *v, AudioTime now) {
     return level < AUDIO_LEVEL ? level : AUDIO_LEVEL - 1;
 }
 
-static int pitch_at(const AudioVoice *v, AudioTime now) {
+/*
+ * Evaluates the signed pitch sweep in fixed point before the bank-specific
+ * register lookup; modulation waits for observed key-on.
+ */
+static int pitch_at(const AudioVoice* v, AudioTime now)
+{
     AudioTime elapsed = v->waiting ? 0 : now - v->modulation_start;
     uint32_t duration = (uint32_t)audio_ms(v->sound.decay);
     if (!v->sound.sweep || !duration || elapsed >= duration)
@@ -63,7 +90,7 @@ static int pitch_at(const AudioVoice *v, AudioTime now) {
         note = 108 * 65536;
     // Semitone entries store register values in Q8. Interpolate with a Q12
     // fraction; in the selected bank the product stays within 32 bits.
-    const uint32_t *table = &audio_pitch[v->bank * 109];
+    const uint32_t* table = &audio_pitch[v->bank * 109];
     index = (unsigned)note >> 16;
     uint32_t value = table[index];
     if (index < 108)
@@ -71,7 +98,12 @@ static int pitch_at(const AudioVoice *v, AudioTime now) {
     return (int)((value + 128) >> 8);
 }
 
-static int mix_at(const AudioVoice *v, AudioTime now) {
+/*
+ * Crossfades the two wave halves against modulation time, which may begin
+ * after the score event on hardware.
+ */
+static int mix_at(const AudioVoice* v, AudioTime now)
+{
     AudioTime elapsed = v->waiting ? 0 : now - v->modulation_start;
     uint32_t attack = (uint32_t)audio_ms(v->sound.mix_attack),
              release = (uint32_t)audio_ms(v->sound.mix_release);
@@ -86,12 +118,17 @@ static int mix_at(const AudioVoice *v, AudioTime now) {
     return 0;
 }
 
-static void advance(void *ctx, AudioTime now) {
-    Audio *a = ctx;
+/*
+ * Writes active pair controls before flushing key changes and marks completed
+ * release tails idle for later allocation.
+ */
+static void advance(void* ctx, AudioTime now)
+{
+    Audio* a = ctx;
     if (a->idle_mask == AUDIO_IDLE_MASK && !(a->starts | a->stops))
         return;
     for (int i = 0; i < SEQUENCER_VOICES; i++) {
-        AudioVoice *v = &a->voices[i];
+        AudioVoice* v = &a->voices[i];
         if (!v->active)
             continue;
         // Redux can defer key-on until its mixer runs. Hold the initial mix
@@ -119,15 +156,20 @@ static void advance(void *ctx, AudioTime now) {
     a->starts = a->stops = 0;
 }
 
-static uint32_t on(void *ctx, AudioTime now, int pitch, SoundSettings sound) {
-    Audio *a = ctx;
+/*
+ * Prefers an idle pair, then the quietest release tail, then the oldest voice.
+ * The returned generation prevents stale gate-offs after reuse.
+ */
+static uint32_t on(void* ctx, AudioTime now, int pitch, SoundSettings sound)
+{
+    Audio* a = ctx;
     int slot = 0;
     // Reclaim tails once per event time, not once per note in a chord. The
     // idle mask keeps the common allocation path independent of polyphony.
     if (a->allocation_time != now) {
         a->allocation_time = now;
         for (int i = 0; i < SEQUENCER_VOICES; i++) {
-            AudioVoice *v = &a->voices[i];
+            AudioVoice* v = &a->voices[i];
             if (v->active && v->releasing && now >= v->end) {
                 v->active = 0;
                 a->idle_mask |= 1u << i;
@@ -161,7 +203,7 @@ static uint32_t on(void *ctx, AudioTime now, int pitch, SoundSettings sound) {
     } else {
         int quiet = -1, quiet_level = AUDIO_LEVEL + 1;
         for (int i = 0; i < SEQUENCER_VOICES; i++) {
-            AudioVoice *v = &a->voices[i];
+            AudioVoice* v = &a->voices[i];
             if (v->releasing) {
                 int level = level_at(v, now);
                 if (level < quiet_level) {
@@ -176,7 +218,7 @@ static uint32_t on(void *ctx, AudioTime now, int pitch, SoundSettings sound) {
             slot = quiet;
         a->steals++;
     }
-    AudioVoice *v = &a->voices[slot];
+    AudioVoice* v = &a->voices[slot];
     uint32_t generation = (v->generation + 1) & 0x07ffffffu;
     if (!generation)
         generation = 1;
@@ -197,20 +239,30 @@ static uint32_t on(void *ctx, AudioTime now, int pitch, SoundSettings sound) {
     return generation << 5 | (uint32_t)slot;
 }
 
-static void release(Audio *a, int i, AudioTime now, int ms) {
-    AudioVoice *v = &a->voices[i];
+/*
+ * Captures the current envelope level so a release begins continuously,
+ * including during an unfinished attack.
+ */
+static void release(Audio* a, int i, AudioTime now, int ms)
+{
+    AudioVoice* v = &a->voices[i];
     v->release_level = level_at(v, now);
     v->release_at = now;
     v->end = now + audio_ms(ms);
     v->releasing = 1;
 }
 
-static void off(void *ctx, AudioTime now, uint32_t token) {
-    Audio *a = ctx;
+/*
+ * Accepts only the generation currently occupying the token slot; an old
+ * sequencer gate cannot stop a stolen voice.
+ */
+static void off(void* ctx, AudioTime now, uint32_t token)
+{
+    Audio* a = ctx;
     unsigned i = token & 31;
     if (i >= SEQUENCER_VOICES)
         return;
-    AudioVoice *v = &a->voices[i];
+    AudioVoice* v = &a->voices[i];
     if (v->active && !v->releasing && v->generation == (token >> 5)) {
         release(a, (int)i, now, v->sound.release);
         if (!v->sound.release) {
@@ -223,25 +275,29 @@ static void off(void *ctx, AudioTime now, uint32_t token) {
     }
 }
 
-static void stop(void *ctx, AudioTime now) {
-    Audio *a = ctx;
+static void stop(void* ctx, AudioTime now)
+{
+    Audio* a = ctx;
     for (int i = 0; i < SEQUENCER_VOICES; i++)
         if (a->voices[i].active)
             release(a, i, now, 5);
 }
 
-void audio_init(Audio *a, AudioDriver driver) {
+void audio_init(Audio* a, AudioDriver driver)
+{
     memset(a, 0, sizeof(*a));
     a->driver = driver;
     a->idle_mask = AUDIO_IDLE_MASK;
     a->allocation_time = UINT64_MAX;
 }
 
-NoteSink audio_sink(Audio *a) {
+NoteSink audio_sink(Audio* a)
+{
     return (NoteSink){a, on, off, stop, advance};
 }
 
-uint32_t audio_reverb_mask(const Audio *a) {
+uint32_t audio_reverb_mask(const Audio* a)
+{
     uint32_t mask = 0;
     for (int i = 0; i < SEQUENCER_VOICES; i++)
         if (a->voices[i].active && a->voices[i].sound.reverb)

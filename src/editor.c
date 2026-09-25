@@ -1,12 +1,24 @@
+/*
+ * editor.c - Grid editor interaction and menus
+ *
+ * Implementation notes:
+ *
+ * This layer maps normalized input to score operations and retains
+ * presentation state; score validation remains in the model.
+ */
+
 #include "editor.h"
+
 #include <string.h>
 #include <stdio.h>
 
-static int clamp(int x, int min, int max) {
+static int clamp(int x, int min, int max)
+{
     return x < min ? min : x > max ? max : x;
 }
 
-void editor_init(Editor *e) {
+void editor_init(Editor* e)
+{
     memset(e, 0, sizeof(*e));
     score_init(&e->score);
     e->x = e->y = 1;
@@ -18,7 +30,8 @@ void editor_init(Editor *e) {
     e->last_note = score_default(TILE_NOTE);
 }
 
-int editor_menu(const Editor *e, EditorAction items[EDITOR_MENU_ITEMS]) {
+int editor_menu(const Editor* e, EditorAction items[EDITOR_MENU_ITEMS])
+{
     Cell c = score_resolve(&e->score, e->x, e->y);
     int n = 0;
     if (c.kind == CELL_EMPTY)
@@ -60,15 +73,34 @@ int editor_menu(const Editor *e, EditorAction items[EDITOR_MENU_ITEMS]) {
     return n;
 }
 
-const char *editor_action_label(EditorAction a) {
-    static const char *labels[] = {
-        "NEW LANE",      "CREATE TILE",    "DELETE TILE",   "LENGTH",        "DELETE LANE",
-        "COPY STACK",    "PASTE STACK",    "PITCH",         "NOTE LENGTH",   "PERIOD",
-        "PATTERN",       "CHANCE",         "DIVISION",      "SOUND",         "CHANNEL",
-        "ATTACK ENABLE", "RELEASE ENABLE", "ATTACK OFFSET", "RELEASE OFFSET"};
+const char* editor_action_label(EditorAction a)
+{
+    static const char* labels[] = {"NEW LANE",
+                                   "CREATE TILE",
+                                   "DELETE TILE",
+                                   "LENGTH",
+                                   "DELETE LANE",
+                                   "COPY STACK",
+                                   "PASTE STACK",
+                                   "PITCH",
+                                   "NOTE LENGTH",
+                                   "PERIOD",
+                                   "PATTERN",
+                                   "CHANCE",
+                                   "DIVISION",
+                                   "SOUND",
+                                   "CHANNEL",
+                                   "ATTACK ENABLE",
+                                   "RELEASE ENABLE",
+                                   "ATTACK OFFSET",
+                                   "RELEASE OFFSET"};
     return labels[a];
 }
 
+/*
+ * Setting row IDs live above context-action IDs so the shared value editor
+ * can dispatch either menu without ambiguous cases.
+ */
 enum {
     ROW_BPM = 100,
     ROW_REVERB,
@@ -89,12 +121,14 @@ enum {
     ROW_SEND
 };
 
-static EditorRow row(EditorRowKind kind, int id, const char *label, int min, int max, int fine,
-                     int coarse) {
+static EditorRow
+row(EditorRowKind kind, int id, const char* label, int min, int max, int fine, int coarse)
+{
     return (EditorRow){kind, id, min, max, fine, coarse, label};
 }
 
-int editor_rows(const Editor *e, EditorRow rows[EDITOR_ROWS]) {
+int editor_rows(const Editor* e, EditorRow rows[EDITOR_ROWS])
+{
     int n = 0;
     if (e->mode == EDIT_MAIN) {
         rows[n++] = row(ROW_VALUE, ROW_BPM, "BPM", SCORE_MIN_BPM, SCORE_MAX_BPM, 1, 10);
@@ -196,8 +230,9 @@ int editor_rows(const Editor *e, EditorRow rows[EDITOR_ROWS]) {
     return n;
 }
 
-void editor_row_value(const Editor *e, int id, char *b, int size) {
-    const SoundSettings *s = &e->score.sounds[e->sound_channel];
+void editor_row_value(const Editor* e, int id, char* b, int size)
+{
+    const SoundSettings* s = &e->score.sounds[e->sound_channel];
     TileValue v = e->target ? e->score.tiles[e->target].value : e->value;
     b[0] = 0;
     switch (id) {
@@ -281,7 +316,8 @@ void editor_row_value(const Editor *e, int id, char *b, int size) {
     }
 }
 
-static void cancel_move(Editor *e) {
+static void cancel_move(Editor* e)
+{
     e->x = e->source_x;
     e->y = e->source_y;
     e->mode = EDIT_PLANE;
@@ -289,13 +325,15 @@ static void cancel_move(Editor *e) {
     e->message = "CANCELLED";
 }
 
-static void finish(Editor *e, ScoreResult r) {
+static void finish(Editor* e, ScoreResult r)
+{
     e->message = score_message(r);
     if (!r)
         e->mode = EDIT_PLANE;
 }
 
-static void enter_context(Editor *e) {
+static void enter_context(Editor* e)
+{
     Cell c = score_resolve(&e->score, e->x, e->y);
     e->lane = c.lane;
     e->target = c.tile;
@@ -306,7 +344,12 @@ static void enter_context(Editor *e) {
     e->message = "";
 }
 
-static int selected_row(const EditorRow *rows, int count, int selected, int direction) {
+/*
+ * Skips headings during navigation without allowing the selection to escape
+ * the current menu.
+ */
+static int selected_row(const EditorRow* rows, int count, int selected, int direction)
+{
     int next = selected;
     for (;;) {
         int candidate = clamp(next + direction, 0, count - 1);
@@ -318,7 +361,12 @@ static int selected_row(const EditorRow *rows, int count, int selected, int dire
     }
 }
 
-static void adjust(Editor *e, EditorRow r, int direction, int coarse) {
+/*
+ * Routes a bounded row adjustment through score validators; a busy load
+ * permits slot selection but blocks score edits.
+ */
+static void adjust(Editor* e, EditorRow r, int direction, int coarse)
+{
     if (r.kind != ROW_VALUE || !direction)
         return;
     int step = coarse ? r.coarse : r.fine;
@@ -521,7 +569,12 @@ static void adjust(Editor *e, EditorRow r, int direction, int coarse) {
     e->message = score_message(result);
 }
 
-static void activate(Editor *e, EditorRow r) {
+/*
+ * Defers card actions to the main loop and retains parent selection when
+ * entering a nested editor view.
+ */
+static void activate(Editor* e, EditorRow r)
+{
     if (e->load_busy && r.id != ROW_REVERB && r.id != ROW_SLOT)
         return;
     switch (r.id) {
@@ -582,7 +635,12 @@ static void activate(Editor *e, EditorRow r) {
     }
 }
 
-static void update(Editor *e, InputFrame f) {
+/*
+ * Prioritizes disconnection and mode exits before gesture or row handling so
+ * one input frame has one effect.
+ */
+static void update(Editor* e, InputFrame f)
+{
     if (!f.connected) {
         if (e->gesture || e->mode == EDIT_MOVE)
             cancel_move(e);
@@ -666,8 +724,9 @@ static void update(Editor *e, InputFrame f) {
     }
     if (e->mode == EDIT_DELETE) {
         if (f.cross && !e->load_busy)
-            finish(e, e->target ? score_remove(&e->score, e->x, e->y)
-                                : score_delete(&e->score, e->lane));
+            finish(e,
+                   e->target ? score_remove(&e->score, e->x, e->y)
+                             : score_delete(&e->score, e->lane));
         return;
     }
     if (e->mode == EDIT_PATTERN) {
@@ -700,14 +759,16 @@ static void update(Editor *e, InputFrame f) {
         activate(e, rows[e->selected]);
 }
 
-void editor_refresh_capacity(Editor *e) {
+void editor_refresh_capacity(Editor* e)
+{
     if (e->capacity_revision == e->score.revision)
         return;
     e->capacity_revision = e->score.revision;
     e->free_bytes = SCORE_FILE_BYTES - (int)score_format_measure(&e->score);
 }
 
-void editor_update(Editor *e, InputFrame f) {
+void editor_update(Editor* e, InputFrame f)
+{
     update(e, f);
     editor_refresh_capacity(e);
 }

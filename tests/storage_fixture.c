@@ -1,8 +1,17 @@
-// Use only isolated card images: this fixture replaces logical slot 01.
+/*
+ * storage_fixture.c - Console storage coordinator fixture
+ *
+ * Implementation notes:
+ *
+ * Use only isolated card images: this fixture replaces logical slot 01 and
+ * follows the application handoff path.
+ */
+
 #include "audio.h"
 #include "editor.h"
 #include "render.h"
 #include "pad.h"
+
 #include <psxgpu.h>
 #include <psxapi.h>
 #include <stdint.h>
@@ -32,7 +41,12 @@ static uintptr_t main_stack_top;
 static int stack_ready;
 extern char _end[];
 
-static int stack_fill(void) {
+/*
+ * Paints bounded main and interrupt stack windows with sentinels so later
+ * reports can estimate this fixture path's peak stack use.
+ */
+static int stack_fill(void)
+{
     uintptr_t sp;
     __asm__ volatile("move %0,$sp" : "=r"(sp));
     main_stack_top = sp;
@@ -43,29 +57,34 @@ static int stack_fill(void) {
         low = floor;
     // Exclude the active frame and paint only a bounded window. The reported
     // peak covers this fixture path rather than every possible hardware path.
-    main_stack_low = (uint32_t *)low;
-    main_stack_high = (uint32_t *)((sp - MAIN_STACK_MARGIN) & ~(uintptr_t)3);
+    main_stack_low = (uint32_t*)low;
+    main_stack_high = (uint32_t*)((sp - MAIN_STACK_MARGIN) & ~(uintptr_t)3);
     if (main_stack_low >= main_stack_high)
         return 0;
 
-    isr_stack_low = (uint32_t *)storage_fixture_isr_stack;
+    isr_stack_low = (uint32_t*)storage_fixture_isr_stack;
     EnterCriticalSection();
-    for (uint32_t *p = main_stack_low; p < main_stack_high; p++)
+    for (uint32_t* p = main_stack_low; p < main_stack_high; p++)
         *p = stack_mark;
-    for (uint32_t *p = isr_stack_low; p < isr_stack_low + ISR_STACK_BYTES / 4; p++)
+    for (uint32_t* p = isr_stack_low; p < isr_stack_low + ISR_STACK_BYTES / 4; p++)
         *p = stack_mark;
     ExitCriticalSection();
     stack_ready = 1;
     return 1;
 }
 
-static void stack_report(void) {
-    uint32_t *main_used = main_stack_low;
+/*
+ * Scans the sentinel windows to report observed stack high-water marks;
+ * interrupt sampling is excluded while its window is inspected.
+ */
+static void stack_report(void)
+{
+    uint32_t* main_used = main_stack_low;
     while (main_used < main_stack_high && *main_used == stack_mark)
         main_used++;
 
     EnterCriticalSection();
-    uint32_t *isr_used = isr_stack_low;
+    uint32_t* isr_used = isr_stack_low;
     while (isr_used < isr_stack_low + ISR_STACK_BYTES / 4 && *isr_used == stack_mark)
         isr_used++;
 
@@ -76,18 +95,31 @@ static void stack_report(void) {
     ExitCriticalSection();
 
     char line[160];
-    snprintf(line, sizeof(line), "STACK main_peak=%u main_limit=%u isr_peak=%u isr_limit=%u\n",
-             main_peak, main_limit, isr_peak, ISR_STACK_BYTES);
-    *(const char *volatile *)0x1f802084 = line;
+    snprintf(line,
+             sizeof(line),
+             "STACK main_peak=%u main_limit=%u isr_peak=%u isr_limit=%u\n",
+             main_peak,
+             main_limit,
+             isr_peak,
+             ISR_STACK_BYTES);
+    *(const char* volatile*)0x1f802084 = line;
 }
 
-static void measured_end(void *context) {
+/*
+ * Counts timer and pad callbacks during a complete backend session.
+ */
+static void measured_end(void* context)
+{
     backend.end(context);
     io_services = audio_services - services_before;
     io_polls = pad_polls - polls_before;
 }
 
-static CardResult measured_begin(void *context) {
+/*
+ * Captures callback counters before BIOS session entry, including failures.
+ */
+static CardResult measured_begin(void* context)
+{
     services_before = audio_services;
     polls_before = pad_polls;
     CardResult result = backend.begin(context);
@@ -98,28 +130,41 @@ static CardResult measured_begin(void *context) {
     return result;
 }
 
-static void report(const char *stage, StorageResult result, AudioTime elapsed) {
+static void report(const char* stage, StorageResult result, AudioTime elapsed)
+{
     char line[320];
-    snprintf(line, sizeof(line),
+    snprintf(line,
+             sizeof(line),
              "STORAGE stage=%s result=%d ticks=%u services=%u cost=%u interval=%u dispatch=%u "
              "playing=%d free=%d io_services=%u io_polls=%u removed=%u\n",
-             stage, result, (unsigned)elapsed, audio_services, audio_service_peak,
-             audio_interval_peak, audio_dispatch_peak, audio_platform_playing(),
-             storage.free_blocks, io_services, io_polls, storage_fixture_removed);
-    *(const char *volatile *)0x1f802084 = line;
+             stage,
+             result,
+             (unsigned)elapsed,
+             audio_services,
+             audio_service_peak,
+             audio_interval_peak,
+             audio_dispatch_peak,
+             audio_platform_playing(),
+             storage.free_blocks,
+             io_services,
+             io_polls,
+             storage_fixture_removed);
+    *(const char* volatile*)0x1f802084 = line;
 }
 
-static void finish(int code) {
+static void finish(int code)
+{
     if (stack_ready)
         stack_report();
-    *(const char *volatile *)0x1f802084 =
+    *(const char* volatile*)0x1f802084 =
         code ? "STORAGE FIXTURE FAILED\n" : "STORAGE FIXTURE COMPLETE\n";
-    *(volatile short *)0x1f802082 = code;
+    *(volatile short*)0x1f802082 = code;
     for (;;)
         VSync(0);
 }
 
-static void frames(int count) {
+static void frames(int count)
+{
     for (int i = 0; i < count; i++) {
         render_frame(&editor, 1);
         InputSample sample;
@@ -131,7 +176,8 @@ static void frames(int count) {
     }
 }
 
-int main(void) {
+int main(void)
+{
     editor_init(&editor);
     input_init(&input);
     render_init();

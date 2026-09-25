@@ -1,8 +1,17 @@
-// Device-path input regression; Lua drives actual emulated pad button replies.
+/*
+ * input_fixture.c - Console controller input fixture
+ *
+ * Implementation notes:
+ *
+ * Lua drives actual emulated pad replies while this program records
+ * normalized events through the device polling path.
+ */
+
 #include "audio.h"
 #include "editor.h"
 #include "render.h"
 #include "pad.h"
+
 #include <psxgpu.h>
 #include <stdio.h>
 
@@ -11,7 +20,8 @@ static Editor editor;
 static Input input;
 static unsigned moves, presses, releases, starts, selects, disconnected;
 
-static void drain(void) {
+static void drain(void)
+{
     InputSample sample;
     while (pad_read(&sample)) {
         InputFrame f = input_update(&input, sample.connected, sample.held);
@@ -24,7 +34,12 @@ static void drain(void) {
     }
 }
 
-static void run(unsigned phase) {
+/*
+ * Separates emulator-driven button phases so each report can be correlated
+ * with normalized input counters.
+ */
+static void run(unsigned phase)
+{
     moves = presses = releases = starts = selects = disconnected = 0;
     unsigned polls = pad_polls, reports = pad_reports, timeouts = pad_timeouts,
              overflows = pad_overflows;
@@ -57,10 +72,11 @@ static void run(unsigned phase) {
              starts,
              selects,
              disconnected);
-    *(const char *volatile *)0x1f802084 = line;
+    *(const char* volatile*)0x1f802084 = line;
 }
 
-int main(void) {
+int main(void)
+{
     editor_init(&editor);
     input_init(&input);
     render_init();
@@ -87,7 +103,7 @@ int main(void) {
     // Deliberate input/audio overload fixture, outside the saveable score limit.
     TileId id = 1;
     for (int i = 0; i < 16; i++) {
-        Lane *lane = &editor.score.lanes[i];
+        Lane* lane = &editor.score.lanes[i];
         *lane = (Lane){.active = 1, .x = i * 6, .y = 0, .length = 4, .division = 64};
         for (int j = 0; j < 4; j++) {
             lane->tiles[j] = id;
@@ -99,8 +115,8 @@ int main(void) {
     audio_platform_update(&editor.score, 1, 1);
     run(5);
     audio_platform_update(&editor.score, 0, 0);
-    *(const char *volatile *)0x1f802084 = "INPUT FIXTURE COMPLETE\n";
-    *(volatile short *)0x1f802082 = 0;
+    *(const char* volatile*)0x1f802084 = "INPUT FIXTURE COMPLETE\n";
+    *(volatile short*)0x1f802082 = 0;
     for (;;)
         VSync(0);
 }

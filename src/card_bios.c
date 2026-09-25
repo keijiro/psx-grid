@@ -1,4 +1,14 @@
+/*
+ * card_bios.c - BIOS-backed memory-card sessions
+ *
+ * Implementation notes:
+ *
+ * A session temporarily owns the card IRQ path and polls BIOS events with
+ * Timer 2 deadlines; teardown restores SDK callback ownership.
+ */
+
 #include "card.h"
+
 #include <psxapi.h>
 #include <psxetc.h>
 #include <sys/fcntl.h>
@@ -6,26 +16,44 @@
 
 enum { EVENT_COUNT = 8, WAIT_TICKS = 5 * 4233600 };
 
+/*
+ * Each hardware and software card event uses the same ordered status slots.
+ * wait_card checks replacement and error slots before completion.
+ */
 static const unsigned specs[4] = {EvSpIOE, EvSpTIMOUT, EvSpNEW, EvSpERROR};
-// BIOS event handles have their high bit set, so only -1 denotes no event.
+/*
+ * BIOS event handles have their high bit set, so only -1 denotes no event.
+ * owned and poisoned prevent further traffic after a media change.
+ */
 static int events[EVENT_COUNT], file_event = -1, fd = -1, owned, started, poisoned, initialized;
 static struct DIRENTRY directory_entry;
 
 // Timer 0 is stopped while the BIOS owns IRQ dispatch. Timer 2 remains a
 // free-running read-only deadline source; restoration rebases its audio sample
 // so any number of wraps spent in a card session cannot advance music.
-static uint16_t tick(void) {
+static uint16_t tick(void)
+{
     return (uint16_t)TIMER_VALUE(2);
 }
 
-static void drain(void) {
+/*
+ * Consumes stale event flags before a new request so its completion cannot be
+ * mistaken for an earlier operation.
+ */
+static void drain(void)
+{
     for (int i = 0; i < EVENT_COUNT; i++)
         TestEvent(events[i]);
     if (file_event != -1)
         TestEvent(file_event);
 }
 
-static CardResult wait_card(int file, int hardware) {
+/*
+ * Checks card change and failure events before success and accumulates
+ * wrapping Timer 2 samples into a bounded wait.
+ */
+static CardResult wait_card(int file, int hardware)
+{
     int offset = hardware ? 0 : 4;
     uint16_t last = tick();
     unsigned elapsed = 0;
@@ -49,7 +77,8 @@ static CardResult wait_card(int file, int hardware) {
     }
 }
 
-static CardResult path(char out[26], const char *name) {
+static CardResult path(char out[26], const char* name)
+{
     if (strlen(name) > 20 || !name[0])
         return CARD_IO;
     memcpy(out, "bu00:", 5);
@@ -57,7 +86,12 @@ static CardResult path(char out[26], const char *name) {
     return CARD_OK;
 }
 
-static CardResult probe(int initial) {
+/*
+ * Acknowledges insertion only on session entry; a later change invalidates the
+ * media already discovered.
+ */
+static CardResult probe(int initial)
+{
     drain();
     if (!_card_info(0))
         return CARD_IO;
@@ -79,7 +113,12 @@ static CardResult probe(int initial) {
     return r;
 }
 
-static CardResult check(void *context) {
+/*
+ * Poisons the session after any failed probe so later backend calls cannot
+ * continue with media whose identity is no longer established.
+ */
+static CardResult check(void* context)
+{
     (void)context;
     if (!owned || poisoned)
         return CARD_CHANGED;
@@ -89,7 +128,12 @@ static CardResult check(void *context) {
     return r;
 }
 
-static void end(void *context) {
+/*
+ * Releases every partial or complete session, including handles left after a
+ * failed begin.
+ */
+static void end(void* context)
+{
     (void)context;
     // Once replacement or timeout is seen, stop card traffic before releasing
     // a BIOS handle; do not let close issue another transfer to a new card.
@@ -115,7 +159,12 @@ static void end(void *context) {
     owned = started = poisoned = 0;
 }
 
-static CardResult begin(void *context) {
+/*
+ * Acquires BIOS events and card service before discovery; any entry failure
+ * tears down the partial session.
+ */
+static CardResult begin(void* context)
+{
     (void)context;
     if (owned)
         return CARD_IO;
@@ -160,14 +209,19 @@ static CardResult begin(void *context) {
     return r;
 }
 
-static CardResult list(void *context, int index, CardFile *file) {
+/*
+ * Checks media around directory enumeration because BIOS directory calls may
+ * complete without an event.
+ */
+static CardResult list(void* context, int index, CardFile* file)
+{
     (void)context;
     if (!owned || fd >= 0)
         return CARD_IO;
     CardResult r = check(NULL);
     if (r)
         return r;
-    struct DIRENTRY *entry =
+    struct DIRENTRY* entry =
         index ? nextfile(&directory_entry) : firstfile("bu00:*", &directory_entry);
     if (!entry) {
         r = check(NULL);
@@ -182,7 +236,12 @@ static CardResult list(void *context, int index, CardFile *file) {
     return check(NULL);
 }
 
-static CardResult open_file(const char *name, int mode) {
+/*
+ * Creates one asynchronous file handle after checking media, then registers
+ * its completion event.
+ */
+static CardResult open_file(const char* name, int mode)
+{
     if (!owned || fd >= 0)
         return CARD_IO;
     char filename[26];
@@ -207,17 +266,24 @@ static CardResult open_file(const char *name, int mode) {
     return check(NULL);
 }
 
-static CardResult open_read(void *context, const char *name) {
+static CardResult open_read(void* context, const char* name)
+{
     (void)context;
     return open_file(name, FREAD);
 }
 
-static CardResult open_create(void *context, const char *name) {
+static CardResult open_create(void* context, const char* name)
+{
     (void)context;
     return open_file(name, FWRITE | FCREATE | FNBLOCKS(1));
 }
 
-static CardResult transfer(uint8_t *data, int size, int writing) {
+/*
+ * Waits for the file event after an aligned asynchronous transfer and poisons
+ * the session on ambiguous completion.
+ */
+static CardResult transfer(uint8_t* data, int size, int writing)
+{
     if (fd < 0 || size <= 0 || size % 128)
         return CARD_IO;
     CardResult r = check(NULL);
@@ -239,17 +305,24 @@ static CardResult transfer(uint8_t *data, int size, int writing) {
     return check(NULL);
 }
 
-static CardResult read_file(void *context, uint8_t *data, int size) {
+static CardResult read_file(void* context, uint8_t* data, int size)
+{
     (void)context;
     return transfer(data, size, 0);
 }
 
-static CardResult write_file(void *context, const uint8_t *data, int size) {
+static CardResult write_file(void* context, const uint8_t* data, int size)
+{
     (void)context;
-    return transfer((uint8_t *)data, size, 1);
+    return transfer((uint8_t*)data, size, 1);
 }
 
-static CardResult close_file(void *context) {
+/*
+ * Closes the file handle even after a poisoned transfer, but stops card
+ * service before further traffic.
+ */
+static CardResult close_file(void* context)
+{
     (void)context;
     if (fd < 0)
         return CARD_IO;
@@ -271,7 +344,8 @@ static CardResult close_file(void *context) {
     return check(NULL);
 }
 
-static CardResult erase_file(void *context, const char *name) {
+static CardResult erase_file(void* context, const char* name)
+{
     (void)context;
     if (!owned || fd >= 0)
         return CARD_IO;
@@ -287,7 +361,17 @@ static CardResult erase_file(void *context, const char *name) {
     return check(NULL);
 }
 
-CardBackend card_platform_backend(void) {
-    return (CardBackend){NULL,        begin,     end,        check,      list,      open_read,
-                         open_create, read_file, write_file, close_file, erase_file};
+CardBackend card_platform_backend(void)
+{
+    return (CardBackend){NULL,
+                         begin,
+                         end,
+                         check,
+                         list,
+                         open_read,
+                         open_create,
+                         read_file,
+                         write_file,
+                         close_file,
+                         erase_file};
 }

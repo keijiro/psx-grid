@@ -1,8 +1,20 @@
+/*
+ * storage.c - Transactional memory-card score storage
+ *
+ * Implementation notes:
+ *
+ * Saves preserve the latest valid generation until a new one is verified.
+ * Obsolete files may be reclaimed first; the backend owns media sessions
+ * while this layer owns discovery and staging.
+ */
+
 #include "storage.h"
+
 #include <stdio.h>
 #include <string.h>
 
-static StorageResult card_result(CardResult r) {
+static StorageResult card_result(CardResult r)
+{
     switch (r) {
     case CARD_MISSING:
         return STORAGE_NO_CARD;
@@ -19,8 +31,13 @@ static StorageResult card_result(CardResult r) {
     }
 }
 
-static int identity(const CardFile *file, int *slot, uint32_t *generation) {
-    const char *name = file->name;
+/*
+ * Parses only this application's fixed-width filenames so unrelated card files
+ * never become generations of a slot.
+ */
+static int identity(const CardFile* file, int* slot, uint32_t* generation)
+{
+    const char* name = file->name;
     if (memcmp(name, "BIJACQUARD", 10) || name[20] || name[10] < '0' || name[10] > '1' ||
         name[11] < '0' || name[11] > '9')
         return 0;
@@ -43,7 +60,12 @@ static int identity(const CardFile *file, int *slot, uint32_t *generation) {
     return 1;
 }
 
-static CardResult read_file(Storage *s, const char *name) {
+/*
+ * Checks media before and after a complete read and closes the handle even if
+ * transfer fails.
+ */
+static CardResult read_file(Storage* s, const char* name)
+{
     CardResult r = s->card.check(s->card.context);
     if (r)
         return r;
@@ -59,7 +81,12 @@ static CardResult read_file(Storage *s, const char *name) {
     return s->card.check(s->card.context);
 }
 
-static CardResult write_file(Storage *s, const char *name) {
+/*
+ * Checks media before and after a complete write and closes the handle even if
+ * transfer fails.
+ */
+static CardResult write_file(Storage* s, const char* name)
+{
     CardResult r = s->card.check(s->card.context);
     if (r)
         return r;
@@ -75,13 +102,22 @@ static CardResult write_file(Storage *s, const char *name) {
     return s->card.check(s->card.context);
 }
 
+/*
+ * Discovery retains both the chosen valid file and the largest generation
+ * named on card, including corrupt candidates that still reserve a number.
+ */
 typedef struct {
     int file;
     uint32_t generation, maximum;
     StorageResult result;
 } Discovery;
 
-static Discovery discover(Storage *s, int slot) {
+/*
+ * Selects the highest valid generation while retaining the maximum name
+ * generation to avoid reusing a failed write number.
+ */
+static Discovery discover(Storage* s, int slot)
+{
     Discovery found = {-1, 0, 0, STORAGE_EMPTY};
     uint32_t newer = 0;
     for (int i = 0; i < s->file_count; i++) {
@@ -103,8 +139,8 @@ static Discovery discover(Storage *s, int slot) {
         }
         int payload_slot;
         uint32_t payload_generation;
-        FormatResult format = score_format_decode(s->readback, SCORE_FILE_BYTES, &s->incoming,
-                                                  &payload_slot, &payload_generation);
+        FormatResult format = score_format_decode(
+            s->readback, SCORE_FILE_BYTES, &s->incoming, &payload_slot, &payload_generation);
         if (format == FORMAT_NEWER) {
             if (generation > newer)
                 newer = generation;
@@ -128,13 +164,19 @@ static Discovery discover(Storage *s, int slot) {
     return found;
 }
 
-void storage_init(Storage *s, CardBackend backend) {
+void storage_init(Storage* s, CardBackend backend)
+{
     memset(s, 0, sizeof(*s));
     s->card = backend;
     s->free_blocks = -1;
 }
 
-static StorageResult begin(Storage *s) {
+/*
+ * Inventories the whole card in one session and rejects impossible directory
+ * sizes before calculating free blocks.
+ */
+static StorageResult begin(Storage* s)
+{
     s->free_blocks = -1;
     s->file_count = 0;
     CardResult r = s->card.begin(s->card.context);
@@ -167,13 +209,15 @@ static StorageResult begin(Storage *s) {
     return STORAGE_SAVED;
 }
 
-static StorageResult finish(Storage *s, int slot, StorageResult result) {
+static StorageResult finish(Storage* s, int slot, StorageResult result)
+{
     s->card.end(s->card.context);
     s->slots[slot - 1] = result;
     return result;
 }
 
-StorageResult storage_refresh(Storage *s, int slot) {
+StorageResult storage_refresh(Storage* s, int slot)
+{
     if (slot < 1 || slot > 15)
         return STORAGE_IO;
     StorageResult r = begin(s);
@@ -183,7 +227,8 @@ StorageResult storage_refresh(Storage *s, int slot) {
     return finish(s, slot, d.result);
 }
 
-StorageResult storage_load(Storage *s, int slot) {
+StorageResult storage_load(Storage* s, int slot)
+{
     if (slot < 1 || slot > 15)
         return STORAGE_IO;
     StorageResult r = begin(s);
@@ -204,7 +249,12 @@ StorageResult storage_load(Storage *s, int slot) {
     return finish(s, slot, STORAGE_SAVED);
 }
 
-static CardResult retire(Storage *s, int slot, int keep) {
+/*
+ * Erases only recognized obsolete files after a valid generation is known;
+ * failures leave the latest valid file available.
+ */
+static CardResult retire(Storage* s, int slot, int keep)
+{
     for (int i = 0; i < s->file_count; i++)
         if (i != keep) {
             int number;
@@ -225,7 +275,8 @@ static CardResult retire(Storage *s, int slot, int keep) {
     return CARD_OK;
 }
 
-StorageResult storage_save(Storage *s, int slot, const Score *score) {
+StorageResult storage_save(Storage* s, int slot, const Score* score)
+{
     if (slot < 1 || slot > 15)
         return STORAGE_IO;
     if (score_format_encode(score, s->save, slot, 1) != FORMAT_OK)
@@ -273,12 +324,23 @@ StorageResult storage_save(Storage *s, int slot, const Score *score) {
     return finish(s, slot, io ? STORAGE_CLEANUP : STORAGE_SAVED);
 }
 
-const char *storage_message(StorageResult r) {
-    static const char *messages[] = {"CHECK",          "EMPTY",        "SAVED",
-                                     "BUSY",           "CORRUPT",      "NEWER VERSION",
-                                     "NO CARD",        "CARD TIMEOUT", "CARD CHANGED",
-                                     "CARD I/O ERROR", "UNFORMATTED",  "CARD DAMAGED",
-                                     "NO FREE BLOCK",  "SCORE FULL",   "SAVED / CLEANUP PENDING",
+const char* storage_message(StorageResult r)
+{
+    static const char* messages[] = {"CHECK",
+                                     "EMPTY",
+                                     "SAVED",
+                                     "BUSY",
+                                     "CORRUPT",
+                                     "NEWER VERSION",
+                                     "NO CARD",
+                                     "CARD TIMEOUT",
+                                     "CARD CHANGED",
+                                     "CARD I/O ERROR",
+                                     "UNFORMATTED",
+                                     "CARD DAMAGED",
+                                     "NO FREE BLOCK",
+                                     "SCORE FULL",
+                                     "SAVED / CLEANUP PENDING",
                                      "GENERATION FULL"};
     return messages[r];
 }

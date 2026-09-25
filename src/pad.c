@@ -1,9 +1,23 @@
+/*
+ * pad.c - Interrupt-driven controller polling
+ *
+ * Implementation notes:
+ *
+ * SIO0 polling is staged across timer callbacks and yields the port to BIOS
+ * card access through an explicit ownership handoff.
+ */
+
 #include "pad.h"
+
 #include <psxapi.h>
 #include <psxetc.h>
 #include <psxgpu.h>
 #include <psxpad.h>
 
+/*
+ * The interrupt publishes controller samples into queue while ownership
+ * prevents pad traffic during BIOS card sessions.
+ */
 static InputQueue queue;
 static volatile int phase;
 static int received, length;
@@ -22,11 +36,17 @@ enum { IDLE, READY, RECEIVING };
 #define SETTLE_TICKS 128
 #define TIMEOUT_TICKS 33869 // 8 ms, below the 16-bit timer's wrap period.
 
-static uint16_t clock_now(void) {
+static uint16_t clock_now(void)
+{
     return (uint16_t)TIMER_VALUE(2);
 }
 
-static void publish(int connected) {
+/*
+ * Turns the active-low device reply into one queued input sample and releases
+ * SIO0 after each report.
+ */
+static void publish(int connected)
+{
     uint16_t held = 0;
     if (connected) {
         unsigned buttons = (uint16_t)~(reply[3] | reply[4] << 8);
@@ -58,7 +78,12 @@ static void publish(int connected) {
     phase = IDLE;
 }
 
-static void receive(void) {
+/*
+ * Consumes an entire recognized digital or analog report before publishing its
+ * shared button bits.
+ */
+static void receive(void)
+{
     if (ownership == CARD_OWNS)
         return;
     if (phase != RECEIVING || !(SIO_STAT(0) & 2)) {
@@ -91,7 +116,12 @@ static void receive(void) {
     phase = READY;
 }
 
-static void vblank(void) {
+/*
+ * Starts the next controller exchange only when the serial port belongs to pad
+ * polling.
+ */
+static void vblank(void)
+{
     if (ownership != PAD_OWNS)
         return;
     // BIOS pad polling can be bypassed when the SDK drains a VBlank that
@@ -111,7 +141,8 @@ static void vblank(void) {
     phase = READY;
 }
 
-void pad_service(void) {
+void pad_service(void)
+{
     if (ownership == CARD_OWNS || phase == IDLE)
         return;
     uint16_t now = clock_now();
@@ -129,7 +160,8 @@ void pad_service(void) {
     SIO_DATA(0) = received == 0 ? 0x01 : received == 1 ? 0x42 : 0;
 }
 
-void pad_init(void) {
+void pad_init(void)
+{
     EnterCriticalSection();
     input_queue_init(&queue);
     InterruptCallback(IRQ_SIO0, receive);
@@ -137,14 +169,16 @@ void pad_init(void) {
     VSyncCallback(vblank);
 }
 
-int pad_read(InputSample *sample) {
+int pad_read(InputSample* sample)
+{
     EnterCriticalSection();
     int found = input_queue_pop(&queue, sample);
     ExitCriticalSection();
     return found;
 }
 
-void pad_suspend(void) {
+void pad_suspend(void)
+{
     EnterCriticalSection();
     ownership = PAD_DRAINING;
     ExitCriticalSection();
@@ -166,7 +200,8 @@ void pad_suspend(void) {
     ExitCriticalSection();
 }
 
-void pad_resume(void) {
+void pad_resume(void)
+{
     EnterCriticalSection();
     SIO_CTRL(0) = 0x40;
     for (int i = 0; i < 16 && (SIO_STAT(0) & 2); i++)

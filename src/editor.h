@@ -1,19 +1,32 @@
+/*
+ * editor.h - Grid editor state and menu-facing view models
+ *
+ * The editor owns the editable score and turns normalized input frames into
+ * validated score operations. Rendering reads this state without mutating it.
+ */
+
 #ifndef EDITOR_H
 #define EDITOR_H
+
 #include "score.h"
 #include "input.h"
 #include "storage.h"
+
+// Maximum context actions and setting rows exposed in one editor menu.
 #define EDITOR_MENU_ITEMS 8
 #define EDITOR_ROWS 16
 
+// Row roles determine navigation and whether an adjustment is available.
 typedef enum { ROW_HEADING, ROW_VALUE, ROW_SUBMENU, ROW_ACTION } EditorRowKind;
 
+// One menu row; value rows use min/max and fine/coarse adjustment steps.
 typedef struct {
     EditorRowKind kind;
     int id, min, max, fine, coarse;
-    const char *label;
+    const char* label;
 } EditorRow;
 
+// Current editor surface or interaction in progress.
 typedef enum {
     EDIT_PLANE,
     EDIT_MENU,
@@ -27,6 +40,7 @@ typedef enum {
     EDIT_MODE_COUNT
 } EditorMode;
 
+// Context actions available for the selected score cell.
 typedef enum {
     ACTION_CREATE,
     ACTION_PLACE,
@@ -49,8 +63,10 @@ typedef enum {
     ACTION_LOCK_RELEASE
 } EditorAction;
 
+// Requests are consumed by the main-thread storage coordinator.
 enum { STORAGE_ACTION_NONE, STORAGE_ACTION_CHECK, STORAGE_ACTION_SAVE, STORAGE_ACTION_LOAD };
 
+// Persistent cursor, gesture, menu, score and storage presentation state.
 typedef struct {
     Score score;
     // Dirty means committed edits are waiting for audio publication.
@@ -65,18 +81,26 @@ typedef struct {
     TileValue value, last_note;
     TileKind tile_candidate, last_tile;
     EditorMode mode;
-    const char *message;
+    const char* message;
     int storage_slot, storage_request, load_busy, load_slot, card_free;
     StorageResult slot_status;
     uint32_t capacity_revision;
     int free_bytes;
 } Editor;
 
-void editor_init(Editor *editor);
-void editor_refresh_capacity(Editor *editor);
-int editor_menu(const Editor *editor, EditorAction items[EDITOR_MENU_ITEMS]);
-const char *editor_action_label(EditorAction action);
-int editor_rows(const Editor *editor, EditorRow rows[EDITOR_ROWS]);
-void editor_row_value(const Editor *editor, int id, char *buffer, int size);
-void editor_update(Editor *editor, InputFrame input);
-#endif
+/* Initializes `editor` with an empty score and default selection. */
+void editor_init(Editor* editor);
+/* Recomputes save capacity after a committed score change. */
+void editor_refresh_capacity(Editor* editor);
+/* Writes at most EDITOR_MENU_ITEMS actions and returns their count. */
+int editor_menu(const Editor* editor, EditorAction items[EDITOR_MENU_ITEMS]);
+/* Returns the fixed display label for a valid action. */
+const char* editor_action_label(EditorAction action);
+/* Writes at most EDITOR_ROWS rows for the current mode and returns their count. */
+int editor_rows(const Editor* editor, EditorRow rows[EDITOR_ROWS]);
+/* Formats a row value into `buffer`; `size` must be positive. */
+void editor_row_value(const Editor* editor, int id, char* buffer, int size);
+/* Applies one normalized input frame and records any storage request. */
+void editor_update(Editor* editor, InputFrame input);
+
+#endif // EDITOR_H

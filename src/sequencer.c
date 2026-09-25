@@ -1,18 +1,35 @@
+/*
+ * sequencer.c - Bounded clocked score traversal
+ *
+ * Implementation notes:
+ *
+ * Playback works from immutable score snapshots and limits tile work in
+ * each timer service call. Score replacement waits for a complete slice.
+ */
+
 #include "sequencer.h"
+
 #include <string.h>
 
-static int bound(int value) {
+static int bound(int value)
+{
     return value < 0 ? 0 : value > SOUND_MAX_MS ? SOUND_MAX_MS : value;
 }
 
-static void lock(SoundSettings *sound, TileValue v) {
+static void lock(SoundSettings* sound, TileValue v)
+{
     if (v.lock_mask & LOCK_ATTACK)
         sound->attack = bound(sound->attack + v.attack);
     if (v.lock_mask & LOCK_RELEASE)
         sound->release = bound(sound->release + v.release);
 }
 
-static uint32_t random_next(Sequencer *s) {
+/*
+ * Advances a deterministic per-transport xorshift stream so probability gates
+ * consume one draw per visit.
+ */
+static uint32_t random_next(Sequencer* s)
+{
     uint32_t x = s->random;
     x ^= x << 13;
     x ^= x >> 17;
@@ -20,12 +37,14 @@ static uint32_t random_next(Sequencer *s) {
     return s->random = x;
 }
 
-static int precedes(const Score *s, int a, int b) {
+static int precedes(const Score* s, int a, int b)
+{
     const Lane *x = &s->lanes[a], *y = &s->lanes[b];
     return x->y != y->y ? x->y < y->y : x->x != y->x ? x->x < y->x : a < b;
 }
 
-static void runner_start(Runner *r, int lane, AudioTime at) {
+static void runner_start(Runner* r, int lane, AudioTime at)
+{
     r->active = 1;
     r->origin = r->lane = lane;
     r->step = 0;
@@ -37,7 +56,12 @@ static void runner_start(Runner *r, int lane, AudioTime at) {
     r->held_count = 0;
 }
 
-static void order_runners(Sequencer *s) {
+/*
+ * Preserves runner storage while sorting traversal order; the first Channel 1
+ * origin becomes the lap master.
+ */
+static void order_runners(Sequencer* s)
+{
     s->count = 0;
     for (int i = 0; i < SCORE_LANES; i++)
         if (s->runners[i].active) {
@@ -57,7 +81,8 @@ static void order_runners(Sequencer *s) {
         }
 }
 
-void sequencer_start(Sequencer *s, const Score *score, NoteSink sink, AudioTime now) {
+void sequencer_start(Sequencer* s, const Score* score, NoteSink sink, AudioTime now)
+{
     memset(s, 0, sizeof(*s));
     s->score = score;
     s->sink = sink;
@@ -75,19 +100,25 @@ void sequencer_start(Sequencer *s, const Score *score, NoteSink sink, AudioTime 
     order_runners(s);
 }
 
-static int same_lane(const Score *old, const Score *score, int lane) {
+/*
+ * Compares birth generations so a recycled lane slot does not inherit the old
+ * runner cursor.
+ */
+static int same_lane(const Score* old, const Score* score, int lane)
+{
     return score->lanes[lane].active && old->lane_generation[lane] == score->lane_generation[lane];
 }
 
-int sequencer_resync(Sequencer *s, const Score *score, AudioTime now) {
+int sequencer_resync(Sequencer* s, const Score* score, AudioTime now)
+{
     if (s->slicing || s->replacement)
         return 0;
-    const Score *old = s->score;
+    const Score* old = s->score;
     // Only the 16 runner seats are reconciled here. Held locks validate their
     // births lazily under the tile budget, so publication never scans a score
     // or copies a runner's entire hold inside the audio interrupt.
     for (int i = 0; i < SCORE_LANES; i++) {
-        Runner *r = &s->runners[i];
+        Runner* r = &s->runners[i];
         if (!r->active)
             continue;
         if (!same_lane(old, score, r->origin) || score->lanes[r->origin].source) {
@@ -111,7 +142,7 @@ int sequencer_resync(Sequencer *s, const Score *score, AudioTime now) {
         if (score->lanes[lane].active && !score->lanes[lane].source) {
             int found = 0, free_slot = -1;
             for (int i = 0; i < SCORE_LANES; i++) {
-                Runner *r = &s->runners[i];
+                Runner* r = &s->runners[i];
                 if (r->active && r->origin == lane)
                     found = 1;
                 if (!r->active && free_slot < 0)
@@ -125,14 +156,15 @@ int sequencer_resync(Sequencer *s, const Score *score, AudioTime now) {
     // The selected Channel 1 master cannot wait for its own
     // lap, and an empty playing score must be able to accept its first lane.
     if (s->count) {
-        Runner *master = &s->runners[s->master];
+        Runner* master = &s->runners[s->master];
         if (master->next == UINT64_MAX)
             master->next = now;
     }
     return 1;
 }
 
-int sequencer_replace(Sequencer *s, Sequencer *prepared, AudioTime now) {
+int sequencer_replace(Sequencer* s, Sequencer* prepared, AudioTime now)
+{
     if (s->replacement || !prepared || prepared == s)
         return 0;
     s->replacement = prepared;
@@ -140,8 +172,13 @@ int sequencer_replace(Sequencer *s, Sequencer *prepared, AudioTime now) {
     return 1;
 }
 
-static Sequencer *adopt(Sequencer *s, AudioTime at) {
-    Sequencer *next = s->replacement;
+/*
+ * Transfers only live gates and counters at the slice seam because prepared
+ * traversal state already owns its score.
+ */
+static Sequencer* adopt(Sequencer* s, AudioTime at)
+{
+    Sequencer* next = s->replacement;
     next->sink = s->sink;
     next->playing = s->playing;
     // Runner/held-lock preparation is already complete. Only bounded deadlines
@@ -156,7 +193,8 @@ static Sequencer *adopt(Sequencer *s, AudioTime at) {
     return next;
 }
 
-Sequencer *sequencer_stop(Sequencer *s, AudioTime now) {
+Sequencer* sequencer_stop(Sequencer* s, AudioTime now)
+{
     s->playing = 0;
     memset(s->offs, 0, sizeof(s->offs));
     if (s->sink.stop)
@@ -164,7 +202,12 @@ Sequencer *sequencer_stop(Sequencer *s, AudioTime now) {
     return s->replacement ? adopt(s, now) : s;
 }
 
-static void offs_until(Sequencer *s, AudioTime now) {
+/*
+ * Drains due gate-offs in deadline order before later note-ons; generations
+ * keep stolen slots safe.
+ */
+static void offs_until(Sequencer* s, AudioTime now)
+{
     // At most one pending gate-off per logical note. The generation token
     // prevents an old gate from releasing a replacement after a steal.
     for (;;) {
@@ -187,7 +230,12 @@ static void offs_until(Sequencer *s, AudioTime now) {
     }
 }
 
-static void tile_event(Sequencer *s, Runner *r, TileId t, AudioTime now) {
+/*
+ * Applies gates and locks in stack order; note timing stays anchored to the
+ * slice even if service runs late.
+ */
+static void tile_event(Sequencer* s, Runner* r, TileId t, AudioTime now)
+{
     TileValue v = s->score->tiles[t].value;
     if (v.kind == TILE_CYCLE && !(v.pattern & ((uint32_t)1 << (r->lap % v.period)))) {
         s->cursor = 0;
@@ -220,9 +268,14 @@ static void tile_event(Sequencer *s, Runner *r, TileId t, AudioTime now) {
     }
 }
 
-static int slice(Sequencer *s, AudioTime now, int *budget) {
+/*
+ * Resumes a partially visited slice under a shared tile budget without
+ * replaying gates or random draws.
+ */
+static int slice(Sequencer* s, AudioTime now, int* budget)
+{
     while (s->runner_index < s->count) {
-        Runner *r = &s->runners[s->order[s->runner_index]];
+        Runner* r = &s->runners[s->order[s->runner_index]];
         if (!s->visiting) {
             s->visiting = 1;
             s->held_index = 0;
@@ -258,7 +311,7 @@ static int slice(Sequencer *s, AudioTime now, int *budget) {
                     if (s->replacement && s->replacement_at == UINT64_MAX)
                         s->replacement_at = r->next + r->duration;
                     for (int i = 0; i < s->count; i++) {
-                        Runner *pending = &s->runners[s->order[i]];
+                        Runner* pending = &s->runners[s->order[i]];
                         if (pending->next == UINT64_MAX)
                             pending->next = r->next + r->duration;
                     }
@@ -284,7 +337,8 @@ static int slice(Sequencer *s, AudioTime now, int *budget) {
     return 1;
 }
 
-Sequencer *sequencer_service(Sequencer *s, AudioTime now) {
+Sequencer* sequencer_service(Sequencer* s, AudioTime now)
+{
     int work = 0, budget = SEQUENCER_TILE_BUDGET;
     if (!s->playing && s->replacement)
         s = adopt(s, now);

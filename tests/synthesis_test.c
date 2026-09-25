@@ -1,5 +1,15 @@
+/*
+ * synthesis_test.c - Host synthesis envelope and pitch checks
+ *
+ * Implementation notes:
+ *
+ * A recording audio driver compares fixed-point voice behavior with
+ * expected envelopes and pitch registers.
+ */
+
 #include "audio.h"
 #include "audio_tables.h"
+
 #include <assert.h>
 #include <math.h>
 #include <stdio.h>
@@ -10,45 +20,56 @@ static int gains[SEQUENCER_VOICES][2], pitches[SEQUENCER_VOICES], banks[SEQUENCE
 static SoundSettings captured[SEQUENCER_VOICES];
 static uint32_t started, stopped;
 
-static void start(void *ctx, int slot, int bank, SoundSettings sound) {
+static void start(void* ctx, int slot, int bank, SoundSettings sound)
+{
     (void)ctx;
     banks[slot] = bank;
     captured[slot] = sound;
 }
 
-static void volume(void *ctx, int slot, int a, int b) {
+static void volume(void* ctx, int slot, int a, int b)
+{
     (void)ctx;
     assert(a >= 0 && b >= 0 && a + b <= AUDIO_LEVEL);
     gains[slot][0] = a;
     gains[slot][1] = b;
 }
 
-static void pitch(void *ctx, int slot, int value) {
+static void pitch(void* ctx, int slot, int value)
+{
     (void)ctx;
     assert(value > 0 && value < 16384);
     pitches[slot] = value;
 }
 
-static void flush(void *ctx, uint32_t on, uint32_t off) {
+static void flush(void* ctx, uint32_t on, uint32_t off)
+{
     (void)ctx;
     assert(!(on & off));
     started = on;
     stopped = off;
 }
 
-static NoteSink reset(void) {
+static NoteSink reset(void)
+{
     memset(gains, 0, sizeof(gains));
     audio_init(&audio, (AudioDriver){NULL, start, volume, pitch, flush, NULL});
     return audio_sink(&audio);
 }
 
-static double ideal_register(int bank, double note) {
+static double ideal_register(int bank, double note)
+{
     const int lengths[] = {2688, 1344, 672, 336, 168, 84, 84, 84, 84, 84};
     return 440 * exp2((note - 57) / 12) * lengths[bank] / (1 << (bank > 5 ? bank - 5 : 0)) / 44100 *
            4096;
 }
 
-static void sweeps(void) {
+/*
+ * Compares fixed-point pitch trajectories with a floating-point reference
+ * across wave banks.
+ */
+static void sweeps(void)
+{
     const int decays[] = {0, 1, 7, 200, 2000};
     double worst = 0, quantization = 0, approximation = 0;
     unsigned samples = 0;
@@ -89,7 +110,7 @@ static void sweeps(void) {
                         if (position > 108 * 65536)
                             position = 108 * 65536;
                         index = (unsigned)position >> 16;
-                        const uint32_t *table = &audio_pitch[banks[0] * 109];
+                        const uint32_t* table = &audio_pitch[banks[0] * 109];
                         uint32_t value = table[index];
                         if (index < 108)
                             value += (table[index + 1] - value) *
@@ -124,7 +145,11 @@ static void sweeps(void) {
         approximation);
 }
 
-static void envelopes(void) {
+/*
+ * Checks attack and release arithmetic at boundary times and long durations.
+ */
+static void envelopes(void)
+{
     const int times[] = {0, 1, 120, 500};
     for (int wave = 0; wave < 5; wave++)
         for (int a = 0; a < 4; a++)
@@ -178,12 +203,17 @@ static void envelopes(void) {
 
 static unsigned ready_mask;
 
-static int ready(void *ctx, int slot) {
+static int ready(void* ctx, int slot)
+{
     (void)ctx;
     return (ready_mask >> slot) & 1;
 }
 
-static void transients(void) {
+/*
+ * Checks modulation start when hardware key-on readiness is delayed.
+ */
+static void transients(void)
+{
     SoundSettings sound = {0, 1, WAVE_SINE, WAVE_NOISE, 0, 1, 24, 1, 0};
     AudioTime origin = UINT64_C(0x100000000) + 17;
     for (int delay = 1; delay <= 20; delay++) {
@@ -256,7 +286,12 @@ static void transients(void) {
          "while pending");
 }
 
-static void snapshots(void) {
+/*
+ * Checks captured sound settings remain with a voice after later score
+ * changes.
+ */
+static void snapshots(void)
+{
     static Score score, updated;
     static Sequencer seq;
     score_init(&score);
@@ -297,7 +332,8 @@ static void snapshots(void) {
          "snapshots");
 }
 
-int main(void) {
+int main(void)
+{
     sweeps();
     envelopes();
     transients();

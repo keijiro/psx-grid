@@ -1,7 +1,18 @@
+/*
+ * main.c - Application startup and main-thread coordination
+ *
+ * Implementation notes:
+ *
+ * The main loop coordinates input, audio publication, rendering and
+ * synchronous BIOS card sessions without sharing mutable editor state with
+ * callbacks.
+ */
+
 #include "editor.h"
 #include "audio.h"
 #include "render.h"
 #include "pad.h"
+
 #include <psxapi.h>
 #include <psxetc.h>
 #include <psxgpu.h>
@@ -10,7 +21,12 @@ static Editor editor;
 static Input input;
 static Storage storage;
 
-static void replacement_acknowledged(void) {
+/*
+ * Clears the load lock only after audio adopts the incoming snapshot, then
+ * refreshes the menu capacity against the newly editable score.
+ */
+static void replacement_acknowledged(void)
+{
     editor.load_busy = 0;
     editor.message = "LOADED";
     editor.mode = EDIT_MAIN;
@@ -20,7 +36,12 @@ static void replacement_acknowledged(void) {
     editor_refresh_capacity(&editor);
 }
 
-static void storage_action(int connected) {
+/*
+ * Shows a busy frame, transfers callback ownership to BIOS card service, then
+ * restores input and audio before publishing the result.
+ */
+static void storage_action(int connected)
+{
     int action = editor.storage_request, slot = editor.storage_slot;
     editor.storage_request = STORAGE_ACTION_NONE;
     if (editor.load_busy || audio_platform_replacing()) {
@@ -81,7 +102,8 @@ static void storage_action(int connected) {
     }
 }
 
-int main(void) {
+int main(void)
+{
     editor_init(&editor);
     input_init(&input);
     render_init();

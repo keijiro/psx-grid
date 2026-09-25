@@ -1,26 +1,40 @@
+/*
+ * input.c - Controller event and repeat processing
+ *
+ * Implementation notes:
+ *
+ * Cursor, menu-row and value adjustment repeats use separate clocks so a
+ * mode change cannot carry an unrelated hold into an edit.
+ */
+
 #include "input.h"
+
 #include <string.h>
 
-void input_init(Input *i) {
+void input_init(Input* i)
+{
     memset(i, 0, sizeof(*i));
 }
 
 // Retain the held direction: only its repeat is delayed across a mode change.
 // A newly pressed direction must still produce its first movement immediately.
-void input_reset_value_repeat(Input *i) {
+void input_reset_value_repeat(Input* i)
+{
     i->value_direction = 0;
     i->value_held = 0;
     i->value_countdown = 0;
 }
 
-void input_reset_repeat(Input *i) {
+void input_reset_repeat(Input* i)
+{
     i->countdown = INPUT_DELAY;
     i->row_direction = 0;
     i->row_countdown = 0;
     input_reset_value_repeat(i);
 }
 
-InputFrame input_update(Input *i, int connected, uint16_t held) {
+InputFrame input_update(Input* i, int connected, uint16_t held)
+{
     InputFrame f = {0};
     f.connected = connected;
     if (!connected) {
@@ -108,11 +122,13 @@ InputFrame input_update(Input *i, int connected, uint16_t held) {
     return f;
 }
 
-void input_queue_init(InputQueue *q) {
+void input_queue_init(InputQueue* q)
+{
     q->read = q->write = 0;
 }
 
-int input_queue_push(InputQueue *q, InputSample sample) {
+int input_queue_push(InputQueue* q, InputSample sample)
+{
     unsigned next = (q->write + 1) % INPUT_QUEUE_CAPACITY;
     int overflow = next == q->read;
     if (overflow) {
@@ -128,7 +144,8 @@ int input_queue_push(InputQueue *q, InputSample sample) {
     return overflow;
 }
 
-int input_queue_pop(InputQueue *q, InputSample *sample) {
+int input_queue_pop(InputQueue* q, InputSample* sample)
+{
     if (q->read == q->write)
         return 0;
     *sample = q->samples[q->read];
