@@ -13,9 +13,15 @@
 #include <stdio.h>
 #include <string.h>
 
-typedef enum { EVENT_ON, EVENT_OFF, EVENT_STOP } EventKind;
+typedef enum
+{
+    EVENT_ON,
+    EVENT_OFF,
+    EVENT_STOP
+} EventKind;
 
-typedef struct {
+typedef struct
+{
     EventKind kind;
     AudioTime at;
     int pitch;
@@ -73,17 +79,18 @@ static int count(EventKind kind, AudioTime at, int pitch)
 {
     int result = 0;
     for (int i = 0; i < event_count; i++)
-        if (events[i].kind == kind && events[i].at == at &&
-            (kind != EVENT_ON || events[i].pitch == pitch))
-            result++;
+    {
+        if (events[i].kind == kind && events[i].at == at && (kind != EVENT_ON || events[i].pitch == pitch)) result++;
+    }
     return result;
 }
 
 static const Event* find_note(AudioTime at, int pitch)
 {
     for (int i = 0; i < event_count; i++)
-        if (events[i].kind == EVENT_ON && events[i].at == at && events[i].pitch == pitch)
-            return &events[i];
+    {
+        if (events[i].kind == EVENT_ON && events[i].at == at && events[i].pitch == pitch) return &events[i];
+    }
     return NULL;
 }
 
@@ -91,8 +98,9 @@ static int count_off(uint32_t token, AudioTime before_or_at)
 {
     int result = 0;
     for (int i = 0; i < event_count; i++)
-        if (events[i].kind == EVENT_OFF && events[i].token == token && events[i].at <= before_or_at)
-            result++;
+    {
+        if (events[i].kind == EVENT_OFF && events[i].token == token && events[i].at <= before_or_at) result++;
+    }
     return result;
 }
 
@@ -100,15 +108,15 @@ static int count_off_at(uint32_t token, AudioTime at)
 {
     int result = 0;
     for (int i = 0; i < event_count; i++)
-        if (events[i].kind == EVENT_OFF && events[i].token == token && events[i].at == at)
-            result++;
+    {
+        if (events[i].kind == EVENT_OFF && events[i].token == token && events[i].at == at) result++;
+    }
     return result;
 }
 
 static Sequencer* service_until(Sequencer* active, Sequencer* expected, AudioTime now)
 {
-    for (int i = 0; i < 16 && active != expected; i++)
-        active = sequencer_service(active, now);
+    for (int i = 0; i < 16 && active != expected; i++) active = sequencer_service(active, now);
     return active;
 }
 
@@ -196,7 +204,8 @@ static void branch_lap_and_gate_transfer(void)
 static void conditional_branch_seams(void)
 {
     AudioTime step = SEQUENCER_HZ / 8;
-    for (int taken = 0; taken <= 1; taken++) {
+    for (int taken = 0; taken <= 1; taken++)
+    {
         Score old, incoming;
         Sequencer current, prepared;
         score_init(&old);
@@ -223,7 +232,8 @@ static void conditional_branch_seams(void)
         assert(sequencer_replace(&current, &prepared, 0));
         Sequencer* active = sequencer_service(&current, 0);
         assert(active == &current && count(EVENT_ON, 0, 73) == 0);
-        if (taken) {
+        if (taken)
+        {
             active = sequencer_service(active, step);
             active = sequencer_service(active, 2 * step);
             assert(active == &current && count(EVENT_ON, 2 * step, 61) == 1);
@@ -280,8 +290,7 @@ static void split_slice_discovers_seam(void)
     TileValue held = score_default(TILE_RELATIVE);
     held.lock_mask = LOCK_ATTACK;
     held.attack = 1;
-    for (int y = 0; y < 40; y++)
-        assert(!score_place_value(&old, 1, y, held));
+    for (int y = 0; y < 40; y++) assert(!score_place_value(&old, 1, y, held));
     score_init(&incoming);
     lane(&incoming, 0, 0, 1, 16, 0, 90);
     reset_trace();
@@ -312,8 +321,9 @@ static void replacement_preempts_pending_lane(void)
     assert(sequencer_resync(&current, &published, 1));
     int pending = -1;
     for (int i = 0; i < SCORE_LANES; i++)
-        if (current.runners[i].active && i != current.master)
-            pending = i;
+    {
+        if (current.runners[i].active && i != current.master) pending = i;
+    }
     assert(pending >= 0 && current.runners[pending].next == UINT64_MAX);
 
     score_init(&incoming);

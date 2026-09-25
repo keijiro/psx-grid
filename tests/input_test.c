@@ -21,15 +21,15 @@ static int moves, presses, releases;
 static void drain(void)
 {
     InputSample s;
-    while (input_queue_pop(&queue, &s)) {
+    while (input_queue_pop(&queue, &s))
+    {
         EditorMode before = editor.mode;
         InputFrame f = input_update(&input, s.connected, s.held);
         moves += f.dx != 0;
         presses += f.cross;
         releases += f.cross_released;
         editor_update(&editor, f);
-        if (editor.mode != before)
-            input_reset_repeat(&input);
+        if (editor.mode != before) input_reset_repeat(&input);
     }
 }
 
@@ -44,7 +44,8 @@ static void value_repeat_and_conflicts(void)
     input_update(&i, 1, 0);
     InputFrame f = input_update(&i, 1, INPUT_RIGHT);
     assert(f.value_dir == 1 && !f.value_coarse);
-    for (int n = 0; n < INPUT_VALUE_DELAY - 1; n++) {
+    for (int n = 0; n < INPUT_VALUE_DELAY - 1; n++)
+    {
         f = input_update(&i, 1, INPUT_RIGHT);
         assert(!f.value_dir);
     }
@@ -81,13 +82,15 @@ static void value_repeat_and_conflicts(void)
     f = input_update(&coarse, 1, INPUT_L1);
     assert(f.value_dir == -1 && f.value_coarse);
     int last_event = 0, first_interval = 0, last_interval = 0;
-    for (int tick = 1; tick <= 220; tick++) {
+    for (int tick = 1; tick <= 220; tick++)
+    {
         f = input_update(&coarse, 1, INPUT_L1);
-        if (f.value_dir) {
-            if (last_event) {
+        if (f.value_dir)
+        {
+            if (last_event)
+            {
                 int interval = tick - last_event;
-                if (!first_interval)
-                    first_interval = interval;
+                if (!first_interval) first_interval = interval;
                 last_interval = interval;
             }
             last_event = tick;
@@ -102,7 +105,8 @@ static void value_repeat_and_conflicts(void)
     input_update(&plane, 1, 0);
     f = input_update(&plane, 1, INPUT_RIGHT);
     assert(f.dx == 1);
-    for (int tick = 1; tick < INPUT_DELAY; tick++) {
+    for (int tick = 1; tick < INPUT_DELAY; tick++)
+    {
         f = input_update(&plane, 1, INPUT_RIGHT);
         assert(!f.dx);
     }
@@ -121,11 +125,11 @@ int main(void)
     drain();
     // Entire taps happen while the consumer is busy, including an X tap
     // opening a menu immediately followed by a direction in that new mode.
-    for (int n = 0; n < 100; n++) {
+    for (int n = 0; n < 100; n++)
+    {
         assert(!input_queue_push(&queue, (InputSample){1, INPUT_RIGHT}));
         assert(!input_queue_push(&queue, (InputSample){1, 0}));
-        if (n % 10 == 9)
-            drain();
+        if (n % 10 == 9) drain();
     }
     assert(moves == 100);
     input_queue_push(&queue, (InputSample){1, INPUT_CROSS});
@@ -141,7 +145,9 @@ int main(void)
     assert(editor.gesture);
     input_queue_init(&queue);
     for (int n = 0; n < INPUT_QUEUE_CAPACITY - 1; n++)
+    {
         assert(!input_queue_push(&queue, (InputSample){1, INPUT_CROSS | INPUT_RIGHT}));
+    }
     assert(input_queue_push(&queue, (InputSample){1, INPUT_CROSS | INPUT_RIGHT}));
     drain();
     assert(!editor.gesture && editor.mode == EDIT_PLANE && editor.x == 1);

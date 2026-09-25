@@ -143,8 +143,7 @@ static void model(void)
     int child = s.tiles[id(bx + 1, by)].branch;
     snapshot();
     unchanged(score_apply_move(&s, score_plan_move(&s, 1, 0, bx + 2, by)));
-    unchanged(
-        score_apply_move(&s, score_plan_move(&s, 1, 0, s.lanes[child].x + 1, s.lanes[child].y)));
+    unchanged(score_apply_move(&s, score_plan_move(&s, 1, 0, s.lanes[child].x + 1, s.lanes[child].y)));
     Clipboard old = clip;
     score_copy(&s, 1, 0, &clip);
     assert(!memcmp(&clip, &old, sizeof(clip)));
@@ -154,15 +153,13 @@ static void model(void)
     assert(!score_apply_move(&s, score_plan_move(&s, bx, by, 20, 10)));
     assert(s.lanes[child].x == 0 && s.lanes[0].x == 0);
     assert(!score_delete(&s, branch));
-    assert(!s.lanes[branch].active && !s.lanes[child].active &&
-           s.tiles[id(1, 0)].value.kind == TILE_NOTE);
+    assert(!s.lanes[branch].active && !s.lanes[child].active && s.tiles[id(1, 0)].value.kind == TILE_NOTE);
     assert(!score_place(&s, 2, 0, TILE_JUMP));
     branch = s.tiles[id(2, 0)].branch;
     assert(!score_remove(&s, 2, 0));
     assert(!s.lanes[branch].active);
     base();
-    for (int i = 1; i < 16; i++)
-        assert(!score_create(&s, 0, i * 2, 4));
+    for (int i = 1; i < 16; i++) assert(!score_create(&s, 0, i * 2, 4));
     snapshot();
     unchanged(score_place(&s, 1, 0, TILE_JUMP));
     unchanged(score_create(&s, 20, 0, 4));
@@ -179,8 +176,7 @@ static void model(void)
     score_init(&s);
     assert(!score_create(&s, 0, 0, 64));
     assert(!score_create(&s, 70, 0, 4));
-    for (int n = 0; n < 1474; n++)
-        assert(!score_place(&s, n / 64 + 1, n % 64, TILE_NOTE));
+    for (int n = 0; n < 1474; n++) assert(!score_place(&s, n / 64 + 1, n % 64, TILE_NOTE));
     assert(score_format_measure(&s) == 8190);
     assert(!score_remove(&s, 24, 1));
     assert(!score_place(&s, 24, 1, TILE_CYCLE));
@@ -226,11 +222,10 @@ static void model(void)
     assert(!score_place(&s, s.lanes[branch].x + 1, s.lanes[branch].y, TILE_JUMP));
     assert(!score_delete(&s, 0));
     assert(score_format_measure(&s) == 728);
-    for (int i = 0; i < SCORE_LANES; i++)
-        assert(!s.lanes[i].active);
-    for (int i = 1; i <= SCORE_TILE_CAPACITY; i++)
-        assert(!s.tiles[i].value.kind);
-    for (int i = 0; i < 1000; i++) {
+    for (int i = 0; i < SCORE_LANES; i++) assert(!s.lanes[i].active);
+    for (int i = 1; i <= SCORE_TILE_CAPACITY; i++) assert(!s.tiles[i].value.kind);
+    for (int i = 0; i < 1000; i++)
+    {
         assert(!score_create(&s, 0, 0, 4));
         assert(!score_place(&s, 1, 0, TILE_NOTE));
         assert(s.tiles[id(1, 0)].value.pitch == 48);
@@ -321,13 +316,12 @@ static void select_action(EditorAction action)
     EditorRow rows[EDITOR_ROWS];
     int n = editor_rows(&e, rows), target = -1;
     for (int i = 0; i < n; i++)
-        if (rows[i].id == (int)action)
-            target = i;
+    {
+        if (rows[i].id == (int)action) target = i;
+    }
     assert(target >= 0);
-    while (e.selected < target)
-        tap(INPUT_DOWN);
-    while (e.selected > target)
-        tap(INPUT_UP);
+    while (e.selected < target) tap(INPUT_DOWN);
+    while (e.selected > target) tap(INPUT_UP);
     assert(e.selected == target);
 }
 
@@ -455,8 +449,7 @@ static void rejected_inline_resize(void)
     editor_setup();
     assert(!score_create(&e.score, 0, 0, 64));
     assert(!score_create(&e.score, 70, 0, 4));
-    for (int n = 0; n < 1474; n++)
-        assert(!score_place(&e.score, n / 64 + 1, n % 64, TILE_NOTE));
+    for (int n = 0; n < 1474; n++) assert(!score_place(&e.score, n / 64 + 1, n % 64, TILE_NOTE));
     assert(!score_remove(&e.score, 24, 1));
     assert(!score_place(&e.score, 24, 1, TILE_CYCLE));
     assert(score_format_measure(&e.score) == SCORE_FILE_BYTES);
@@ -478,7 +471,8 @@ static void rejected_inline_resize(void)
  */
 static void sound_controls(void)
 {
-    static const struct {
+    static const struct
+    {
         size_t offset;
         int step;
         int min, max;
@@ -491,13 +485,13 @@ static void sound_controls(void)
                  {offsetof(SoundSettings, sweep), 12, -SOUND_MAX_SWEEP, SOUND_MAX_SWEEP},
                  {offsetof(SoundSettings, decay), 100, 0, SOUND_MAX_DECAY_MS},
                  {offsetof(SoundSettings, reverb), 1, 0, 1}};
-    for (unsigned i = 0; i < sizeof(cases) / sizeof(*cases); i++) {
+    for (unsigned i = 0; i < sizeof(cases) / sizeof(*cases); i++)
+    {
         editor_setup();
         assert(!score_create(&e.score, 1, 1, 4));
         action(ACTION_SOUND);
         assert(e.mode == EDIT_SOUND && e.selected == 1);
-        for (unsigned j = 0; j < i; j++)
-            tap(INPUT_DOWN);
+        for (unsigned j = 0; j < i; j++) tap(INPUT_DOWN);
         int* value = (int*)((char*)&e.score.sounds[0] + cases[i].offset);
         int start = *value;
         uint32_t revision = e.score.revision;
@@ -508,10 +502,10 @@ static void sound_controls(void)
         tap(INPUT_CIRCLE);
         assert(e.mode == EDIT_MENU && e.selected == 3 && *value == start + cases[i].step);
         s = e.score;
-        for (int boundary = 0; boundary < 2; boundary++) {
+        for (int boundary = 0; boundary < 2; boundary++)
+        {
             SoundSettings invalid = s.sounds[0];
-            *(int*)((char*)&invalid + cases[i].offset) =
-                boundary ? cases[i].max + 1 : cases[i].min - 1;
+            *(int*)((char*)&invalid + cases[i].offset) = boundary ? cases[i].max + 1 : cases[i].min - 1;
             snapshot();
             unchanged(score_set_sound(&s, 0, invalid));
         }
@@ -548,8 +542,7 @@ static void main_controls(void)
     assert(e.mode == EDIT_PLANE);
     assert(!score_create(&e.score, 1, 1, 4));
     action(ACTION_SOUND);
-    for (int j = 0; j < 8; j++)
-        tap(INPUT_DOWN);
+    for (int j = 0; j < 8; j++) tap(INPUT_DOWN);
     tap(INPUT_RIGHT);
     assert(e.score.sounds[0].reverb);
     tap(INPUT_CIRCLE);
@@ -575,7 +568,8 @@ static void channels(void)
 {
     base();
     SoundSettings initial = SOUND_DEFAULT;
-    for (int ch = 0; ch < SCORE_CHANNELS; ch++) {
+    for (int ch = 0; ch < SCORE_CHANNELS; ch++)
+    {
         assert(!memcmp(&s.sounds[ch], &initial, sizeof(initial)));
         assert(!score_set_channel(&s, 0, ch));
         assert(score_channel(&s, 0) == ch);
@@ -588,8 +582,7 @@ static void channels(void)
     unchanged(score_set_channel(&s, 0, SCORE_CHANNELS));
     unchanged(score_set_sound(&s, -1, initial));
     unchanged(score_set_sound(&s, SCORE_CHANNELS, initial));
-    assert(score_channel(&s, -1) == -1 && score_channel(&s, SCORE_LANES) == -1 &&
-           score_channel(&s, 1) == -1);
+    assert(score_channel(&s, -1) == -1 && score_channel(&s, SCORE_LANES) == -1 && score_channel(&s, 1) == -1);
     assert(!score_place(&s, 1, 0, TILE_JUMP));
     int branch = s.tiles[id(1, 0)].branch;
     Lane b = s.lanes[branch];
@@ -609,8 +602,7 @@ static void channels(void)
     custom.reverb = 1;
     assert(!score_set_sound(&s, 2, custom));
     assert(!score_set_channel(&s, 0, 2));
-    assert(!memcmp(
-        &s.sounds[score_channel(&s, 0)], &s.sounds[score_channel(&s, other)], sizeof(custom)));
+    assert(!memcmp(&s.sounds[score_channel(&s, 0)], &s.sounds[score_channel(&s, other)], sizeof(custom)));
     assert(!score_delete(&s, other));
     assert(!score_delete(&s, 0));
     assert(!memcmp(&s.sounds[2], &custom, sizeof(custom)));

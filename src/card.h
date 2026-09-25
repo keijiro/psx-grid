@@ -11,7 +11,8 @@
 #include <stdint.h>
 
 // Card and filesystem outcomes, including media changes during a session.
-typedef enum {
+typedef enum
+{
     CARD_OK,
     CARD_END,
     CARD_MISSING,
@@ -23,7 +24,8 @@ typedef enum {
 } CardResult;
 
 // One directory entry with a card-local name and byte size.
-typedef struct {
+typedef struct
+{
     char name[21];
     int size;
 } CardFile;
@@ -31,7 +33,8 @@ typedef struct {
 // The caller owns one complete session. A failed begin releases everything it
 // acquired; a successful begin has exactly one end. Names exclude "bu00:".
 // The backend owns allocation, directory updates and bad-sector remapping.
-typedef struct {
+typedef struct
+{
     void* context;
     CardResult (*begin)(void*);
     void (*end)(void*);

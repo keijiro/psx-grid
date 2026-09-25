@@ -15,7 +15,8 @@
 #define STORAGE_SLOTS 15
 
 // User-facing outcomes, including card errors and cleanup failures.
-typedef enum {
+typedef enum
+{
     STORAGE_UNKNOWN,
     STORAGE_EMPTY,
     STORAGE_SAVED,
@@ -35,7 +36,8 @@ typedef enum {
 } StorageResult;
 
 // Scratch buffers, directory inventory and staged incoming score.
-typedef struct {
+typedef struct
+{
     CardBackend card;
     StorageResult slots[STORAGE_SLOTS];
     int free_blocks, file_count;
@@ -46,15 +48,18 @@ typedef struct {
     Score incoming;
 } Storage;
 
-/* Initializes caller-owned storage using a complete backend callback table. */
+/* Initializes caller-owned `storage` with a complete `backend` callback table. */
 void storage_init(Storage* storage, CardBackend backend);
-/* Discovers card status and refreshes one 1-based slot's visible result. */
+/* Discovers card status and refreshes `slot` in 1..STORAGE_SLOTS. */
 StorageResult storage_refresh(Storage* storage, int slot);
-/* Saves a snapshot to a 1-based slot and verifies it before retiring old files. */
+/*
+ * Saves the valid `score` snapshot to `slot` in 1..STORAGE_SLOTS and verifies
+ * the new file before retiring old generations.
+ */
 StorageResult storage_save(Storage* storage, int slot, const Score* score);
-/* Loads a 1-based slot into `storage->incoming` on success. */
+/* Loads `slot` in 1..STORAGE_SLOTS into `storage->incoming` on success. */
 StorageResult storage_load(Storage* storage, int slot);
-/* Returns the UI message associated with a storage result. */
+/* Returns the UI message for a valid `result` in StorageResult. */
 const char* storage_message(StorageResult result);
 
 #endif // STORAGE_H

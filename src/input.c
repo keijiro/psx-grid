@@ -37,7 +37,8 @@ InputFrame input_update(Input* i, int connected, uint16_t held)
 {
     InputFrame f = {0};
     f.connected = connected;
-    if (!connected) {
+    if (!connected)
+    {
         input_init(i);
         return f;
     }
@@ -45,17 +46,18 @@ InputFrame input_update(Input* i, int connected, uint16_t held)
     int dy = dx ? 0 : !!(held & INPUT_DOWN) - !!(held & INPUT_UP);
     int row_dy = !!(held & INPUT_DOWN) - !!(held & INPUT_UP);
     int direction = dx ? (dx > 0 ? 1 : 2) : dy ? (dy > 0 ? 3 : 4) : 0;
-    if (!i->connected) {
+    if (!i->connected)
+    {
         i->connected = 1;
         i->previous = held;
         // Ignore all buttons held at reconnection until they are released.
         i->direction = held ? -2 : 0;
         return f;
     }
-    if (i->direction == -2) {
+    if (i->direction == -2)
+    {
         i->previous = held;
-        if (!held)
-            i->direction = 0;
+        if (!held) i->direction = 0;
         return f;
     }
     f.cross_held = !!(held & INPUT_CROSS);
@@ -65,14 +67,19 @@ InputFrame input_update(Input* i, int connected, uint16_t held)
     f.start = !!(held & ~i->previous & INPUT_START);
     f.select = !!(held & ~i->previous & INPUT_SELECT);
     i->previous = held;
-    if (!row_dy) {
+    if (!row_dy)
+    {
         i->row_direction = 0;
         i->row_countdown = 0;
-    } else if (row_dy != i->row_direction) {
+    }
+    else if (row_dy != i->row_direction)
+    {
         i->row_direction = row_dy;
         i->row_countdown = INPUT_DELAY;
         f.row_dy = row_dy;
-    } else if (--i->row_countdown <= 0) {
+    }
+    else if (--i->row_countdown <= 0)
+    {
         i->row_countdown = INPUT_INTERVAL;
         f.row_dy = row_dy;
     }
@@ -84,37 +91,45 @@ InputFrame input_update(Input* i, int connected, uint16_t held)
     // The value clock is separate from the plane cursor's fixed repeat.
     // Opposing inputs release it; a change of direction or step size starts
     // a new hold rather than inheriting the previous acceleration.
-    if (!value) {
+    if (!value)
+    {
         i->value_direction = 0;
         i->value_held = 0;
         i->value_countdown = 0;
-    } else if (value != i->value_direction || !!coarse != i->value_coarse) {
+    }
+    else if (value != i->value_direction || !!coarse != i->value_coarse)
+    {
         i->value_direction = value;
         i->value_coarse = !!coarse;
         i->value_held = 0;
         i->value_countdown = INPUT_VALUE_DELAY;
         f.value_dir = value;
         f.value_coarse = !!coarse;
-    } else {
+    }
+    else
+    {
         i->value_held++;
-        if (--i->value_countdown <= 0) {
+        if (--i->value_countdown <= 0)
+        {
             f.value_dir = value;
             f.value_coarse = !!coarse;
-            i->value_countdown = i->value_held < 45    ? 5
-                                 : i->value_held < 90  ? 4
-                                 : i->value_held < 150 ? 3
-                                                       : 2;
+            i->value_countdown = i->value_held < 45 ? 5 : i->value_held < 90 ? 4 : i->value_held < 150 ? 3 : 2;
         }
     }
-    if (!direction) {
+    if (!direction)
+    {
         i->direction = 0;
         i->countdown = 0;
-    } else if (direction != i->direction) {
+    }
+    else if (direction != i->direction)
+    {
         i->direction = direction;
         i->countdown = INPUT_DELAY;
         f.dx = dx;
         f.dy = dy;
-    } else if (--i->countdown <= 0) {
+    }
+    else if (--i->countdown <= 0)
+    {
         i->countdown = INPUT_INTERVAL;
         f.dx = dx;
         f.dy = dy;
@@ -131,7 +146,8 @@ int input_queue_push(InputQueue* q, InputSample sample)
 {
     unsigned next = (q->write + 1) % INPUT_QUEUE_CAPACITY;
     int overflow = next == q->read;
-    if (overflow) {
+    if (overflow)
+    {
         // A stall longer than the fixed history loses ordering. Cancel any
         // gesture and re-arm through the normal all-buttons-up guard instead
         // of delivering a release whose corresponding press was discarded.
@@ -146,8 +162,7 @@ int input_queue_push(InputQueue* q, InputSample sample)
 
 int input_queue_pop(InputQueue* q, InputSample* sample)
 {
-    if (q->read == q->write)
-        return 0;
+    if (q->read == q->write) return 0;
     *sample = q->samples[q->read];
     q->read = (q->read + 1) % INPUT_QUEUE_CAPACITY;
     return 1;

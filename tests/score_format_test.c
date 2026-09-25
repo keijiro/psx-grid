@@ -14,30 +14,33 @@
 #include <stdlib.h>
 #include <string.h>
 
-enum { ENVELOPE = 512, HEADER = 32, CHUNK = 12 };
+enum
+{
+    ENVELOPE = 512,
+    HEADER = 32,
+    CHUNK = 12
+};
 static uint8_t block[SCORE_FILE_BYTES], changed[SCORE_FILE_BYTES];
 
 static uint32_t get(const uint8_t* p, int n)
 {
     uint32_t v = 0;
-    for (int i = 0; i < n; i++)
-        v |= (uint32_t)p[i] << (8 * i);
+    for (int i = 0; i < n; i++) v |= (uint32_t)p[i] << (8 * i);
     return v;
 }
 
 static void put(uint8_t* p, uint32_t v, int n)
 {
-    for (int i = 0; i < n; i++)
-        p[i] = (uint8_t)(v >> (8 * i));
+    for (int i = 0; i < n; i++) p[i] = (uint8_t)(v >> (8 * i));
 }
 
 static uint32_t checksum(const uint8_t* p, size_t n)
 {
     uint32_t crc = UINT32_MAX;
-    for (size_t i = 0; i < n; i++) {
+    for (size_t i = 0; i < n; i++)
+    {
         crc ^= i >= 20 && i < 24 ? 0 : p[i];
-        for (int b = 0; b < 8; b++)
-            crc = (crc >> 1) ^ (0xedb88320u & -(crc & 1));
+        for (int b = 0; b < 8; b++) crc = (crc >> 1) ^ (0xedb88320u & -(crc & 1));
     }
     return ~crc;
 }
@@ -52,10 +55,10 @@ static uint8_t* chunk(uint8_t* data, int wanted)
 {
     uint8_t* h = data + ENVELOPE;
     size_t end = get(h + 8, 2) + get(h + 12, 4);
-    for (size_t at = get(h + 8, 2); at < end;) {
+    for (size_t at = get(h + 8, 2); at < end;)
+    {
         uint8_t* c = h + at;
-        if (get(c, 2) == (unsigned)wanted)
-            return c;
+        if (get(c, 2) == (unsigned)wanted) return c;
         at += CHUNK + get(c + 8, 4);
     }
     return NULL;
@@ -110,13 +113,11 @@ static void equivalent(const Score* a, const Score* b)
     assert(!memcmp(x, y, sizeof(x)));
 }
 
-static FormatResult
-decode_publish(const uint8_t* data, size_t size, Score* published, int* slot, uint32_t* generation)
+static FormatResult decode_publish(const uint8_t* data, size_t size, Score* published, int* slot, uint32_t* generation)
 {
     static Score staging;
     FormatResult result = score_format_decode(data, size, &staging, slot, generation);
-    if (result == FORMAT_OK)
-        *published = staging;
+    if (result == FORMAT_OK) *published = staging;
     return result;
 }
 
@@ -150,7 +151,8 @@ static void golden(int write_fixture)
     assert(score_format_measure(&source) == 801);
     assert(score_format_encode(&source, block, 15, 0x89abcdefu) == FORMAT_OK);
     assert(get(block + ENVELOPE + 12, 4) + ENVELOPE + HEADER == score_format_measure(&source));
-    if (write_fixture) {
+    if (write_fixture)
+    {
         FILE* f = fopen("tests/fixtures/score-v1.bin", "wb");
         assert(f);
         assert(fwrite(block, 1, sizeof(block), f) == sizeof(block));
@@ -164,13 +166,11 @@ static void golden(int write_fixture)
     assert(!memcmp(block, changed, sizeof(block)));
     int slot = 0;
     uint32_t generation = 0;
-    assert(score_format_decode(changed, sizeof(changed), &decoded, &slot, &generation) ==
-           FORMAT_OK);
+    assert(score_format_decode(changed, sizeof(changed), &decoded, &slot, &generation) == FORMAT_OK);
     assert(slot == 15 && generation == 0x89abcdefu);
     equivalent(&source, &decoded);
     score_format_set_generation(changed, 7);
-    assert(score_format_decode(changed, sizeof(changed), &decoded, &slot, &generation) ==
-           FORMAT_OK);
+    assert(score_format_decode(changed, sizeof(changed), &decoded, &slot, &generation) == FORMAT_OK);
     assert(generation == 7);
     equivalent(&source, &decoded);
 }
@@ -354,17 +354,14 @@ static void encode_rejects_invalid(void)
     score_init(&s);
     assert(score_create(&s, 0, 0, 64) == SCORE_OK);
     assert(score_create(&s, 70, 0, 4) == SCORE_OK);
-    for (int n = 0; n < 1474; n++)
-        assert(score_place(&s, n / 64 + 1, n % 64, TILE_NOTE) == SCORE_OK);
+    for (int n = 0; n < 1474; n++) assert(score_place(&s, n / 64 + 1, n % 64, TILE_NOTE) == SCORE_OK);
     assert(score_remove(&s, 24, 1) == SCORE_OK);
     assert(score_place(&s, 24, 1, TILE_CYCLE) == SCORE_OK);
     assert(score_format_measure(&s) == SCORE_FILE_BYTES);
     TileId tail = s.lanes[0].tiles[23];
-    while (s.tiles[tail].next)
-        tail = s.tiles[tail].next;
+    while (s.tiles[tail].next) tail = s.tiles[tail].next;
     TileId extra = 1;
-    while (s.tiles[extra].value.kind)
-        extra++;
+    while (s.tiles[extra].value.kind) extra++;
     s.tiles[tail].next = extra;
     s.tiles[extra].value = score_default(TILE_NOTE);
     s.tiles[extra].branch = -1;

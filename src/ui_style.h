@@ -8,10 +8,12 @@
 #ifndef UI_STYLE_H
 #define UI_STYLE_H
 
+// Native output dimensions in pixels.
 #define SCREEN_W 320
 #define SCREEN_H 240
 // The 16-pixel grid fills the native 320-by-240 frame exactly.
 #define CELL_SIZE 16
+// Grid origin and view extent in native pixels and cells.
 #define VIEW_X 0
 #define VIEW_Y 0
 #define VIEW_COLS (SCREEN_W / CELL_SIZE)
@@ -24,6 +26,7 @@
 #define UI_BORDER 0x3a
 #define UI_SHADOW 0x0c
 #define UI_RULE 0x60
+// Fixed panel spacing in native pixels.
 #define UI_MENU_MARGIN 12
 #define UI_MENU_ROW 17
 #define UI_MENU_EDGE 16

@@ -24,7 +24,8 @@
  * use exactly the same code on the console and in the host fixture. flush
  * commits pending key changes; ready may be NULL if start is synchronous.
  */
-typedef struct {
+typedef struct
+{
     void* context;
     void (*start)(void* context, int slot, int bank, SoundSettings sound);
     void (*volume)(void* context, int slot, int a, int b);
@@ -35,7 +36,8 @@ typedef struct {
 } AudioDriver;
 
 // Envelope and modulation state of one allocated logical voice.
-typedef struct {
+typedef struct
+{
     AudioTime start, release_at, end, modulation_start;
     uint32_t generation;
     SoundSettings sound;
@@ -43,7 +45,8 @@ typedef struct {
 } AudioVoice;
 
 // Caller-owned synthesizer with fixed storage for every logical voice.
-typedef struct {
+typedef struct
+{
     AudioVoice voices[SEQUENCER_VOICES];
     AudioDriver driver;
     uint32_t starts, stops, steals, idle_mask;
@@ -52,35 +55,48 @@ typedef struct {
 
 /*
  * Converts a nonnegative millisecond duration to sequencer clock ticks.
- * Durations must fit the supported sound-setting range.
+ * `ms` must fit the supported sound-setting range (0..SOUND_MAX_MS).
  */
 AudioTime audio_ms(int ms);
-/* Initializes `audio` with a complete driver callback table. */
+/*
+ * Initializes caller-owned `audio`. All `driver` callbacks except ready must
+ * be non-NULL; ready may be NULL when start begins playback synchronously.
+ */
 void audio_init(Audio* audio, AudioDriver driver);
 /*
  * Returns callbacks referencing `audio`. The caller keeps it alive and
  * excludes concurrent access for as long as the sink may be called.
  */
 NoteSink audio_sink(Audio* audio);
-/* Returns both hardware-channel bits for each active slot using reverb. */
+/* Returns both hardware-channel bits for each active reverb slot in `audio`. */
 uint32_t audio_reverb_mask(const Audio* audio);
-// Platform lifecycle and live publication. Call update regularly on the main
-// thread, even without input, to publish edits coalesced behind a pending score.
+// Platform lifecycle and live publication run on the main thread.
 /* Initializes the SPU and timer-backed transport before pad initialization. */
 void audio_platform_init(void);
 /* Returns the absolute sequencer clock sampled from the platform timer. */
 AudioTime audio_platform_time(void);
-/* Publishes the current score and services transport controls on the main thread. */
+/*
+ * Publishes the current `score` and services transport controls. `connected`
+ * reports pad presence; `start` is a button edge that toggles playback.
+ * Call regularly even without input so edits coalesced behind a pending
+ * snapshot are eventually published. `score` must remain valid for this call.
+ */
 void audio_platform_update(const Score* score, int connected, int start);
 /* Suspends audio callbacks before BIOS memory-card ownership begins. */
 void audio_platform_card_stop(void);
-/* Restores audio callbacks after card ownership ends, using the current score. */
+/* Restores audio callbacks after card ownership ends using the current `score`. */
 void audio_platform_card_resume(const Score* score);
 /* Reports whether transport is running. */
 int audio_platform_playing(void);
-/* Copies `incoming` into a spare snapshot and arms a handoff; returns success. */
+/*
+ * Copies `incoming` into a spare snapshot and arms a handoff. Returns zero if
+ * another replacement is pending; the caller may reuse `incoming` afterward.
+ */
 int audio_platform_replace(const Score* incoming);
-/* Copies an adopted replacement into `score` once; returns whether one was ready. */
+/*
+ * Copies an adopted replacement into caller-owned `score` once. Returns zero
+ * and leaves `score` unchanged until a replacement has been adopted.
+ */
 int audio_platform_take_replacement(Score* score);
 /* Reports whether replacement preparation or adoption is still pending. */
 int audio_platform_replacing(void);

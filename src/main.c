@@ -17,6 +17,10 @@
 #include <psxetc.h>
 #include <psxgpu.h>
 
+/*
+ * Main-thread state stays separate from the interrupt-owned audio snapshots;
+ * storage handoffs publish a complete score back into the editor.
+ */
 static Editor editor;
 static Input input;
 static Storage storage;
@@ -44,17 +48,18 @@ static void storage_action(int connected)
 {
     int action = editor.storage_request, slot = editor.storage_slot;
     editor.storage_request = STORAGE_ACTION_NONE;
-    if (editor.load_busy || audio_platform_replacing()) {
+    if (editor.load_busy || audio_platform_replacing())
+    {
         editor.message = storage_message(STORAGE_BUSY);
         return;
     }
-    if (action < STORAGE_ACTION_CHECK || action > STORAGE_ACTION_LOAD || slot < 1 ||
-        slot > STORAGE_SLOTS) {
+    if (action < STORAGE_ACTION_CHECK || action > STORAGE_ACTION_LOAD || slot < 1 || slot > STORAGE_SLOTS)
+    {
         editor.message = storage_message(STORAGE_IO);
         return;
     }
-    if (action == STORAGE_ACTION_SAVE &&
-        score_format_encode(&editor.score, storage.save, slot, 1) != FORMAT_OK) {
+    if (action == STORAGE_ACTION_SAVE && score_format_encode(&editor.score, storage.save, slot, 1) != FORMAT_OK)
+    {
         editor.message = storage_message(STORAGE_SCORE_FULL);
         return;
     }
@@ -76,8 +81,7 @@ static void storage_action(int connected)
     StopCallback();
     IRQ_MASK = (1u << IRQ_VBLANK) | (1u << IRQ_SIO0);
     ExitCriticalSection();
-    StorageResult result = action == STORAGE_ACTION_SAVE
-                               ? storage_save(&storage, slot, &editor.score)
+    StorageResult result = action == STORAGE_ACTION_SAVE   ? storage_save(&storage, slot, &editor.score)
                            : action == STORAGE_ACTION_LOAD ? storage_load(&storage, slot)
                                                            : storage_refresh(&storage, slot);
     EnterCriticalSection();
@@ -89,15 +93,16 @@ static void storage_action(int connected)
     editor.message = storage_message(result);
     editor.slot_status = storage.slots[slot - 1];
     editor.card_free = storage.free_blocks;
-    if (action == STORAGE_ACTION_LOAD && result == STORAGE_SAVED) {
+    if (action == STORAGE_ACTION_LOAD && result == STORAGE_SAVED)
+    {
         storage.incoming.revision = editor.score.revision + 1;
-        if (audio_platform_replace(&storage.incoming)) {
+        if (audio_platform_replace(&storage.incoming))
+        {
             // Physical access stopped transport before the BIOS handoff, so
             // replacement adopts immediately after SDK restoration.
             editor.load_busy = 1;
             editor.load_slot = slot;
-            if (audio_platform_take_replacement(&editor.score))
-                replacement_acknowledged();
+            if (audio_platform_take_replacement(&editor.score)) replacement_acknowledged();
         }
     }
 }
@@ -111,36 +116,37 @@ int main(void)
     pad_init();
     storage_init(&storage, card_platform_backend());
     int connected = 0;
-    for (;;) {
+    for (;;)
+    {
         InputSample sample;
         // Replay completed polls in order, including press/release pairs
         // received during a slow render or model transaction.
-        for (int n = 0; n < INPUT_QUEUE_CAPACITY && pad_read(&sample); n++) {
+        for (int n = 0; n < INPUT_QUEUE_CAPACITY && pad_read(&sample); n++)
+        {
             connected = sample.connected;
             EditorMode before = editor.mode;
             int selected = editor.selected;
             InputFrame frame = input_update(&input, connected, sample.held);
             editor_update(&editor, frame);
-            if (editor.mode != before)
-                input_reset_repeat(&input);
-            else if (editor.selected != selected)
-                input_reset_value_repeat(&input);
-            if (editor.storage_request) {
+            if (editor.mode != before) input_reset_repeat(&input);
+            else if (editor.selected != selected) input_reset_value_repeat(&input);
+            if (editor.storage_request)
+            {
                 storage_action(connected);
                 break;
             }
             audio_platform_update(&editor.score, connected, frame.start);
         }
         audio_platform_update(&editor.score, connected, 0);
-        if (editor.load_busy && audio_platform_take_replacement(&editor.score)) {
+        if (editor.load_busy && audio_platform_take_replacement(&editor.score))
+        {
             replacement_acknowledged();
         }
         editor.slot_status = editor.load_busy && editor.storage_slot == editor.load_slot
                                  ? STORAGE_BUSY
                                  : storage.slots[editor.storage_slot - 1];
         editor.playing = audio_platform_playing();
-        editor.snapshot_dirty =
-            editor.playing && editor.score.revision != audio_platform_revision();
+        editor.snapshot_dirty = editor.playing && editor.score.revision != audio_platform_revision();
         render_frame(&editor, connected);
     }
 }

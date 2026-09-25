@@ -12,7 +12,10 @@
 
 /* Initializes video state, texture data and both command buffers. */
 void render_init(void);
-/* Submits one frame using the current editor view and pad connection state. */
+/*
+ * Submits one frame from the caller-owned `editor` view. `connected` reports
+ * whether a pad is present; rendering does not modify the editor.
+ */
 void render_frame(const Editor* editor, int connected);
 
 #endif // RENDER_H

@@ -23,7 +23,8 @@ static unsigned moves, presses, releases, starts, selects, disconnected;
 static void drain(void)
 {
     InputSample sample;
-    while (pad_read(&sample)) {
+    while (pad_read(&sample))
+    {
         InputFrame f = input_update(&input, sample.connected, sample.held);
         moves += f.dx != 0;
         presses += f.cross;
@@ -41,36 +42,24 @@ static void drain(void)
 static void run(unsigned phase)
 {
     moves = presses = releases = starts = selects = disconnected = 0;
-    unsigned polls = pad_polls, reports = pad_reports, timeouts = pad_timeouts,
-             overflows = pad_overflows;
+    unsigned polls = pad_polls, reports = pad_reports, timeouts = pad_timeouts, overflows = pad_overflows;
     input_fixture_expected = 0;
     input_fixture_phase = phase;
-    for (int i = 0; i < (phase == 5 ? 120 : 480); i++) {
+    for (int i = 0; i < (phase == 5 ? 120 : 480); i++)
+    {
         editor.x = i % 64;
         render_frame(&editor, 1);
         // A slow main loop must retain complete taps, not just the latest held
         // state. The interrupt still collects one report per video frame.
-        if (phase != 3 || i % 8 == 7)
-            drain();
+        if (phase != 3 || i % 8 == 7) drain();
     }
     drain();
     char line[256];
-    snprintf(line,
-             sizeof(line),
+    snprintf(line, sizeof(line),
              "INPUT phase=%u id=%u polls=%u reports=%u timeouts=%u overflows=%u expected=%u "
              "moves=%u presses=%u releases=%u starts=%u selects=%u disconnected=%u\n",
-             phase,
-             pad_id,
-             pad_polls - polls,
-             pad_reports - reports,
-             pad_timeouts - timeouts,
-             pad_overflows - overflows,
-             input_fixture_expected,
-             moves,
-             presses,
-             releases,
-             starts,
-             selects,
+             phase, pad_id, pad_polls - polls, pad_reports - reports, pad_timeouts - timeouts,
+             pad_overflows - overflows, input_fixture_expected, moves, presses, releases, starts, selects,
              disconnected);
     *(const char* volatile*)0x1f802084 = line;
 }
@@ -82,13 +71,15 @@ int main(void)
     render_init();
     audio_platform_init();
     pad_init();
-    for (int i = 0; i < 8; i++) {
+    for (int i = 0; i < 8; i++)
+    {
         render_frame(&editor, 1);
         drain();
     }
     run(1);
     score_create(&editor.score, 0, 0, 16);
-    for (int i = 0; i < SEQUENCER_VOICES; i++) {
+    for (int i = 0; i < SEQUENCER_VOICES; i++)
+    {
         TileValue v = score_default(TILE_NOTE);
         v.pitch = 36 + i;
         v.length = 1280;
@@ -102,14 +93,17 @@ int main(void)
     score_init(&editor.score);
     // Deliberate input/audio overload fixture, outside the saveable score limit.
     TileId id = 1;
-    for (int i = 0; i < 16; i++) {
+    for (int i = 0; i < 16; i++)
+    {
         Lane* lane = &editor.score.lanes[i];
         *lane = (Lane){.active = 1, .x = i * 6, .y = 0, .length = 4, .division = 64};
-        for (int j = 0; j < 4; j++) {
+        for (int j = 0; j < 4; j++)
+        {
             lane->tiles[j] = id;
             for (int k = 0; k < 64; k++, id++)
-                editor.score.tiles[id] =
-                    (Tile){score_default(TILE_NOTE), k == 63 ? 0 : (TileId)(id + 1), -1};
+            {
+                editor.score.tiles[id] = (Tile){score_default(TILE_NOTE), k == 63 ? 0 : (TileId)(id + 1), -1};
+            }
         }
     }
     audio_platform_update(&editor.score, 1, 1);
@@ -117,6 +111,5 @@ int main(void)
     audio_platform_update(&editor.score, 0, 0);
     *(const char* volatile*)0x1f802084 = "INPUT FIXTURE COMPLETE\n";
     *(volatile short*)0x1f802082 = 0;
-    for (;;)
-        VSync(0);
+    for (;;) VSync(0);
 }

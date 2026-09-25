@@ -20,12 +20,7 @@ static Score score;
 static void report(const char* stage, StorageResult result)
 {
     static char line[96];
-    snprintf(line,
-             sizeof(line),
-             "CARD_FILE stage=%s result=%d free=%d\n",
-             stage,
-             result,
-             storage.free_blocks);
+    snprintf(line, sizeof(line), "CARD_FILE stage=%s result=%d free=%d\n", stage, result, storage.free_blocks);
     *(const char* volatile*)0x1f802084 = line;
 }
 
@@ -33,7 +28,8 @@ static void finish(int code)
 {
     *(const char* volatile*)0x1f802084 = code ? "CARD_FILE FAILED\n" : "CARD_FILE COMPLETE\n";
     *(volatile short*)0x1f802082 = code;
-    for (;;) {
+    for (;;)
+    {
     }
 }
 
@@ -48,17 +44,17 @@ int main(void)
 
     StorageResult result = storage_refresh(&storage, 1);
     report("refresh", result);
-    if (result != STORAGE_EMPTY && result != STORAGE_SAVED)
-        finish(1);
+    if (result != STORAGE_EMPTY && result != STORAGE_SAVED) finish(1);
 
     result = storage_save(&storage, 1, &score);
     report("save", result);
-    if (result != STORAGE_SAVED)
-        finish(2);
+    if (result != STORAGE_SAVED) finish(2);
 
-    for (int i = 0; i < 12; i++) {
+    for (int i = 0; i < 12; i++)
+    {
         result = storage_load(&storage, 1);
-        if (result != STORAGE_SAVED || storage.incoming.bpm != score.bpm) {
+        if (result != STORAGE_SAVED || storage.incoming.bpm != score.bpm)
+        {
             report("load", result);
             finish(3);
         }

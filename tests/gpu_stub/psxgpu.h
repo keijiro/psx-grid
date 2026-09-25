@@ -9,14 +9,16 @@
 #include <stddef.h>
 
 // SDK-compatible filled rectangle packet inspected by the host renderer.
-typedef struct {
+typedef struct
+{
     uint32_t tag;
     uint8_t r0, g0, b0, code;
     int16_t x0, y0, w, h;
 } TILE;
 
 // SDK-compatible textured sprite packet inspected by the host renderer.
-typedef struct {
+typedef struct
+{
     uint32_t tag;
     uint8_t r0, g0, b0, code;
     int16_t x0, y0;
@@ -26,22 +28,26 @@ typedef struct {
 } SPRT;
 
 // Texture-page command packet used to begin an ordering table.
-typedef struct {
+typedef struct
+{
     uint32_t tag, code;
 } DR_TPAGE;
 
 // Rectangle describing a host texture upload region.
-typedef struct {
+typedef struct
+{
     int16_t x, y, w, h;
 } RECT;
 
 // Draw environment fields consumed by the rendering checks.
-typedef struct {
+typedef struct
+{
     int r0, g0, b0, isbg;
 } DRAWENV;
 
 // Display environment placeholder for the host implementation.
-typedef struct {
+typedef struct
+{
     int unused;
 } DISPENV;
 

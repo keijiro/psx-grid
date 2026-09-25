@@ -21,7 +21,8 @@
 #define SCORE_DIVISIONS 12
 
 // Tile behavior interpreted by the sequencer at a lane step.
-typedef enum {
+typedef enum
+{
     TILE_NONE,
     TILE_NOTE,
     TILE_CYCLE,
@@ -34,23 +35,35 @@ typedef enum {
 // Zero is the empty link. Live IDs stay stable across movement and reordering;
 // deletion releases an ID for reuse by a later placement.
 typedef uint16_t TileId;
-// Pitch counts semitones from C0. Length counts twentieths of a step, so all
-// supported 0.05-step edits remain exact without floating point.
 // Maximum envelope duration and lock offset magnitude in milliseconds.
 #define SOUND_MAX_MS 16000
 
 // Independent override bits for relative envelope locks.
-enum { LOCK_ATTACK = 1, LOCK_RELEASE = 2 };
+enum
+{
+    LOCK_ATTACK = 1,
+    LOCK_RELEASE = 2
+};
 
+// Maximum mix ramp, pitch sweep duration and semitone sweep depth.
 #define SOUND_MAX_MIX_MS 500
 #define SOUND_MAX_DECAY_MS 2000
 #define SOUND_MAX_SWEEP 24
 
 // Wave bank choices available to each half of a logical voice.
-typedef enum { WAVE_SINE, WAVE_TRIANGLE, WAVE_SAW, WAVE_SQUARE, WAVE_NOISE, WAVE_COUNT } Waveform;
+typedef enum
+{
+    WAVE_SINE,
+    WAVE_TRIANGLE,
+    WAVE_SAW,
+    WAVE_SQUARE,
+    WAVE_NOISE,
+    WAVE_COUNT
+} Waveform;
 
 // Channel sound parameters; time fields use milliseconds.
-typedef struct {
+typedef struct
+{
     int attack, release;
     int wave_a, wave_b, mix_attack, mix_release, sweep, decay, reverb;
 } SoundSettings;
@@ -62,7 +75,8 @@ typedef struct {
 #define SCORE_MAX_BPM 300
 
 // Shared reverb preset index and wet-return percentage.
-typedef struct {
+typedef struct
+{
     int size, amount;
 } ReverbSettings;
 
@@ -74,7 +88,10 @@ const char* score_reverb_size(int size);
 const char* score_wave_name(int wave);
 
 // Per-tile playback values; fields not used by `kind` keep default values.
-typedef struct {
+// Pitch counts semitones from C0. Length counts twentieths of a step, so all
+// supported 0.05-step edits remain exact without floating point.
+typedef struct
+{
     TileKind kind;
     int pitch, length, period, chance;
     uint32_t pattern;
@@ -82,20 +99,23 @@ typedef struct {
 } TileValue;
 
 // Pool tile with an optional stack successor or jump branch.
-typedef struct {
+typedef struct
+{
     TileValue value;
     TileId next;
     int branch;
 } Tile;
 
 // Only regular lanes own a channel index; branches resolve it through source.
-typedef struct {
+typedef struct
+{
     int active, x, y, length, division, channel;
     TileId source, tiles[SCORE_STEPS];
 } Lane;
 
 // Fixed-pool model; `revision` changes after each accepted edit.
-typedef struct {
+typedef struct
+{
     Lane lanes[SCORE_LANES];
     Tile tiles[SCORE_TILE_CAPACITY + 1];
     SoundSettings sounds[SCORE_CHANNELS];
@@ -109,17 +129,26 @@ typedef struct {
 } Score;
 
 // What a coordinate addresses before or after insertion-point resolution.
-typedef enum { CELL_EMPTY, CELL_HEAD, CELL_STEP, CELL_TILE, CELL_END } CellKind;
+typedef enum
+{
+    CELL_EMPTY,
+    CELL_HEAD,
+    CELL_STEP,
+    CELL_TILE,
+    CELL_END
+} CellKind;
 
 // Located cell and its lane, step, stack depth and optional tile ID.
-typedef struct {
+typedef struct
+{
     CellKind kind;
     int lane, step, depth;
     TileId tile;
 } Cell;
 
 // Edit outcomes; nonzero results leave the original score untouched.
-typedef enum {
+typedef enum
+{
     SCORE_OK,
     SCORE_BOUNDS,
     SCORE_COLLISION,
@@ -130,13 +159,15 @@ typedef enum {
 } ScoreResult;
 
 // Copied non-jump tile values, independent of source pool IDs.
-typedef struct {
+typedef struct
+{
     int count;
     TileValue values[SCORE_HEIGHT];
 } Clipboard;
 
 // Move coordinates and preview result; apply revalidates current score state.
-typedef struct {
+typedef struct
+{
     int sx, sy, x, y;
     ScoreResult result;
 } MovePlan;

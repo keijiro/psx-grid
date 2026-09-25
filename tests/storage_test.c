@@ -14,7 +14,8 @@
 #include <string.h>
 
 // One card directory entry and its complete one-block save payload.
-typedef struct {
+typedef struct
+{
     CardFile info;
     uint8_t data[SCORE_FILE_BYTES];
 } File;
@@ -22,7 +23,8 @@ typedef struct {
  * Failure switches and counters keep each injected fault local to a card
  * operation, while `mutate` probes whether save captured its input snapshot.
  */
-typedef struct {
+typedef struct
+{
     File files[15];
     int count, begun, ends, handle, creating;
     int fail_begin, fail_check, fail_create, fail_read, fail_write, fail_close, fail_erase;
@@ -35,8 +37,7 @@ typedef struct {
 static CardResult begin(void* context)
 {
     MemoryCard* c = context;
-    if (c->fail_begin)
-        return c->failure;
+    if (c->fail_begin) return c->failure;
     assert(!c->begun);
     c->begun = 1;
     c->handle = -1;
@@ -68,10 +69,8 @@ static CardResult list(void* context, int index, CardFile* file)
     assert(c->begun && c->handle == -1);
     c->lists++;
 
-    if (c->lists == c->fail_list_at)
-        return c->failure;
-    if (index >= c->count)
-        return CARD_END;
+    if (c->lists == c->fail_list_at) return c->failure;
+    if (index >= c->count) return CARD_END;
     *file = c->files[index].info;
     return CARD_OK;
 }
@@ -81,11 +80,14 @@ static CardResult open_read(void* context, const char* name)
     MemoryCard* c = context;
     assert(c->begun && c->handle == -1);
     for (int i = 0; i < c->count; i++)
-        if (!strcmp(c->files[i].info.name, name)) {
+    {
+        if (!strcmp(c->files[i].info.name, name))
+        {
             c->handle = i;
             c->creating = 0;
             return CARD_OK;
         }
+    }
     return CARD_IO;
 }
 
@@ -96,13 +98,10 @@ static CardResult open_create(void* context, const char* name)
 {
     MemoryCard* c = context;
     assert(c->begun && c->handle == -1);
-    if (c->fail_create)
-        return c->failure;
-    if (c->count == 15)
-        return CARD_IO;
+    if (c->fail_create) return c->failure;
+    if (c->count == 15) return CARD_IO;
 
-    for (int i = 0; i < c->count; i++)
-        assert(strcmp(c->files[i].info.name, name));
+    for (int i = 0; i < c->count; i++) assert(strcmp(c->files[i].info.name, name));
 
     File* f = &c->files[c->count];
     memset(f, 0, sizeof(*f));
@@ -122,8 +121,7 @@ static CardResult read_file(void* context, uint8_t* data, int size)
     MemoryCard* c = context;
     assert(c->begun && c->handle >= 0 && !c->creating && size == SCORE_FILE_BYTES);
     c->reads++;
-    if (c->fail_read || c->reads == c->fail_read_at)
-        return c->failure;
+    if (c->fail_read || c->reads == c->fail_read_at) return c->failure;
 
     int short_read = c->short_read || c->reads == c->short_read_at;
     memcpy(data, c->files[c->handle].data, short_read ? size / 2 : size);
@@ -138,10 +136,10 @@ static CardResult write_file(void* context, const uint8_t* data, int size)
 {
     MemoryCard* c = context;
     assert(c->begun && c->handle >= 0 && c->creating && size == SCORE_FILE_BYTES);
-    if (c->fail_write)
-        return c->failure;
+    if (c->fail_write) return c->failure;
     memcpy(c->files[c->handle].data, data, c->short_write ? size / 16 : size);
-    if (c->mutate) {
+    if (c->mutate)
+    {
         c->mutate->bpm++;
         c->mutate = NULL;
     }
@@ -161,31 +159,24 @@ static CardResult erase_file(void* context, const char* name)
 {
     MemoryCard* c = context;
     assert(c->begun && c->handle == -1);
-    if (c->fail_erase)
-        return c->failure;
+    if (c->fail_erase) return c->failure;
 
     for (int i = 0; i < c->count; i++)
-        if (!strcmp(c->files[i].info.name, name)) {
+    {
+        if (!strcmp(c->files[i].info.name, name))
+        {
             memmove(&c->files[i], &c->files[i + 1], (c->count - i - 1) * sizeof(File));
             c->count--;
             return CARD_OK;
         }
+    }
     return CARD_IO;
 }
 
 static CardBackend backend(MemoryCard* c)
 {
-    return (CardBackend){c,
-                         begin,
-                         end,
-                         check,
-                         list,
-                         open_read,
-                         open_create,
-                         read_file,
-                         write_file,
-                         close_file,
-                         erase_file};
+    return (CardBackend){c,           begin,     end,        check,      list,      open_read,
+                         open_create, read_file, write_file, close_file, erase_file};
 }
 
 static Score make_score(int bpm)
@@ -200,17 +191,16 @@ static Score make_score(int bpm)
 
 static void put32(uint8_t* p, uint32_t v)
 {
-    for (int i = 0; i < 4; i++)
-        p[i] = (uint8_t)(v >> (8 * i));
+    for (int i = 0; i < 4; i++) p[i] = (uint8_t)(v >> (8 * i));
 }
 
 static uint32_t checksum(const uint8_t* p, size_t n)
 {
     uint32_t crc = UINT32_MAX;
-    for (size_t i = 0; i < n; i++) {
+    for (size_t i = 0; i < n; i++)
+    {
         crc ^= i >= 20 && i < 24 ? 0 : p[i];
-        for (int b = 0; b < 8; b++)
-            crc = (crc >> 1) ^ (0xedb88320u & -(crc & 1));
+        for (int b = 0; b < 8; b++) crc = (crc >> 1) ^ (0xedb88320u & -(crc & 1));
     }
     return ~crc;
 }
@@ -222,8 +212,8 @@ static void set_newer(File* file)
 {
     uint8_t* header = file->data + SCORE_FILE_WRAPPER;
     header[4] = 2;
-    uint32_t bytes = (uint32_t)header[12] | (uint32_t)header[13] << 8 | (uint32_t)header[14] << 16 |
-                     (uint32_t)header[15] << 24;
+    uint32_t bytes =
+        (uint32_t)header[12] | (uint32_t)header[13] << 8 | (uint32_t)header[14] << 16 | (uint32_t)header[15] << 24;
     put32(header + 20, checksum(header, 32 + bytes));
 }
 
@@ -232,8 +222,7 @@ static StorageResult load(MemoryCard* c, Score* score)
     Storage s;
     storage_init(&s, backend(c));
     StorageResult r = storage_load(&s, 1);
-    if (r == STORAGE_SAVED)
-        *score = s.incoming;
+    if (r == STORAGE_SAVED) *score = s.incoming;
     assert(!c->begun);
     return r;
 }
@@ -272,7 +261,8 @@ static void basic_recovery(void)
  */
 static void write_failures(void)
 {
-    for (int failure = 0; failure < 4; failure++) {
+    for (int failure = 0; failure < 4; failure++)
+    {
         MemoryCard c = {0};
         Storage s;
         Score score = make_score(202), recovered;
@@ -285,8 +275,7 @@ static void write_failures(void)
         storage_init(&s, backend(&c));
         assert(storage_save(&s, 1, &score) == STORAGE_IO);
         c.fail_create = c.fail_write = c.short_write = c.fail_close = 0;
-        assert(load(&c, &recovered) == STORAGE_SAVED &&
-               recovered.bpm == (failure == 3 ? 202 : 101));
+        assert(load(&c, &recovered) == STORAGE_SAVED && recovered.bpm == (failure == 3 ? 202 : 101));
         assert(!c.begun);
     }
 }
@@ -297,17 +286,16 @@ static void write_failures(void)
  */
 static void readback_failures(void)
 {
-    for (int failure = 0; failure < 2; failure++) {
+    for (int failure = 0; failure < 2; failure++)
+    {
         MemoryCard c = {0};
         Storage s;
         Score score = make_score(202), recovered;
         c.failure = CARD_IO;
         save(&c, 101);
         c.reads = 0;
-        if (failure == 0)
-            c.fail_read_at = 2;
-        else
-            c.short_read_at = 2;
+        if (failure == 0) c.fail_read_at = 2;
+        else c.short_read_at = 2;
         storage_init(&s, backend(&c));
         assert(storage_save(&s, 1, &score) == STORAGE_IO);
         assert(c.count == 2 && !strcmp(c.files[0].info.name, "BIJACQUARD0100000001"));
@@ -328,7 +316,8 @@ static void capacity_and_cleanup(void)
     Score score = make_score(202), recovered;
     c.failure = CARD_IO;
     save(&c, 101);
-    for (int i = 1; i < 15; i++) {
+    for (int i = 1; i < 15; i++)
+    {
         File* f = &c.files[c.count++];
         snprintf(f->info.name, sizeof(f->info.name), "OTHER%02d", i);
         f->info.size = SCORE_FILE_BYTES;
@@ -412,17 +401,16 @@ static void newer_and_generation_ties(void)
  */
 static void directory_and_result_errors(void)
 {
-    static const struct {
+    static const struct
+    {
         CardResult card;
         StorageResult storage;
-    } cases[] = {{CARD_MISSING, STORAGE_NO_CARD},
-                 {CARD_TIMEOUT, STORAGE_TIMEOUT},
-                 {CARD_CHANGED, STORAGE_CHANGED},
-                 {CARD_UNFORMATTED, STORAGE_UNFORMATTED},
-                 {CARD_DAMAGED, STORAGE_CARD_DAMAGED},
-                 {CARD_IO, STORAGE_IO}};
+    } cases[] = {{CARD_MISSING, STORAGE_NO_CARD},      {CARD_TIMEOUT, STORAGE_TIMEOUT},
+                 {CARD_CHANGED, STORAGE_CHANGED},      {CARD_UNFORMATTED, STORAGE_UNFORMATTED},
+                 {CARD_DAMAGED, STORAGE_CARD_DAMAGED}, {CARD_IO, STORAGE_IO}};
     Score score = make_score(120);
-    for (unsigned i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
+    for (unsigned i = 0; i < sizeof(cases) / sizeof(cases[0]); i++)
+    {
         MemoryCard c = {.fail_begin = 1, .failure = cases[i].card};
         Storage s;
         storage_init(&s, backend(&c));
@@ -447,23 +435,22 @@ static void directory_and_result_errors(void)
  */
 static void card_change_during_operations(void)
 {
-    for (int operation = 0; operation < 4; operation++) {
+    for (int operation = 0; operation < 4; operation++)
+    {
         MemoryCard c = {0};
         Storage s;
         Score score = make_score(202), recovered;
         c.failure = CARD_IO;
         save(&c, 101);
         c.failure = CARD_CHANGED;
-        if (operation == 0) {
+        if (operation == 0)
+        {
             c.reads = 0;
             c.fail_read_at = 1;
         }
-        if (operation == 1)
-            c.fail_write = 1;
-        if (operation == 2)
-            c.fail_close = 1;
-        if (operation == 3)
-            c.fail_erase = 1;
+        if (operation == 1) c.fail_write = 1;
+        if (operation == 2) c.fail_close = 1;
+        if (operation == 3) c.fail_erase = 1;
         int ends = c.ends;
         storage_init(&s, backend(&c));
         assert(storage_save(&s, 1, &score) == STORAGE_CHANGED);

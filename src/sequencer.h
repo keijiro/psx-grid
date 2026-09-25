@@ -26,7 +26,8 @@ typedef uint64_t AudioTime;
  * on returns zero to drop a note, or a generation token whose low five bits
  * identify a logical slot in 0..11. off receives that same token unchanged.
  */
-typedef struct {
+typedef struct
+{
     void* context;
     uint32_t (*on)(void*, AudioTime, int, SoundSettings);
     void (*off)(void*, AudioTime, uint32_t);
@@ -35,7 +36,8 @@ typedef struct {
 } NoteSink;
 
 // Cursor and lock state for a lane that began at `origin`.
-typedef struct {
+typedef struct
+{
     int origin, lane, step, playing_lane, playing_step;
     uint32_t lap, duration;
     int active;
@@ -48,13 +50,15 @@ typedef struct {
 } Runner;
 
 // Scheduled token release at an absolute clock tick.
-typedef struct {
+typedef struct
+{
     AudioTime at;
     uint32_t token;
 } NoteOff;
 
 // Caller-owned transport state, including prepared replacement ownership.
-typedef struct Sequencer {
+typedef struct Sequencer
+{
     const Score* score;
     NoteSink sink;
     Runner runners[SCORE_LANES];
@@ -91,9 +95,15 @@ int sequencer_resync(Sequencer* seq, const Score* snapshot, AudioTime now);
  * return value to identify the state that owns playback.
  */
 int sequencer_replace(Sequencer* seq, Sequencer* prepared, AudioTime now);
-/* Stops all notes and returns the active state after any pending handoff. */
+/*
+ * Stops notes in `seq` at `now` and returns the state owning playback after
+ * any pending handoff. Keep the returned state for later service calls.
+ */
 Sequencer* sequencer_stop(Sequencer* seq, AudioTime now);
-/* Processes due slices and returns the state that now owns playback. */
+/*
+ * Processes slices due by `now` in `seq` and returns the state now owning
+ * playback. Keep the returned state for the next service call.
+ */
 Sequencer* sequencer_service(Sequencer* seq, AudioTime now);
 
 #endif // SEQUENCER_H

@@ -14,7 +14,11 @@
 #include <sys/fcntl.h>
 #include <string.h>
 
-enum { EVENT_COUNT = 8, WAIT_TICKS = 5 * 4233600 };
+enum
+{
+    EVENT_COUNT = 8,
+    WAIT_TICKS = 5 * 4233600
+};
 
 /*
  * Each hardware and software card event uses the same ordered status slots.
@@ -42,10 +46,8 @@ static uint16_t tick(void)
  */
 static void drain(void)
 {
-    for (int i = 0; i < EVENT_COUNT; i++)
-        TestEvent(events[i]);
-    if (file_event != -1)
-        TestEvent(file_event);
+    for (int i = 0; i < EVENT_COUNT; i++) TestEvent(events[i]);
+    if (file_event != -1) TestEvent(file_event);
 }
 
 /*
@@ -57,30 +59,30 @@ static CardResult wait_card(int file, int hardware)
     int offset = hardware ? 0 : 4;
     uint16_t last = tick();
     unsigned elapsed = 0;
-    for (;;) {
-        if (TestEvent(events[offset + 2]))
-            return CARD_CHANGED;
-        if (TestEvent(events[offset + 3]))
-            return CARD_IO;
-        if (TestEvent(events[offset + 1]))
-            return CARD_MISSING;
-        if (file != -1) {
-            if (TestEvent(file))
-                return CARD_OK;
-        } else if (TestEvent(events[offset]))
-            return CARD_OK;
+    for (;;)
+    {
+        if (TestEvent(events[offset + 2])) return CARD_CHANGED;
+        if (TestEvent(events[offset + 3])) return CARD_IO;
+        if (TestEvent(events[offset + 1])) return CARD_MISSING;
+        if (file != -1)
+        {
+            if (TestEvent(file)) return CARD_OK;
+        }
+        else if (TestEvent(events[offset])) return CARD_OK;
         uint16_t now = tick();
         elapsed += (uint16_t)(now - last);
         last = now;
-        if (elapsed >= WAIT_TICKS)
-            return CARD_TIMEOUT;
+        if (elapsed >= WAIT_TICKS) return CARD_TIMEOUT;
     }
 }
 
+/*
+ * The BIOS path needs a five-byte device prefix and a NUL after the card's
+ * 20-character filename limit, so reject names that exceed the fixed buffer.
+ */
 static CardResult path(char out[26], const char* name)
 {
-    if (strlen(name) > 20 || !name[0])
-        return CARD_IO;
+    if (strlen(name) > 20 || !name[0]) return CARD_IO;
     memcpy(out, "bu00:", 5);
     strcpy(out + 5, name);
     return CARD_OK;
@@ -93,21 +95,18 @@ static CardResult path(char out[26], const char* name)
 static CardResult probe(int initial)
 {
     drain();
-    if (!_card_info(0))
-        return CARD_IO;
+    if (!_card_info(0)) return CARD_IO;
     CardResult r = wait_card(-1, 0);
-    if (r == CARD_CHANGED && initial) {
+    if (r == CARD_CHANGED && initial)
+    {
         // Only session entry may acknowledge insertion. A later NEW event
         // means that the card used for discovery may have been replaced.
         drain();
-        if (!_card_clear(0))
-            return CARD_IO;
+        if (!_card_clear(0)) return CARD_IO;
         r = wait_card(-1, 1);
-        if (r)
-            return r;
+        if (r) return r;
         drain();
-        if (!_card_info(0))
-            return CARD_IO;
+        if (!_card_info(0)) return CARD_IO;
         r = wait_card(-1, 0);
     }
     return r;
@@ -120,11 +119,9 @@ static CardResult probe(int initial)
 static CardResult check(void* context)
 {
     (void)context;
-    if (!owned || poisoned)
-        return CARD_CHANGED;
+    if (!owned || poisoned) return CARD_CHANGED;
     CardResult r = probe(0);
-    if (r)
-        poisoned = 1;
+    if (r) poisoned = 1;
     return r;
 }
 
@@ -137,25 +134,30 @@ static void end(void* context)
     (void)context;
     // Once replacement or timeout is seen, stop card traffic before releasing
     // a BIOS handle; do not let close issue another transfer to a new card.
-    if (poisoned && started) {
+    if (poisoned && started)
+    {
         StopCARD();
         started = 0;
     }
-    if (fd >= 0) {
+    if (fd >= 0)
+    {
         close(fd);
         fd = -1;
     }
-    if (file_event != -1) {
+    if (file_event != -1)
+    {
         CloseEvent(file_event);
         file_event = -1;
     }
-    if (started)
-        StopCARD();
+    if (started) StopCARD();
     for (int i = 0; i < EVENT_COUNT; i++)
-        if (events[i] != -1) {
+    {
+        if (events[i] != -1)
+        {
             CloseEvent(events[i]);
             events[i] = -1;
         }
+    }
     owned = started = poisoned = 0;
 }
 
@@ -166,15 +168,15 @@ static void end(void* context)
 static CardResult begin(void* context)
 {
     (void)context;
-    if (owned)
-        return CARD_IO;
-    for (int i = 0; i < EVENT_COUNT; i++)
-        events[i] = -1;
+    if (owned) return CARD_IO;
+    for (int i = 0; i < EVENT_COUNT; i++) events[i] = -1;
     file_event = fd = -1;
     poisoned = started = 0;
-    for (int i = 0; i < EVENT_COUNT; i++) {
+    for (int i = 0; i < EVENT_COUNT; i++)
+    {
         events[i] = OpenEvent(i < 4 ? HwCARD : SwCARD, specs[i % 4], EvMdNOINTR, NULL);
-        if (events[i] == -1) {
+        if (events[i] == -1)
+        {
             end(NULL);
             return CARD_IO;
         }
@@ -182,27 +184,28 @@ static CardResult begin(void* context)
     }
     // _bu_init installs the BIOS filesystem driver. StopCARD suspends card
     // service, but does not unload that driver between modal sessions.
-    if (!initialized)
-        InitCARD(0);
+    if (!initialized) InitCARD(0);
     StartCARD();
     started = 1;
-    if (!initialized) {
+    if (!initialized)
+    {
         _bu_init();
         initialized = 1;
     }
     owned = 1;
     CardResult r = probe(1);
-    if (!r) {
+    if (!r)
+    {
         drain();
-        if (!_card_load(0))
-            r = CARD_IO;
-        else {
+        if (!_card_load(0)) r = CARD_IO;
+        else
+        {
             r = wait_card(-1, 0);
-            if (r == CARD_CHANGED)
-                r = CARD_UNFORMATTED;
+            if (r == CARD_CHANGED) r = CARD_UNFORMATTED;
         }
     }
-    if (r) {
+    if (r)
+    {
         poisoned = 1;
         end(NULL);
     }
@@ -216,14 +219,12 @@ static CardResult begin(void* context)
 static CardResult list(void* context, int index, CardFile* file)
 {
     (void)context;
-    if (!owned || fd >= 0)
-        return CARD_IO;
+    if (!owned || fd >= 0) return CARD_IO;
     CardResult r = check(NULL);
-    if (r)
-        return r;
-    struct DIRENTRY* entry =
-        index ? nextfile(&directory_entry) : firstfile("bu00:*", &directory_entry);
-    if (!entry) {
+    if (r) return r;
+    struct DIRENTRY* entry = index ? nextfile(&directory_entry) : firstfile("bu00:*", &directory_entry);
+    if (!entry)
+    {
         r = check(NULL);
         return r ? r : CARD_END;
     }
@@ -242,22 +243,19 @@ static CardResult list(void* context, int index, CardFile* file)
  */
 static CardResult open_file(const char* name, int mode)
 {
-    if (!owned || fd >= 0)
-        return CARD_IO;
+    if (!owned || fd >= 0) return CARD_IO;
     char filename[26];
     CardResult r = path(filename, name);
-    if (r)
-        return r;
+    if (r) return r;
     r = check(NULL);
-    if (r)
-        return r;
+    if (r) return r;
     // FASYNC moves the long payload transfer onto BIOS events. Open and
     // metadata operations remain synchronous and need platform validation.
     fd = open(filename, mode | FASYNC);
-    if (fd < 0)
-        return CARD_IO;
+    if (fd < 0) return CARD_IO;
     file_event = OpenEvent((unsigned)fd, EvSpIOE, EvMdNOINTR, NULL);
-    if (file_event == -1) {
+    if (file_event == -1)
+    {
         close(fd);
         fd = -1;
         return CARD_IO;
@@ -284,21 +282,21 @@ static CardResult open_create(void* context, const char* name)
  */
 static CardResult transfer(uint8_t* data, int size, int writing)
 {
-    if (fd < 0 || size <= 0 || size % 128)
-        return CARD_IO;
+    if (fd < 0 || size <= 0 || size % 128) return CARD_IO;
     CardResult r = check(NULL);
-    if (r)
-        return r;
+    if (r) return r;
     drain();
     int count = writing ? write(fd, data, size) : read(fd, data, size);
     // An asynchronous BIOS transfer returns zero when queued, then reports
     // completion through the file event. A positive count must still be exact.
-    if (count != 0 && count != size) {
+    if (count != 0 && count != size)
+    {
         poisoned = 1;
         return CARD_IO;
     }
     r = wait_card(file_event, 0);
-    if (r) {
+    if (r)
+    {
         poisoned = 1;
         return r;
     }
@@ -324,54 +322,40 @@ static CardResult write_file(void* context, const uint8_t* data, int size)
 static CardResult close_file(void* context)
 {
     (void)context;
-    if (fd < 0)
-        return CARD_IO;
+    if (fd < 0) return CARD_IO;
     int handle = fd;
     fd = -1;
-    if (poisoned && started) {
+    if (poisoned && started)
+    {
         StopCARD();
         started = 0;
     }
-    if (file_event != -1) {
+    if (file_event != -1)
+    {
         CloseEvent(file_event);
         file_event = -1;
     }
     int result = close(handle);
-    if (result < 0)
-        return CARD_IO;
-    if (poisoned)
-        return CARD_IO;
+    if (result < 0) return CARD_IO;
+    if (poisoned) return CARD_IO;
     return check(NULL);
 }
 
 static CardResult erase_file(void* context, const char* name)
 {
     (void)context;
-    if (!owned || fd >= 0)
-        return CARD_IO;
+    if (!owned || fd >= 0) return CARD_IO;
     char filename[26];
     CardResult r = path(filename, name);
-    if (r)
-        return r;
+    if (r) return r;
     r = check(NULL);
-    if (r)
-        return r;
-    if (!erase(filename))
-        return CARD_IO;
+    if (r) return r;
+    if (!erase(filename)) return CARD_IO;
     return check(NULL);
 }
 
 CardBackend card_platform_backend(void)
 {
-    return (CardBackend){NULL,
-                         begin,
-                         end,
-                         check,
-                         list,
-                         open_read,
-                         open_create,
-                         read_file,
-                         write_file,
-                         close_file,
-                         erase_file};
+    return (CardBackend){NULL,        begin,     end,        check,      list,      open_read,
+                         open_create, read_file, write_file, close_file, erase_file};
 }

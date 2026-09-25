@@ -23,13 +23,27 @@ static volatile int phase;
 static int received, length;
 static volatile int ownership;
 
-enum { PAD_OWNS, PAD_DRAINING, CARD_OWNS };
+enum
+{
+    PAD_OWNS,
+    PAD_DRAINING,
+    CARD_OWNS
+};
 
+/*
+ * The current serial reply and timer marks belong to one pad transaction;
+ * card ownership discards that transaction before polling resumes.
+ */
 static uint8_t reply[9];
 static uint16_t started, ready_at;
 volatile unsigned pad_polls, pad_reports, pad_timeouts, pad_overflows, pad_id;
 
-enum { IDLE, READY, RECEIVING };
+enum
+{
+    IDLE,
+    READY,
+    RECEIVING
+};
 
 // Timer 2 runs at CLK/8. Leave at least 30 us after selection and each ACK,
 // including the longer first-command gap needed by some analog controllers.
@@ -48,28 +62,19 @@ static uint16_t clock_now(void)
 static void publish(int connected)
 {
     uint16_t held = 0;
-    if (connected) {
+    if (connected)
+    {
         unsigned buttons = (uint16_t)~(reply[3] | reply[4] << 8);
-        if (buttons & PAD_LEFT)
-            held |= INPUT_LEFT;
-        if (buttons & PAD_RIGHT)
-            held |= INPUT_RIGHT;
-        if (buttons & PAD_UP)
-            held |= INPUT_UP;
-        if (buttons & PAD_DOWN)
-            held |= INPUT_DOWN;
-        if (buttons & PAD_CROSS)
-            held |= INPUT_CROSS;
-        if (buttons & PAD_CIRCLE)
-            held |= INPUT_CIRCLE;
-        if (buttons & PAD_START)
-            held |= INPUT_START;
-        if (buttons & PAD_SELECT)
-            held |= INPUT_SELECT;
-        if (buttons & PAD_L1)
-            held |= INPUT_L1;
-        if (buttons & PAD_R1)
-            held |= INPUT_R1;
+        if (buttons & PAD_LEFT) held |= INPUT_LEFT;
+        if (buttons & PAD_RIGHT) held |= INPUT_RIGHT;
+        if (buttons & PAD_UP) held |= INPUT_UP;
+        if (buttons & PAD_DOWN) held |= INPUT_DOWN;
+        if (buttons & PAD_CROSS) held |= INPUT_CROSS;
+        if (buttons & PAD_CIRCLE) held |= INPUT_CIRCLE;
+        if (buttons & PAD_START) held |= INPUT_START;
+        if (buttons & PAD_SELECT) held |= INPUT_SELECT;
+        if (buttons & PAD_L1) held |= INPUT_L1;
+        if (buttons & PAD_R1) held |= INPUT_R1;
         pad_id = reply[1];
         pad_reports++;
     }
@@ -84,31 +89,33 @@ static void publish(int connected)
  */
 static void receive(void)
 {
-    if (ownership == CARD_OWNS)
-        return;
-    if (phase != RECEIVING || !(SIO_STAT(0) & 2)) {
+    if (ownership == CARD_OWNS) return;
+    if (phase != RECEIVING || !(SIO_STAT(0) & 2))
+    {
         SIO_CTRL(0) |= 0x10;
         return;
     }
     reply[received++] = SIO_DATA(0);
     SIO_CTRL(0) |= 0x10;
-    if (received == 2) {
+    if (received == 2)
+    {
         // Digital, analog joystick and DualShock reports. Consume the whole
         // report even though the editor uses only its digital button bits.
-        if (reply[1] == 0x41)
-            length = 5;
-        else if (reply[1] == 0x53 || reply[1] == 0x73)
-            length = 9;
-        else {
+        if (reply[1] == 0x41) length = 5;
+        else if (reply[1] == 0x53 || reply[1] == 0x73) length = 9;
+        else
+        {
             publish(0);
             return;
         }
     }
-    if (received == 3 && reply[2] != 0x5a) {
+    if (received == 3 && reply[2] != 0x5a)
+    {
         publish(0);
         return;
     }
-    if (received == length) {
+    if (received == length)
+    {
         publish(1);
         return;
     }
@@ -122,11 +129,11 @@ static void receive(void)
  */
 static void vblank(void)
 {
-    if (ownership != PAD_OWNS)
-        return;
+    if (ownership != PAD_OWNS) return;
     // BIOS pad polling can be bypassed when the SDK drains a VBlank that
     // arrived during another IRQ. Starting here covers that path as well.
-    if (phase != IDLE) {
+    if (phase != IDLE)
+    {
         pad_timeouts++;
         publish(0);
     }
@@ -143,16 +150,15 @@ static void vblank(void)
 
 void pad_service(void)
 {
-    if (ownership == CARD_OWNS || phase == IDLE)
-        return;
+    if (ownership == CARD_OWNS || phase == IDLE) return;
     uint16_t now = clock_now();
-    if ((uint16_t)(now - started) >= TIMEOUT_TICKS) {
+    if ((uint16_t)(now - started) >= TIMEOUT_TICKS)
+    {
         pad_timeouts++;
         publish(0);
         return;
     }
-    if (phase != READY || (uint16_t)(now - ready_at) < SETTLE_TICKS)
-        return;
+    if (phase != READY || (uint16_t)(now - ready_at) < SETTLE_TICKS) return;
     // Intermediate bytes advance on ACK. The final byte has no ACK, so use
     // the one-byte RX interrupt for it. Neither ISR waits for the controller.
     SIO_CTRL(0) = received == length - 1 ? 0x0803 : 0x1003;
@@ -185,14 +191,14 @@ void pad_suspend(void)
     // Let the current packet finish with the normal IRQ/timer path, but never
     // wait for another VBlank. Intentional suspension publishes no disconnect.
     uint16_t start = clock_now();
-    while (phase != IDLE && (uint16_t)(clock_now() - start) < TIMEOUT_TICKS) {
+    while (phase != IDLE && (uint16_t)(clock_now() - start) < TIMEOUT_TICKS)
+    {
     }
     EnterCriticalSection();
     ownership = CARD_OWNS;
     InterruptCallback(IRQ_SIO0, NULL);
     SIO_CTRL(0) = 0x40;
-    for (int i = 0; i < 16 && (SIO_STAT(0) & 2); i++)
-        (void)SIO_DATA(0);
+    for (int i = 0; i < 16 && (SIO_STAT(0) & 2); i++) (void)SIO_DATA(0);
     SIO_CTRL(0) = 0;
     IRQ_STAT = (uint16_t)~(1u << IRQ_SIO0);
     phase = IDLE;
@@ -204,8 +210,7 @@ void pad_resume(void)
 {
     EnterCriticalSection();
     SIO_CTRL(0) = 0x40;
-    for (int i = 0; i < 16 && (SIO_STAT(0) & 2); i++)
-        (void)SIO_DATA(0);
+    for (int i = 0; i < 16 && (SIO_STAT(0) & 2); i++) (void)SIO_DATA(0);
     SIO_CTRL(0) = 0;
     IRQ_STAT = (uint16_t)~(1u << IRQ_SIO0);
     phase = IDLE;

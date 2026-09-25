@@ -48,7 +48,8 @@ static void chooser_and_requests(void)
 
     tap(INPUT_SELECT);
     assert(editor.mode == EDIT_MAIN && editor.selected == 0);
-    for (int row = 0; row < 5; row++) {
+    for (int row = 0; row < 5; row++)
+    {
         tap(INPUT_DOWN);
         assert(editor.selected == row + 1);
     }
@@ -63,13 +64,11 @@ static void chooser_and_requests(void)
     tap(INPUT_RIGHT);
     assert(editor.storage_slot == 2);
     assert(!strcmp(editor.message, ""));
-    for (int slot = 2; slot < STORAGE_SLOTS; slot++)
-        tap(INPUT_RIGHT);
+    for (int slot = 2; slot < STORAGE_SLOTS; slot++) tap(INPUT_RIGHT);
     assert(editor.storage_slot == STORAGE_SLOTS);
     tap(INPUT_RIGHT);
     assert(editor.storage_slot == STORAGE_SLOTS);
-    for (int slot = STORAGE_SLOTS; slot > 1; slot--)
-        tap(INPUT_LEFT);
+    for (int slot = STORAGE_SLOTS; slot > 1; slot--) tap(INPUT_LEFT);
     tap(INPUT_LEFT);
     assert(editor.storage_slot == 1);
 

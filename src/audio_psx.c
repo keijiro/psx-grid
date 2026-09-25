@@ -26,7 +26,13 @@ static volatile int active_snapshot, pending_snapshot = -1;
 static Sequencer states[2];
 static Sequencer* volatile seq = &states[0];
 
-enum { REPLACE_IDLE, REPLACE_PREPARING, REPLACE_WAITING, REPLACE_ADOPTED };
+enum
+{
+    REPLACE_IDLE,
+    REPLACE_PREPARING,
+    REPLACE_WAITING,
+    REPLACE_ADOPTED
+};
 
 /*
  * Replacement moves from main-thread preparation to interrupt adoption and
@@ -64,8 +70,7 @@ static const uint16_t reverb_presets[3][32] = {
      0x11bb, 0x14c2, 0x10bd, 0x11bc, 0x0dc1, 0x11c0, 0x0dc3, 0x0dc0, 0x09c1, 0x0bc4, 0x07c1,
      0x0a00, 0x06cd, 0x09c2, 0x05c1, 0x05c0, 0x041a, 0x0274, 0x013a, 0x8000, 0x8000}};
 #define REVERB_BASE 0x75000
-_Static_assert(WAVE_SPU_ADDRESS + sizeof(wave_data) <= REVERB_BASE,
-               "Waves overlap reverb work area");
+_Static_assert(WAVE_SPU_ADDRESS + sizeof(wave_data) <= REVERB_BASE, "Waves overlap reverb work area");
 static int reverb_size = -1, reverb_amount = -1;
 
 /*
@@ -74,14 +79,16 @@ static int reverb_size = -1, reverb_amount = -1;
  */
 static void update_reverb(const Score* score)
 {
-    if (reverb_size != score->reverb.size) {
+    if (reverb_size != score->reverb.size)
+    {
         static const uint32_t silence[256] = {0};
         // Retire the old tail before changing delay addresses. DMA runs only
         // on the main thread with timer interrupts live; a size edit must not
         // stall the sequencer clock or let old buffer contents become noise.
         SPU_REVERB_VOL_L = SPU_REVERB_VOL_R = 0;
         SPU_CTRL &= ~0x80;
-        for (unsigned address = REVERB_BASE; address < 0x80000; address += sizeof(silence)) {
+        for (unsigned address = REVERB_BASE; address < 0x80000; address += sizeof(silence))
+        {
             SpuSetTransferStartAddr(address);
             SpuWrite(silence, sizeof(silence));
             SpuIsTransferCompleted(SPU_TRANSFER_WAIT);
@@ -89,13 +96,13 @@ static void update_reverb(const Score* score)
         static const unsigned sizes[] = {0x26c0, 0x4840, 0xade0};
         SpuSetReverbAddr(0x80000 - sizes[score->reverb.size]);
         volatile uint16_t* registers = (volatile uint16_t*)0x1f801dc0;
-        for (int i = 0; i < 32; i++)
-            registers[i] = reverb_presets[score->reverb.size][i];
+        for (int i = 0; i < 32; i++) registers[i] = reverb_presets[score->reverb.size][i];
         SPU_CTRL |= 0x80;
         reverb_size = score->reverb.size;
         reverb_amount = -1;
     }
-    if (reverb_amount != score->reverb.amount) {
+    if (reverb_amount != score->reverb.amount)
+    {
         reverb_amount = score->reverb.amount;
         int level = reverb_amount * 0x3fff / 100;
         SPU_REVERB_VOL_L = SPU_REVERB_VOL_R = level;
@@ -115,7 +122,8 @@ static int cached_volume[AUDIO_HARDWARE_VOICES], cached_pitch[SEQUENCER_VOICES];
 static void start_voice(void* ctx, int slot, int bank, SoundSettings sound)
 {
     (void)ctx;
-    for (int half = 0; half < 2; half++) {
+    for (int half = 0; half < 2; half++)
+    {
         int voice = slot * 2 + half, wave = half ? sound.wave_b : sound.wave_a;
         unsigned address = WAVE_SPU_ADDRESS + wave_offsets[bank * WAVE_COUNT + wave];
         SpuSetVoiceStartAddr(voice, address);
@@ -130,10 +138,10 @@ static void start_voice(void* ctx, int slot, int bank, SoundSettings sound)
 static void volume(void* ctx, int slot, int a, int b)
 {
     (void)ctx;
-    for (int half = 0; half < 2; half++) {
+    for (int half = 0; half < 2; half++)
+    {
         int voice = slot * 2 + half, level = half ? b : a;
-        if (cached_volume[voice] == level)
-            continue;
+        if (cached_volume[voice] == level) continue;
         cached_volume[voice] = level;
         SpuSetVoiceVolume(voice, level, level);
     }
@@ -142,18 +150,19 @@ static void volume(void* ctx, int slot, int a, int b)
 static void pitch(void* ctx, int slot, int value)
 {
     (void)ctx;
-    if (cached_pitch[slot] == value)
-        return;
+    if (cached_pitch[slot] == value) return;
     cached_pitch[slot] = value;
     SpuSetVoicePitch(slot * 2, value);
     SpuSetVoicePitch(slot * 2 + 1, value);
 }
 
+/*
+ * Redux reports 1 for a pending key-on, including a stolen voice whose old
+ * envelope was nonzero. Wait for both halves of the logical pair.
+ */
 static int ready(void* ctx, int slot)
 {
     (void)ctx;
-    // Redux reports 1 for a pending key-on, including a stolen voice whose
-    // old envelope was nonzero. Wait for both halves of the logical pair.
     return (SPU_CH_ADSR_VOL(slot * 2) & 0x7fff) > 1 && (SPU_CH_ADSR_VOL(slot * 2 + 1) & 0x7fff) > 1;
 }
 
@@ -161,8 +170,9 @@ static uint32_t hardware_mask(uint32_t logical)
 {
     uint32_t mask = 0;
     for (int i = 0; i < SEQUENCER_VOICES; i++)
-        if (logical & (1u << i))
-            mask |= 3u << (i * 2);
+    {
+        if (logical & (1u << i)) mask |= 3u << (i * 2);
+    }
     return mask;
 }
 
@@ -173,13 +183,14 @@ static uint32_t hardware_mask(uint32_t logical)
 static void flush(void* ctx, uint32_t starts, uint32_t stops)
 {
     (void)ctx;
-    if (!(starts | stops))
-        return;
+    if (!(starts | stops)) return;
     AudioTime now = read_clock();
     // A dense slice can become stale while this callback runs. Recheck at
     // dispatch, not only at entry, so overload cannot turn into a late burst.
     for (int i = 0; i < SEQUENCER_VOICES; i++)
-        if ((starts & (1u << i)) && now - audio.voices[i].start > SEQUENCER_HZ / 1000) {
+    {
+        if ((starts & (1u << i)) && now - audio.voices[i].start > SEQUENCER_HZ / 1000)
+        {
             starts &= ~(1u << i);
             stops |= 1u << i;
             audio.voices[i].active = 0;
@@ -187,6 +198,7 @@ static void flush(void* ctx, uint32_t starts, uint32_t stops)
             volume(NULL, i, 0, 0);
             late_starts++;
         }
+    }
     // Flush is the sole runtime send-mask writer. Captured settings survive
     // holds and release ramps; rejected starts and retired pairs contribute
     // no bits. Recompute before key-on so reuse replaces both halves together.
@@ -194,20 +206,21 @@ static void flush(void* ctx, uint32_t starts, uint32_t stops)
     uint32_t sends = audio_reverb_mask(&audio);
     SPU_REVERB_ON1 = sends & 0xffff;
     SPU_REVERB_ON2 = sends >> 16;
-    if (stops)
-        SpuSetKey(0, hardware_mask(stops));
-    if (starts) {
+    if (stops) SpuSetKey(0, hardware_mask(stops));
+    if (starts)
+    {
         SpuSetKey(1, hardware_mask(starts));
         for (int i = 0; i < SEQUENCER_VOICES; i++)
-            if (starts & (1u << i)) {
+        {
+            if (starts & (1u << i))
+            {
                 uint32_t late = (uint32_t)(now - audio.voices[i].start);
-                if (late > audio_dispatch_peak)
-                    audio_dispatch_peak = late;
-                if (!audio_note_count)
-                    audio_first_note = (uint32_t)now;
+                if (late > audio_dispatch_peak) audio_dispatch_peak = late;
+                if (!audio_note_count) audio_first_note = (uint32_t)now;
                 audio_last_note = (uint32_t)now;
                 audio_note_count++;
             }
+        }
     }
 }
 
@@ -229,8 +242,7 @@ static AudioTime read_clock(void)
  */
 static void replacement_adopted(Sequencer* next)
 {
-    if (next == seq)
-        return;
+    if (next == seq) return;
     seq = next;
     active_snapshot = replacement_snapshot;
     published_revision = snapshots[active_snapshot].revision;
@@ -246,32 +258,33 @@ static void service(void)
     AudioTime now = read_clock();
     uint32_t interval = (uint32_t)(now - service_previous);
     service_previous = now;
-    if (interval > audio_interval_peak)
-        audio_interval_peak = interval;
+    if (interval > audio_interval_peak) audio_interval_peak = interval;
     pad_service();
-    if (enabled) {
+    if (enabled)
+    {
         int pending = pending_snapshot;
-        if (pending >= 0 && sequencer_resync(seq, &snapshots[pending], now)) {
+        if (pending >= 0 && sequencer_resync(seq, &snapshots[pending], now))
+        {
             active_snapshot = pending;
             published_revision = snapshots[pending].revision;
             pending_snapshot = -1;
         }
         replacement_adopted(sequencer_service(seq, now));
-    } else {
+    }
+    else
+    {
         NoteSink sink = audio_sink(&audio);
         sink.advance(sink.context, now);
     }
     // Register fixtures use the completed control timestamp, since reading
     // the main-thread clock before readback can straddle another service.
     audio_control_time = (uint32_t)now;
-    audio_modulation_start =
-        (uint32_t)(audio.voices[0].waiting ? now : audio.voices[0].modulation_start);
+    audio_modulation_start = (uint32_t)(audio.voices[0].waiting ? now : audio.voices[0].modulation_start);
     audio_voice_steals = audio.steals;
     audio_skipped_notes = seq->skipped + late_starts;
     audio_overloads = seq->overloads;
     uint32_t elapsed = (uint32_t)(read_clock() - now);
-    if (elapsed > audio_service_peak)
-        audio_service_peak = elapsed;
+    if (elapsed > audio_service_peak) audio_service_peak = elapsed;
     audio_services++;
 }
 
@@ -287,9 +300,9 @@ void audio_platform_init(void)
     SpuSetTransferStartAddr(WAVE_SPU_ADDRESS);
     SpuWrite(wave_data, sizeof(wave_data));
     SpuIsTransferCompleted(SPU_TRANSFER_WAIT);
-    for (int i = 0; i < AUDIO_HARDWARE_VOICES; i++)
-        cached_volume[i] = -1;
-    for (int i = 0; i < SEQUENCER_VOICES; i++) {
+    for (int i = 0; i < AUDIO_HARDWARE_VOICES; i++) cached_volume[i] = -1;
+    for (int i = 0; i < SEQUENCER_VOICES; i++)
+    {
         cached_pitch[i] = -1;
         volume(NULL, i, 0, 0);
     }
@@ -318,7 +331,8 @@ void audio_platform_init(void)
 void audio_platform_card_stop(void)
 {
     EnterCriticalSection();
-    if (enabled) {
+    if (enabled)
+    {
         replacement_adopted(sequencer_stop(seq, read_clock()));
         enabled = 0;
     }
@@ -326,16 +340,14 @@ void audio_platform_card_stop(void)
     // The ordinary Stop deliberately runs a release ramp in later timer
     // services. A BIOS session has no such services, so silence both halves
     // of every pair and the wet return before detaching the dispatcher.
-    for (int i = 0; i < SEQUENCER_VOICES; i++)
-        volume(NULL, i, 0, 0);
+    for (int i = 0; i < SEQUENCER_VOICES; i++) volume(NULL, i, 0, 0);
     SPU_KEY_OFF1 = 0xffff;
     SPU_KEY_OFF2 = 0xff;
     SPU_REVERB_ON1 = SPU_REVERB_ON2 = 0;
     SPU_REVERB_VOL_L = SPU_REVERB_VOL_R = 0;
     SPU_CTRL &= ~0x80;
     audio_init(&audio, (AudioDriver){NULL, start_voice, volume, pitch, flush, ready});
-    for (int i = 0; i < AUDIO_HARDWARE_VOICES; i++)
-        cached_volume[i] = -1;
+    for (int i = 0; i < AUDIO_HARDWARE_VOICES; i++) cached_volume[i] = -1;
     TIMER_CTRL(0) = 0;
     IRQ_MASK &= ~(1u << IRQ_TIMER0);
     IRQ_STAT = (uint16_t)~(1u << IRQ_TIMER0);
@@ -361,19 +373,21 @@ void audio_platform_card_resume(const Score* score)
 
 void audio_platform_update(const Score* score, int connected, int start)
 {
-    if (replacement_state == REPLACE_IDLE)
-        update_reverb(score);
-    if (!connected || (start && enabled)) {
+    if (replacement_state == REPLACE_IDLE) update_reverb(score);
+    if (!connected || (start && enabled))
+    {
         EnterCriticalSection();
-        if (enabled) {
+        if (enabled)
+        {
             replacement_adopted(sequencer_stop(seq, read_clock()));
             enabled = 0;
         }
         pending_snapshot = -1;
         ExitCriticalSection();
-    } else if (start) {
-        if (replacement_state != REPLACE_IDLE)
-            return;
+    }
+    else if (start)
+    {
+        if (replacement_state != REPLACE_IDLE) return;
         // The timer remains live while the immutable snapshot is prepared.
         // Nothing in the interrupt can observe this copy until publication.
         snapshots[0] = *score;
@@ -381,7 +395,8 @@ void audio_platform_update(const Score* score, int connected, int start)
         EnterCriticalSection();
         // Restart discards release tails. Zero their registers before reuse;
         // the regular stop path, in contrast, always completes its 5 ms ramp.
-        for (int i = 0; i < SEQUENCER_VOICES; i++) {
+        for (int i = 0; i < SEQUENCER_VOICES; i++)
+        {
             audio.voices[i].active = 0;
             volume(NULL, i, 0, 0);
         }
@@ -397,18 +412,18 @@ void audio_platform_update(const Score* score, int connected, int start)
         // cleanup to the first dispatch can drop an otherwise timely chord
         // when all 16 runners begin together.
         AudioTime now = read_clock();
-        for (int i = 0; i < seq->count; i++)
-            seq->runners[i].next = now;
+        for (int i = 0; i < seq->count; i++) seq->runners[i].next = now;
         audio_started = (uint32_t)now;
-        audio_dispatch_peak = audio_note_count = audio_first_note = audio_last_note = late_starts =
-            0;
+        audio_dispatch_peak = audio_note_count = audio_first_note = audio_last_note = late_starts = 0;
         active_snapshot = 0;
         pending_snapshot = -1;
         published_revision = score->revision;
         enabled = 1;
         ExitCriticalSection();
-    } else if (replacement_state == REPLACE_IDLE && enabled && pending_snapshot < 0 &&
-               score->revision != published_revision) {
+    }
+    else if (replacement_state == REPLACE_IDLE && enabled && pending_snapshot < 0 &&
+             score->revision != published_revision)
+    {
         // With no pending publication the active buffer cannot change during
         // this copy. Edits arriving while a buffer is pending are coalesced in
         // the editor score and copied on a later main-thread update.
@@ -441,7 +456,8 @@ AudioTime audio_platform_time(void)
 int audio_platform_replace(const Score* incoming)
 {
     EnterCriticalSection();
-    if (replacement_state != REPLACE_IDLE) {
+    if (replacement_state != REPLACE_IDLE)
+    {
         ExitCriticalSection();
         return 0;
     }
@@ -453,10 +469,13 @@ int audio_platform_replace(const Score* incoming)
     Sequencer* prepared = seq == &states[0] ? &states[1] : &states[0];
     sequencer_start(prepared, &snapshots[replacement_snapshot], audio_sink(&audio), 0);
     EnterCriticalSection();
-    if (enabled) {
+    if (enabled)
+    {
         sequencer_replace(seq, prepared, read_clock());
         replacement_state = REPLACE_WAITING;
-    } else {
+    }
+    else
+    {
         prepared->playing = 0;
         replacement_adopted(prepared);
     }
@@ -466,8 +485,7 @@ int audio_platform_replace(const Score* incoming)
 
 int audio_platform_take_replacement(Score* score)
 {
-    if (replacement_state != REPLACE_ADOPTED)
-        return 0;
+    if (replacement_state != REPLACE_ADOPTED) return 0;
     // Publication remains locked through the editor copy and effect update.
     // Same-size reverb keeps its delay memory; a size change wet-mutes and
     // clears only after adoption, with incoming dry notes already running.

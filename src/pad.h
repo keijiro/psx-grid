@@ -24,7 +24,7 @@ void pad_service(void);
 void pad_suspend(void);
 /* Restores pad polling after BIOS card access has ended. */
 void pad_resume(void);
-/* Pops a queued report into `sample`; returns zero if none is available. */
+/* Pops a queued report into `sample`; returns zero without writing it if empty. */
 int pad_read(InputSample* sample);
 // Debugger-visible poll, report, timeout, overflow and controller-ID counters.
 extern volatile unsigned pad_polls, pad_reports, pad_timeouts, pad_overflows, pad_id;

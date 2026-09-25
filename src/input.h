@@ -11,7 +11,8 @@
 #include <stdint.h>
 
 // Button bits shared by the platform pad driver and host input tests.
-enum {
+enum
+{
     INPUT_LEFT = 1,
     INPUT_RIGHT = 2,
     INPUT_UP = 4,
@@ -30,49 +31,55 @@ enum {
 #define INPUT_VALUE_DELAY 16
 
 // Held-button history and independent cursor, row and value repeat clocks.
-typedef struct {
+typedef struct
+{
     uint16_t previous;
-    int connected, direction, countdown, row_direction, row_countdown, value_direction,
-        value_coarse, value_countdown, value_held;
+    int connected, direction, countdown, row_direction, row_countdown, value_direction, value_coarse, value_countdown,
+        value_held;
 } Input;
 
 // One frame of movement and edge events after repeat processing.
-typedef struct {
-    int connected, dx, dy, row_dy, value_dir, value_coarse, cross, circle, cross_held,
-        cross_released, start, select;
+typedef struct
+{
+    int connected, dx, dy, row_dy, value_dir, value_coarse, cross, circle, cross_held, cross_released, start, select;
 } InputFrame;
 
 // Fixed queue absorbs controller reports between main-thread frames.
 #define INPUT_QUEUE_CAPACITY 64
 
 // Raw connection state and active-high button mask from one poll.
-typedef struct {
+typedef struct
+{
     int connected;
     uint16_t held;
 } InputSample;
 
 // Single-producer, single-consumer ring of raw samples.
-typedef struct {
+typedef struct
+{
     InputSample samples[INPUT_QUEUE_CAPACITY];
     unsigned read, write;
 } InputQueue;
 
-/* Resets the sample queue to empty. */
+/* Resets caller-owned `queue` to empty before its first push or pop. */
 void input_queue_init(InputQueue* queue);
 /*
- * Enqueues a sample and returns whether the queue overflowed. Overflow resets
- * history and inserts a disconnect sample before the new report.
+ * Enqueues `sample` in `queue` and returns whether the queue overflowed.
+ * Overflow resets history and inserts a disconnect sample before the report.
  */
 int input_queue_push(InputQueue* queue, InputSample sample);
-/* Removes the oldest sample into `sample`; returns zero when empty. */
+/* Removes the oldest sample into `sample`; returns zero without writing it when empty. */
 int input_queue_pop(InputQueue* queue, InputSample* sample);
-/* Clears connection, button history and repeat state. */
+/* Clears caller-owned `input` connection, button history and repeat state. */
 void input_init(Input* input);
-/* Defers held cursor repetition after a mode change. */
+/* Defers held cursor repetition in `input` after a mode change. */
 void input_reset_repeat(Input* input);
-/* Clears value adjustment repetition without resetting cursor state. */
+/* Clears value adjustment repetition in `input` without resetting cursor state. */
 void input_reset_value_repeat(Input* input);
-/* Converts one raw button mask into an editor frame; disconnection resets state. */
+/*
+ * Converts `held` into an editor frame using `input` history. `connected` is
+ * zero on disconnection, which resets state and returns an empty frame.
+ */
 InputFrame input_update(Input* input, int connected, uint16_t held);
 
 #endif // INPUT_H
