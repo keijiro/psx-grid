@@ -8,8 +8,12 @@ description: C coding style. Use when writing or editing C (.c, .h) files.
 The style is defined by example. Before writing C code, read both files and
 match them in layout, naming, braces, comments, and idiom:
 
-- [examples/crc32.h](examples/crc32.h) — public header
-- [examples/crc32.c](examples/crc32.c) — implementation
+- [examples/kv.h](examples/kv.h) — public header
+- [examples/kv.c](examples/kv.c) — implementation
+
+The examples show the form of the code, not a design to copy. Their API
+choices (spans into the input, result enums) belong to the parser, not to
+the style.
 
 Comments are part of the style. A file is not in style without them:
 
