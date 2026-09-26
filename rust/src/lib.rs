@@ -13,6 +13,9 @@ mod score;
 mod score_edit;
 mod score_format;
 mod storage;
+mod ui_format;
+mod ui_metrics;
+mod ui_render;
 
 #[cfg(not(test))]
 use core::panic::PanicInfo;

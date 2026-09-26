@@ -1,8 +1,7 @@
 /*
  * ui_style.h - Shared dimensions and grayscale colors for the grid UI
  *
- * Render constants live here so grid geometry and panel spacing remain
- * consistent across the renderer and its host-side checks.
+ * C video setup and host checks use these dimensions and grayscale colors.
  */
 
 #ifndef UI_STYLE_H

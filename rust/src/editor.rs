@@ -4,8 +4,8 @@
 //! retain menu, gesture, clipboard, and storage-request state without allocation.
 
 // Implementation notes:
-// The C renderer reads the shared Editor and EditorRow layouts. Formatting
-// remains in its C presentation adapter; interaction rules live here.
+// The Rust renderer reads the shared Editor and EditorRow layouts directly;
+// interaction rules stay here.
 
 use core::ffi::{c_char, c_int};
 use core::ptr;
@@ -94,15 +94,15 @@ const TILE_RELATIVE: c_int = 5;
 
 #[repr(C)]
 #[derive(Clone, Copy)]
-/// Presents one fixed menu row through the renderer's C layout.
+/// Presents one fixed menu row through the shared C interface.
 pub struct EditorRow {
-    kind: c_int,
-    id: c_int,
-    min: c_int,
-    max: c_int,
-    fine: c_int,
-    coarse: c_int,
-    label: *const c_char,
+    pub(crate) kind: c_int,
+    pub(crate) id: c_int,
+    pub(crate) min: c_int,
+    pub(crate) max: c_int,
+    pub(crate) fine: c_int,
+    pub(crate) coarse: c_int,
+    pub(crate) label: *const c_char,
 }
 
 #[repr(C)]
@@ -333,7 +333,10 @@ fn push(rows: &mut [EditorRow; EDITOR_ROWS], n: &mut usize, value: EditorRow) {
     *n += 1;
 }
 
-fn rows(editor: &Editor, output: &mut [EditorRow; EDITOR_ROWS]) -> usize {
+pub(crate) fn rows(
+    editor: &Editor,
+    output: &mut [EditorRow; EDITOR_ROWS],
+) -> usize {
     let mut n = 0;
     if editor.mode == EDIT_MAIN {
         push(

@@ -13,7 +13,7 @@
 /*
  * Formats a valid row `id` in `editor` into `buffer`. A row without a value
  * leaves an empty string. `size` must be positive.
- * `editor` and `buffer` must not be NULL.
+ * `editor` and `buffer` must not be NULL or overlap.
  */
 void ui_format_row_value(const Editor* editor, int id, char* buffer, int size);
 
