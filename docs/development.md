@@ -82,14 +82,16 @@ and `abi_checks.c` remain at the root because they span those groups.
 - `rust/src/editor.rs`: Menus, inline property edits, clipboard, deletion
   confirmation, and press/hold/release movement transitions.
 - `src/ui/editor.h`: Shared editor layout and Rust function declarations.
-- `src/ui/ui_format.c`, `src/ui/ui_format.h`: C display formatting for menu
-  values.
-- `src/ui/render.*`: 320 x 240 NTSC output, double buffering, scrolling, and
-  render-packet management.
+- `rust/src/ui_format.rs`, `src/ui/ui_format.h`: Bounded Rust display
+  formatting and its C interface.
+- `rust/src/ui_render.rs`: Grid, menu, camera, clipping, and text layout.
+- `src/ui/render.*`, `src/ui/render_backend.h`: 320 x 240 NTSC SDK output,
+  double buffering, and render-packet management.
 - [`assets/ui/`](../assets/ui/README.md), `scripts/generate-assets.py`: editable
-  masks, font attribution, and deterministic indexed-atlas generation
-  (Python 3, no extra packages).
-- `src/ui/ui_style.h`: shared screen geometry and grayscale roles.
+  masks, font attribution, and deterministic indexed-atlas and Rust glyph
+  advance generation (Python 3, no extra packages).
+- `src/ui/ui_style.h`: C screen geometry and grayscale roles mirrored by the
+  Rust renderer.
 - `src/main.c`: Input history consumption, editor processing, START, and
   frame/status updates.
 - `build/{debug,release}/psx-grid.{elf,exe}`: ELF and PS-X EXE outputs.
@@ -97,8 +99,8 @@ and `abi_checks.c` remain at the root because they span those groups.
 The Rust crate targets `mipsel-sony-psx` and builds `core` from pinned
 `rust-src` with `noabicalls` to match the SDK's fixed GP. CMake links its
 static library into the game and fixtures.
-The editor, model, file codec, storage coordinator, and input history now run
-in Rust. C retains SDK and hardware access and display formatting. Shared
+The editor, model, file codec, storage coordinator, input history, and display
+formatting run in Rust. C retains SDK and hardware access. Shared
 aggregates cross the C/Rust boundary through pointers. The sequencer still
 runs in the timer callback as optimized C. Voice synthesis runs there in Rust
 through C aggregate-value ABI adapters. Changes to either path require

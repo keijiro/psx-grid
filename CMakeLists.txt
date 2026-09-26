@@ -34,7 +34,8 @@ function(link_grid_rust target)
     target_link_libraries(${target} PRIVATE "${RUST_LIBRARY}")
 endfunction()
 set(UI_ATLAS "${CMAKE_CURRENT_BINARY_DIR}/generated/ui_atlas.h")
-add_custom_command(OUTPUT "${UI_ATLAS}"
+set(UI_METRICS "${CMAKE_CURRENT_SOURCE_DIR}/rust/src/ui_metrics.rs")
+add_custom_command(OUTPUT "${UI_ATLAS}" "${UI_METRICS}"
     COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/scripts/generate-assets.py" "${UI_ATLAS}"
     DEPENDS scripts/generate-assets.py assets/ui/masks.py assets/ui/jacquard-logo.svg
     VERBATIM)
@@ -47,7 +48,7 @@ add_custom_command(OUTPUT "${WAVE_SAMPLES}" "${AUDIO_TABLES}" "${AUDIO_RUST_TABL
     VERBATIM)
 set(CARD_SOURCE src/storage/card_bios.c)
 set(ABI_CHECKS_SOURCE src/abi_checks.c)
-psn00bsdk_add_executable(psx-grid GPREL src/main.c ${ABI_CHECKS_SOURCE} ${CARD_SOURCE} src/input/input_queue.c src/ui/ui_format.c src/ui/render.c src/audio/sequencer.c src/audio/audio_abi.c src/audio/audio_psx.c src/input/pad.c "${UI_ATLAS}" "${WAVE_SAMPLES}" "${AUDIO_TABLES}")
+psn00bsdk_add_executable(psx-grid GPREL src/main.c ${ABI_CHECKS_SOURCE} ${CARD_SOURCE} src/input/input_queue.c src/ui/render.c src/audio/sequencer.c src/audio/audio_abi.c src/audio/audio_psx.c src/input/pad.c "${UI_ATLAS}" "${WAVE_SAMPLES}" "${AUDIO_TABLES}")
 link_grid_rust(psx-grid)
 target_include_directories(psx-grid PRIVATE src "${CMAKE_CURRENT_BINARY_DIR}/generated")
 target_compile_options(psx-grid PRIVATE -Wall -Wextra)
@@ -61,11 +62,11 @@ set_source_files_properties(src/ui/render.c PROPERTIES COMPILE_OPTIONS -fno-stri
 
 option(AUDIO_FIXTURE "Build the automated audio and input development fixtures" OFF)
 if(AUDIO_FIXTURE)
-    psn00bsdk_add_executable(audio-fixture GPREL tests/audio_fixture.c ${ABI_CHECKS_SOURCE} src/input/input_queue.c src/ui/ui_format.c src/ui/render.c src/audio/sequencer.c src/audio/audio_abi.c src/audio/audio_psx.c src/input/pad.c "${UI_ATLAS}" "${WAVE_SAMPLES}" "${AUDIO_TABLES}")
+    psn00bsdk_add_executable(audio-fixture GPREL tests/audio_fixture.c ${ABI_CHECKS_SOURCE} src/input/input_queue.c src/ui/render.c src/audio/sequencer.c src/audio/audio_abi.c src/audio/audio_psx.c src/input/pad.c "${UI_ATLAS}" "${WAVE_SAMPLES}" "${AUDIO_TABLES}")
     link_grid_rust(audio-fixture)
     target_include_directories(audio-fixture PRIVATE src "${CMAKE_CURRENT_BINARY_DIR}/generated")
     target_compile_options(audio-fixture PRIVATE -Wall -Wextra)
-    psn00bsdk_add_executable(input-fixture GPREL tests/input_fixture.c ${ABI_CHECKS_SOURCE} src/input/input_queue.c src/ui/ui_format.c src/ui/render.c src/audio/sequencer.c src/audio/audio_abi.c src/audio/audio_psx.c src/input/pad.c "${UI_ATLAS}" "${WAVE_SAMPLES}" "${AUDIO_TABLES}")
+    psn00bsdk_add_executable(input-fixture GPREL tests/input_fixture.c ${ABI_CHECKS_SOURCE} src/input/input_queue.c src/ui/render.c src/audio/sequencer.c src/audio/audio_abi.c src/audio/audio_psx.c src/input/pad.c "${UI_ATLAS}" "${WAVE_SAMPLES}" "${AUDIO_TABLES}")
     link_grid_rust(input-fixture)
     target_include_directories(input-fixture PRIVATE src "${CMAKE_CURRENT_BINARY_DIR}/generated")
     target_compile_options(input-fixture PRIVATE -Wall -Wextra)
@@ -73,7 +74,7 @@ endif()
 
 option(STORAGE_FIXTURE "Build the isolated card/audio development fixture" OFF)
 if(STORAGE_FIXTURE)
-    psn00bsdk_add_executable(storage-fixture GPREL tests/storage_fixture.c ${ABI_CHECKS_SOURCE} ${CARD_SOURCE} src/input/input_queue.c src/ui/ui_format.c src/ui/render.c src/audio/sequencer.c src/audio/audio_abi.c src/audio/audio_psx.c src/input/pad.c "${UI_ATLAS}" "${WAVE_SAMPLES}" "${AUDIO_TABLES}")
+    psn00bsdk_add_executable(storage-fixture GPREL tests/storage_fixture.c ${ABI_CHECKS_SOURCE} ${CARD_SOURCE} src/input/input_queue.c src/ui/render.c src/audio/sequencer.c src/audio/audio_abi.c src/audio/audio_psx.c src/input/pad.c "${UI_ATLAS}" "${WAVE_SAMPLES}" "${AUDIO_TABLES}")
     link_grid_rust(storage-fixture)
     target_include_directories(storage-fixture PRIVATE src "${CMAKE_CURRENT_BINARY_DIR}/generated")
     target_compile_options(storage-fixture PRIVATE -Wall -Wextra)

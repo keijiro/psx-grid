@@ -12,6 +12,7 @@
 #include "input/input.h"
 #include "score/score_format.h"
 #include "storage/storage.h"
+#include "ui/ui_style.h"
 
 // The Rust codec uses these discriminants as stable wire tags.
 _Static_assert(WAVE_SINE == 0 && WAVE_TRIANGLE == 1 && WAVE_SAW == 2 &&
@@ -41,5 +42,16 @@ _Static_assert(SOUND_MAX_MS == 16000 && SOUND_MAX_MIX_MS == 500 &&
                WAVE_COUNT == 5,
                "editor sound bounds");
 _Static_assert(EDIT_REVERB == 8 && ACTION_LOCK_RELEASE == 18 &&
-               TILE_RELATIVE == 5 && CELL_END == 4,
+                   TILE_RELATIVE == 5 && CELL_END == 4,
                "editor discriminants");
+
+// Rust layout and clipping mirror these C-side presentation constants.
+_Static_assert(SCREEN_W == 320 && SCREEN_H == 240 && CELL_SIZE == 16 &&
+                   VIEW_X == 0 && VIEW_Y == 0 && VIEW_COLS == 20 &&
+                   VIEW_ROWS == 15 && UI_MENU_MARGIN == 12 &&
+                   UI_MENU_ROW == 17 && UI_MENU_EDGE == 16,
+               "Rust render geometry");
+_Static_assert(UI_DOT == 0x4e && UI_INK == 0xf2 && UI_PANEL == 0x1e &&
+                   UI_BORDER == 0x3a && UI_SHADOW == 0x0c &&
+                   UI_RULE == 0x60 && UI_RAIL == 0x60,
+               "Rust render colors");
