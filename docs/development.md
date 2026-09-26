@@ -87,8 +87,7 @@ and `abi_checks.c` remain at the root because they span those groups.
 - `rust/src/editor.rs`: Menus, inline property edits, clipboard, deletion
   confirmation, and press/hold/release movement transitions.
 - `src/ui/editor.h`: Shared editor layout and Rust function declarations.
-- `rust/src/ui_format.rs`, `src/ui/ui_format.h`: Bounded Rust display
-  formatting and its C interface.
+- `rust/src/ui_format.rs`: Bounded Rust display formatting for menu rendering.
 - `rust/src/ui_render.rs`: Grid, menu, camera, clipping, and text layout.
 - `src/ui/render.*`, `src/ui/render_backend.h`: 320 x 240 NTSC SDK output,
   double buffering, and render-packet management.

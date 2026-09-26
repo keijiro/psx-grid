@@ -1,7 +1,6 @@
 //! Formats editor values into caller-owned, NUL-terminated buffers.
 //!
-//! The fixed writer works without allocation for both menu rendering and the
-//! C-facing formatting function.
+//! The fixed writer works without allocation for menu rendering.
 
 use core::ffi::{c_char, c_int, CStr};
 use core::fmt::{self, Write};
@@ -102,7 +101,7 @@ impl Write for Text<'_> {
     }
 }
 
-/// Formats a menu row with the same bounded output used by C callers.
+/// Formats a menu row into the renderer's bounded text buffer.
 pub(crate) fn row_value(editor: &Editor, id: c_int, out: &mut Text<'_>) {
     out.clear();
     let sound = &editor.score.sounds[editor.sound_channel as usize];
@@ -183,25 +182,4 @@ pub(crate) fn row_value(editor: &Editor, id: c_int, out: &mut Text<'_>) {
         _ => Ok(()),
     }
     .expect("fixed text writer cannot fail");
-}
-
-/// Formats a valid menu row into a C buffer.
-///
-/// # Safety
-/// `editor` must point to a valid editor. `buffer` must point to `size`
-/// writable bytes, with `size` positive, and must not overlap `editor`.
-#[no_mangle]
-pub unsafe extern "C" fn ui_format_row_value(
-    editor: *const Editor,
-    id: c_int,
-    buffer: *mut c_char,
-    size: c_int,
-) {
-    // SAFETY: The caller supplies a valid editor and a distinct output buffer.
-    let editor = unsafe { &*editor };
-    // SAFETY: The caller supplies a positive writable buffer length.
-    let bytes = unsafe {
-        core::slice::from_raw_parts_mut(buffer.cast(), size as usize)
-    };
-    row_value(editor, id, &mut Text::new(bytes));
 }
