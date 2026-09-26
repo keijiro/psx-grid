@@ -9,10 +9,12 @@
 
 #include "value_api.h"
 
-#include "audio/audio.h"
-#include "ui/editor.h"
+#include "audio/audio_platform.h"
+#include "audio_synth.h"
+#include "editor.h"
 #include "input/pad.h"
-#include "ui/render.h"
+#include "ui/render_backend.h"
+#include "ui_render.h"
 
 #include <psxapi.h>
 #include <psxetc.h>

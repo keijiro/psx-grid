@@ -45,20 +45,23 @@ to a gamepad or keyboard. See [usage.md](usage.md) for the editing walkthrough.
 
 ## Structure and Validation
 
-The C tree groups score contracts, storage, input, audio, and UI under `src/`.
-Headers shared with Rust stay beside the C code for their feature. `main.c`
-and `abi_checks.c` remain at the root because they span those groups.
+The C implementation groups storage, input, audio, and UI under `src/`.
+Headers whose declarations are implemented entirely in Rust form a flat set
+under `include/`. Headers for C implementations and mixed interfaces stay
+beside their source in `src/`.
+`main.c` and `abi_checks.c` remain at the root of `src/` because they span
+those groups.
 
 - `rust/src/score.rs`, `rust/src/score_edit.rs`: SDK-independent model,
   validation, and transactional edits in fixed caller-owned storage.
-- `src/score/score.h`: Shared C layout and pointer-based model declarations.
+- `include/score.h`: Shared C layout and pointer-based model declarations.
 - `rust/src/score_format.rs`: Portable v1 codec, shared sizing, and generation
   stamping in the `no_std` static library.
-- `src/score/score_format.h`: C declarations for the Rust file codec.
+- `include/score_format.h`: C declarations for the Rust file codec.
 - `src/abi_checks.c`: Compile-time checks for shared C/Rust layouts and values.
 - `rust/src/storage.rs`: Numbered card files, discovery, and recovery through
   the injected card backend.
-- `src/storage/storage.h`: Shared C layout and pointer-based backend
+- `include/storage.h`: Shared C layout and pointer-based backend
   initialization.
 - `src/storage/card.h`, `src/storage/card_bios.c`: File-level card interface
   and BIOS backend.
@@ -68,10 +71,12 @@ and `abi_checks.c` remain at the root because they span those groups.
 - `rust/src/audio.rs`: SDK-independent 12-note pair allocation,
   amplitude/mix envelopes, and fixed-point pitch sweep with an injected
   register driver for host tests.
-- `src/audio/audio.h`, `src/audio/audio_abi.c`: Opaque Rust voice state and
-  the aggregate-value note-sink adapter for the C sequencer.
-- `src/audio/audio_psx.c`: Double-buffered score publication, SPU upload/registers,
-  timer interrupts, lifecycle, and debugger-visible measurements.
+- `include/audio_synth.h`: Opaque Rust voice state and synthesis declarations.
+- `src/audio/audio_abi.h`, `src/audio/audio_abi.c`: Aggregate-value note-sink
+  adapter for the C sequencer.
+- `src/audio/audio_platform.h`, `src/audio/audio_psx.c`: Double-buffered score
+  publication, SPU upload/registers, timer interrupts, lifecycle, and
+  debugger-visible measurements.
 - `scripts/generate-audio.py`: Deterministic five-wave ADPCM banks
   (`generated/wave_samples.h`), fixed-point control tables
   (`generated/audio_tables.h` and `rust/src/audio_tables.rs`), and
@@ -79,17 +84,18 @@ and `abi_checks.c` remain at the root because they span those groups.
   and Rust tables come from the same generator.
 - `rust/src/input.rs`: Ordered input history, button presses, repeats,
   disconnection, and reconnection in a `no_std` static library.
-- `src/input/input.h`: Shared input-history layout and Rust function declarations.
+- `include/input.h`: Shared input-history layout and Rust function declarations.
 - `src/input/input_queue.c`, `src/input/input_queue.h`: Interrupt-facing
   sample queue.
 - `src/input/pad.*`: Port 1 asynchronous SIO polling and completed-report
   publication.
 - `rust/src/editor.rs`: Menus, inline property edits, clipboard, deletion
   confirmation, and press/hold/release movement transitions.
-- `src/ui/editor.h`: Shared editor layout and Rust function declarations.
+- `include/editor.h`: Shared editor layout and Rust function declarations.
 - `rust/src/ui_format.rs`: Bounded Rust display formatting for menu rendering.
 - `rust/src/ui_render.rs`: Grid, menu, camera, clipping, and text layout.
-- `src/ui/render.*`, `src/ui/render_backend.h`: 320 x 240 NTSC SDK output,
+- `include/ui_render.h`: Rust frame-rendering declaration.
+- `src/ui/render.c`, `src/ui/render_backend.h`: 320 x 240 NTSC SDK output,
   double buffering, and render-packet management.
 - [`assets/ui/`](../assets/ui/README.md), `scripts/generate-assets.py`: editable
   masks, font attribution, and deterministic indexed-atlas and Rust glyph

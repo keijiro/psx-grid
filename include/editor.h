@@ -10,9 +10,9 @@
 #ifndef EDITOR_H
 #define EDITOR_H
 
-#include "input/input.h"
-#include "score/score.h"
-#include "storage/storage.h"
+#include "input.h"
+#include "score.h"
+#include "storage.h"
 
 #include <stdint.h>
 

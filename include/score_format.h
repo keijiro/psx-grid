@@ -9,7 +9,7 @@
 #ifndef SCORE_FORMAT_H
 #define SCORE_FORMAT_H
 
-#include "score/score.h"
+#include "score.h"
 
 #include <stddef.h>
 #include <stdint.h>

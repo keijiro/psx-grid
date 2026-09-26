@@ -9,8 +9,8 @@
 
 #include "value_api.h"
 
-#include "audio/audio.h"
-#include "ui/editor.h"
+#include "audio/audio_abi.h"
+#include "editor.h"
 
 #include <assert.h>
 #include <stdio.h>

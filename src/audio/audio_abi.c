@@ -8,7 +8,7 @@
  * boundary. Rust owns the synthesizer and its callback table.
  */
 
-#include "audio/audio.h"
+#include "audio/audio_abi.h"
 
 extern uint32_t rust_audio_on(void* context, AudioTime now, int pitch,
                               const SoundSettings* sound);

@@ -9,7 +9,7 @@
 
 #include "value_api.h"
 
-#include "storage/storage.h"
+#include "storage.h"
 
 #include <assert.h>
 #include <stdio.h>

@@ -10,7 +10,7 @@
 #define STORAGE_H
 
 #include "storage/card.h"
-#include "score/score_format.h"
+#include "score_format.h"
 
 #include <stdint.h>
 

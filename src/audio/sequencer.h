@@ -10,7 +10,7 @@
 #ifndef SEQUENCER_H
 #define SEQUENCER_H
 
-#include "score/score.h"
+#include "score.h"
 
 #include <stdint.h>
 

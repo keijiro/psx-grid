@@ -9,8 +9,8 @@
 
 #include "value_api.h"
 
-#include "ui/editor.h"
-#include "input/input.h"
+#include "editor.h"
+#include "input.h"
 #include "input/input_queue.h"
 
 #include <assert.h>

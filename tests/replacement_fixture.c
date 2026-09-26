@@ -9,7 +9,7 @@
 
 #include "value_api.h"
 
-#include "audio/audio.h"
+#include "audio/audio_platform.h"
 #include "input/pad.h"
 
 #include <psxapi.h>

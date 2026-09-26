@@ -8,7 +8,7 @@
  */
 
 #include "input/pad.h"
-#include "input/input.h"
+#include "input.h"
 
 #include <psxapi.h>
 #include <psxetc.h>

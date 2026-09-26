@@ -8,10 +8,10 @@
  * boundary before linking.
  */
 
-#include "ui/editor.h"
-#include "input/input.h"
-#include "score/score_format.h"
-#include "storage/storage.h"
+#include "editor.h"
+#include "input.h"
+#include "score_format.h"
+#include "storage.h"
 #include "ui/ui_style.h"
 
 // The Rust codec uses these discriminants as stable wire tags.

@@ -9,7 +9,7 @@
 
 #include "value_api.h"
 
-#include "storage/storage.h"
+#include "storage.h"
 
 #include <psxapi.h>
 #include <psxetc.h>

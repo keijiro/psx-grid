@@ -9,7 +9,7 @@
 #ifndef VALUE_API_H
 #define VALUE_API_H
 
-#include "ui/editor.h"
+#include "editor.h"
 
 static inline TileValue test_score_default(TileKind kind)
 {

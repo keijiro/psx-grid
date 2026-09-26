@@ -1,15 +1,19 @@
 /*
- * render_backend.h - Low-level PlayStation GPU packet interface
+ * render_backend.h - PlayStation video and GPU packet interface
  *
- * Rust supplies clipped primitive geometry between begin and present calls.
- * Calls are serialized on the main thread, and the fixed packet buffer may
- * discard primitives after its capacity is exhausted.
+ * The backend initializes video and accepts clipped primitive geometry from
+ * Rust between begin and present calls. Calls are serialized on the main
+ * thread, and the fixed packet buffer may discard primitives after its
+ * capacity is exhausted.
  */
 
 #ifndef RENDER_BACKEND_H
 #define RENDER_BACKEND_H
 
-#include "ui/render.h"
+/*
+ * Initializes video state, texture data and both command buffers.
+ */
+void render_init(void);
 
 /*
  * Clears the next command buffer before drawing a frame.
