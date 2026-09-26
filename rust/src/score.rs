@@ -522,8 +522,13 @@ fn mark(x: i64, y: i64) -> c_int {
     0
 }
 
-/// Checks geometry after all pool links have been validated or staged.
-pub(crate) fn geometry(score: &Score) -> c_int {
+/// Checks geometry with one lane's position optionally substituted.
+fn geometry_at(
+    score: &Score,
+    moved: usize,
+    moved_x: c_int,
+    moved_y: c_int,
+) -> c_int {
     // SAFETY: Model calls are serialized and own the fixed scratch map.
     unsafe {
         core::ptr::write_bytes(
@@ -537,12 +542,17 @@ pub(crate) fn geometry(score: &Score) -> c_int {
             continue;
         }
         let lane = &score.lanes[i];
+        let (lane_x, lane_y) = if i == moved {
+            (moved_x, moved_y)
+        } else {
+            (lane.x, lane.y)
+        };
         if !(1..=STEPS as c_int).contains(&lane.length) {
             return SCORE_BOUNDS;
         }
         for step in -1..=lane.length {
-            let x = i64::from(lane.x) + i64::from(step) + 1;
-            let result = mark(x, i64::from(lane.y));
+            let x = i64::from(lane_x) + i64::from(step) + 1;
+            let result = mark(x, i64::from(lane_y));
             if result != 0 {
                 return result;
             }
@@ -553,7 +563,7 @@ pub(crate) fn geometry(score: &Score) -> c_int {
             let mut tile = lane.tiles[step as usize];
             while tile != 0 {
                 if depth != 0 {
-                    let result = mark(x, i64::from(lane.y) + depth);
+                    let result = mark(x, i64::from(lane_y) + depth);
                     if result != 0 {
                         return result;
                     }
@@ -583,6 +593,21 @@ pub(crate) fn geometry(score: &Score) -> c_int {
         }
     }
     0
+}
+
+/// Checks the current score's rendered geometry.
+pub(crate) fn geometry(score: &Score) -> c_int {
+    geometry_at(score, LANES, 0, 0)
+}
+
+/// Checks a lane translation without copying the score for a drag preview.
+pub(crate) fn geometry_lane_move(
+    score: &Score,
+    lane: usize,
+    x: c_int,
+    y: c_int,
+) -> c_int {
+    geometry_at(score, lane, x, y)
 }
 
 /// Validates pool links before traversing geometry or branch ancestry.

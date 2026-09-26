@@ -12,8 +12,8 @@ use core::mem::MaybeUninit;
 use core::ptr;
 
 use crate::score::{
-    at, default_value, geometry, owner, resolve, valid, value_valid, Cell,
-    Score, Tile, TileValue, LANES, STEPS, TILE_CAPACITY,
+    at, default_value, geometry, geometry_lane_move, owner, resolve, valid,
+    value_valid, Cell, Score, Tile, TileValue, LANES, STEPS, TILE_CAPACITY,
 };
 use crate::score_format::measure;
 
@@ -47,6 +47,48 @@ const _: () = assert!(core::mem::size_of::<MovePlan>() == 20);
 
 static mut SCRATCH: MaybeUninit<Score> = MaybeUninit::uninit();
 
+const _: () = assert!(core::mem::size_of::<Score>() % 4 == 0);
+const _: () = assert!(core::mem::align_of::<Score>() >= 4);
+
+/// Copies the complete score with aligned word transfers on the console.
+///
+/// The linked `memcpy` copies one byte per iteration on MIPS. Volatile word
+/// accesses keep LLVM from replacing this loop with that slower routine.
+/// `MaybeUninit` permits copying padding bytes without reading them as values.
+///
+/// # Safety
+/// `source` and `destination` must be aligned, nonoverlapping score objects.
+/// The source must contain a valid `Score`.
+unsafe fn copy_score(source: *const Score, destination: *mut Score) {
+    let source = source.cast::<MaybeUninit<u32>>();
+    let destination = destination.cast::<MaybeUninit<u32>>();
+    let words = core::mem::size_of::<Score>() / 4;
+    let blocks = words / 4;
+    for block in 0..blocks {
+        let index = block * 4;
+        // SAFETY: Both objects are aligned and these four words lie within
+        // their complete representations, including any padding.
+        let a = unsafe { ptr::read_volatile(source.add(index)) };
+        let b = unsafe { ptr::read_volatile(source.add(index + 1)) };
+        let c = unsafe { ptr::read_volatile(source.add(index + 2)) };
+        let d = unsafe { ptr::read_volatile(source.add(index + 3)) };
+        // SAFETY: The destination is distinct and writable at these indices.
+        unsafe {
+            ptr::write_volatile(destination.add(index), a);
+            ptr::write_volatile(destination.add(index + 1), b);
+            ptr::write_volatile(destination.add(index + 2), c);
+            ptr::write_volatile(destination.add(index + 3), d);
+        }
+    }
+    for index in blocks * 4..words {
+        // SAFETY: Both objects are aligned and this trailing word lies within
+        // their complete representations, including any padding.
+        let word = unsafe { ptr::read_volatile(source.add(index)) };
+        // SAFETY: The destination is distinct and writable at this index.
+        unsafe { ptr::write_volatile(destination.add(index), word) };
+    }
+}
+
 /// Borrows the one staged score for a serialized model operation.
 ///
 /// # Safety
@@ -55,7 +97,7 @@ static mut SCRATCH: MaybeUninit<Score> = MaybeUninit::uninit();
 unsafe fn stage(score: &Score) -> &'static mut Score {
     let scratch = ptr::addr_of_mut!(SCRATCH).cast::<Score>();
     // SAFETY: The main-thread model call owns scratch exclusively.
-    unsafe { ptr::copy_nonoverlapping(score, scratch, 1) };
+    unsafe { copy_score(score, scratch) };
     // SAFETY: The copy initialized the complete scratch score.
     unsafe { &mut *scratch }
 }
@@ -81,7 +123,7 @@ unsafe fn commit(score: &mut Score) -> c_int {
     if result == SCORE_OK {
         staged.revision = score.revision.wrapping_add(1);
         // SAFETY: Caller storage and shared scratch are distinct.
-        unsafe { ptr::copy_nonoverlapping(staged, score, 1) };
+        unsafe { copy_score(staged, score) };
     }
     result
 }
@@ -545,7 +587,7 @@ pub unsafe extern "C" fn score_paste(
     unsafe { commit(score) }
 }
 
-/// Stages a lane or tile suffix movement for preview and application.
+/// Previews a lane translation or stages a tile suffix movement.
 fn move_staged(
     score: &Score,
     sx: c_int,
@@ -554,9 +596,6 @@ fn move_staged(
     y: c_int,
 ) -> c_int {
     let from_cell = at(score, sx, sy);
-    let to_cell = resolve(score, x, y);
-    // SAFETY: Public model calls are serialized; source and scratch differ.
-    let staged = unsafe { stage(score) };
     if from_cell.kind != 1 && from_cell.kind != 3 {
         return SCORE_INVALID;
     }
@@ -564,13 +603,16 @@ fn move_staged(
         return SCORE_OK;
     }
     if from_cell.kind == 1 {
-        staged.lanes[from_cell.lane as usize].x = x;
-        staged.lanes[from_cell.lane as usize].y = y;
-        return admission(staged);
+        // A lane translation changes no links or encoded byte count, so
+        // geometry is the only admission check needed for its preview.
+        return geometry_lane_move(score, from_cell.lane as usize, x, y);
     }
+    let to_cell = resolve(score, x, y);
     if to_cell.kind != 3 && to_cell.kind != 2 && to_cell.kind != 4 {
         return SCORE_INVALID;
     }
+    // SAFETY: Public model calls are serialized; source and scratch differ.
+    let staged = unsafe { stage(score) };
     let from = link_at(staged, from_cell);
     let mut tail = from_cell.tile;
     let same = from_cell.lane == to_cell.lane && from_cell.step == to_cell.step;
@@ -642,6 +684,13 @@ pub unsafe extern "C" fn score_apply_move(
     let result = move_staged(score, plan.sx, plan.sy, plan.x, plan.y);
     if result != SCORE_OK || plan.sx == plan.x && plan.sy == plan.y {
         return result;
+    }
+    let source = at(score, plan.sx, plan.sy);
+    if source.kind == 1 {
+        // SAFETY: This serialized edit owns scratch, distinct from the score.
+        let staged = unsafe { stage(score) };
+        staged.lanes[source.lane as usize].x = plan.x;
+        staged.lanes[source.lane as usize].y = plan.y;
     }
     // SAFETY: This edit owns a complete admitted staged score.
     unsafe { commit(score) }
