@@ -26,7 +26,8 @@ Coding and comments
 
 Write documentation and code comments in English.
 
-For C code, use the c-coding-style skill.
+For C code, use the c-coding-style skill. For Rust code, use the rust-coding-style
+skill.
 
 Follow the surrounding code. Preserve its conventions, naming, structure, and level of
 abstraction unless the change deliberately improves them.
