@@ -240,7 +240,9 @@ static void synthesis_checks(void)
             test_score_place_value(&editor.score, 1, i, note);
         }
         audio_platform_update(&editor.score, 1, 1);
-        frames(12);
+        // Sample the first chord before another score step can steal it on
+        // slower Debug builds. Two VSyncs also fill the decoded SPU buffer.
+        frames(2);
         SpuSetTransferStartAddr(0x800);
         SpuRead(capture, sizeof(capture));
         SpuIsTransferCompleted(SPU_TRANSFER_WAIT);
@@ -287,12 +289,18 @@ static void synthesis_checks(void)
         {
             2, 25, 50, 100, 150, 199, 250
         };
-        // Formatting diagnostics on the main thread takes long enough to miss
-        // envelope phases in Debug. Buffer readback until sampling ends.
+        // Wait for the observed key-on, since Redux may defer playback beyond
+        // the score event. Buffer readback until sampling ends so formatting
+        // does not consume the short sweep window.
         unsigned samples[7][5];
+        while (audio_control_time == audio_modulation_start ||
+               audio_note_count < SEQUENCER_VOICES)
+        {
+        }
         for (int j = 0; j < 7; j++)
         {
-            while (audio_platform_time() - audio_started < audio_ms(times[j]))
+            while (audio_platform_time() - audio_modulation_start <
+                   audio_ms(times[j]))
             {
             }
             EnterCriticalSection();

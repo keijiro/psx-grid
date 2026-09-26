@@ -98,6 +98,15 @@ def array(name, typ, values):
     return f'static const {typ} {name}[] = {{\n'+''.join('    '+','.join(str(x) for x in values[i:i+12])+',\n' for i in range(0,len(values),12))+'};\n'
 
 
+def rust_array(name, typ, values):
+    descriptions = {
+        'PITCH': 'Q8 SPU pitch values for ten banks and 109 semitones.',
+        'SNAP': 'Q16 decay sampled at 1/1024 intervals.',
+        'BANKS': 'Root bank for each note and signed sweep from -24 to 24.',
+    }
+    return f'/// {descriptions[name]}\n#[rustfmt::skip]\npub(super) static {name}: [{typ}; {len(values)}] = [\n'+''.join('    '+', '.join(str(x) for x in values[i:i+6])+',\n' for i in range(0,len(values),6))+'];\n'
+
+
 def generate(path):
     data, roots, report = bytearray(), [], []
     peak = 0
@@ -146,9 +155,15 @@ def generate(path):
                     array('wave_offsets','uint16_t',roots))
     pitches = [round(pitch_value(bank, note)*256) for bank in range(10) for note in range(109)]
     snap = [round(65536*(math.exp(-8*i/1024)-math.exp(-8))/(1-math.exp(-8))) for i in range(1025)]
+    banks = [select_bank(note, sweep) for note in range(109) for sweep in range(-24,25)]
     path.with_name('audio_tables.h').write_text(prefix+array('audio_pitch','uint32_t',pitches)+
                     array('audio_snap','uint32_t',snap)+
-                    array('audio_banks','uint8_t',[select_bank(note, sweep) for note in range(109) for sweep in range(-24,25)]))
+                    array('audio_banks','uint8_t',banks))
+    rust_path = Path(__file__).resolve().parents[1] / 'rust/src/audio_tables.rs'
+    rust_path.write_text('//! Fixed-point control tables generated from the shared audio assets.\n' +
+                         rust_array('PITCH', 'u32', pitches) +
+                         rust_array('SNAP', 'u32', snap) +
+                         rust_array('BANKS', 'u8', banks))
     path.with_suffix('.txt').write_text('\n'.join(report)+'\n')
 
 

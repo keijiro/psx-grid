@@ -21,7 +21,11 @@ data.mkdir(exist_ok=True)
 emulator = os.environ.get('PCSX_REDUX', str(root / '.local/PCSX-Redux.app/Contents/MacOS/PCSX-Redux'))
 bios = os.environ.get('PCSX_REDUX_BIOS', str(root / '.local/PCSX-Redux.app/Contents/Resources/share/pcsx-redux/resources/openbios.bin'))
 command = [emulator, '-portable', str(data), '-no-ui', '-no-gui-log', '-testmode', '-stdout', '-interpreter', '-bios', bios, '-exe', str(exe), '-run']
-result = subprocess.run(command, cwd=root, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=120)
+# Dense Debug playback can take longer in the interpreter after Rust audio
+# controls are linked, even when the emulated deadlines remain bounded.
+timeout = 600 if configuration == "debug" else 120
+result = subprocess.run(command, cwd=root, stdout=subprocess.PIPE,
+                        stderr=subprocess.STDOUT, timeout=timeout)
 log = result.stdout.decode(errors='replace')
 (output / f'audio-{configuration}-emulator.log').write_text(log)
 for line in log.splitlines():

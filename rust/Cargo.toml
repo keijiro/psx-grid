@@ -8,8 +8,8 @@ crate-type = ["staticlib"]
 
 [profile.dev]
 panic = "abort"
-# Unoptimized input processing overflows the pad queue under fixture load.
-opt-level = 1
+# Voice service must meet the 1 ms dispatch deadline in Debug fixtures.
+opt-level = 3
 
 [profile.release]
 panic = "abort"

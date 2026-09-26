@@ -1,10 +1,12 @@
-//! Portable input logic for the PlayStation application.
+//! Portable application logic for the PlayStation front end.
 //!
 //! The C interface keeps SDK and hardware access in the platform layer.
 //! State is owned by the caller and uses fixed storage without allocation.
 
 #![no_std]
 
+mod audio;
+mod audio_tables;
 mod editor;
 mod input;
 mod score;

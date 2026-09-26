@@ -28,11 +28,11 @@ ${CC:-cc} -std=c11 -Wall -Wextra -Werror -g -fsanitize=address,undefined \
   -o build/tests/render_test
 build/tests/render_test
 ${CC:-cc} -std=c11 -Wall -Wextra -Werror -g -fsanitize=address,undefined \
-  -Isrc -Ibuild/generated tests/audio_test.c src/abi_checks.c src/input/input_queue.c src/ui/ui_format.c src/audio/sequencer.c src/audio/audio.c "$RUST_LIBRARY" \
+  -Isrc -Ibuild/generated tests/audio_test.c src/abi_checks.c src/input/input_queue.c src/ui/ui_format.c src/audio/sequencer.c src/audio/audio_abi.c "$RUST_LIBRARY" \
   -o build/tests/audio_test
 build/tests/audio_test
 ${CC:-cc} -std=c11 -Wall -Wextra -Werror -g -fsanitize=address,undefined \
-  -Isrc -Ibuild/generated tests/synthesis_test.c src/abi_checks.c src/audio/sequencer.c src/audio/audio.c "$RUST_LIBRARY" \
+  -Isrc -Ibuild/generated tests/synthesis_test.c src/abi_checks.c src/audio/sequencer.c src/audio/audio_abi.c "$RUST_LIBRARY" \
   -lm -o build/tests/synthesis_test
 build/tests/synthesis_test
 python3 tests/audio_assets_test.py

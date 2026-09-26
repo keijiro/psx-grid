@@ -1,5 +1,35 @@
 # Validation Record
 
+## Rust voice synthesis verification (2026-09-26)
+
+The logical voice allocator, envelopes, mix, pitch sweep, and reverb mask now
+run in Rust. A C adapter retains the aggregate-value callback boundary with
+the C sequencer and SPU driver. The host suite passes, including all-note
+sweep and mix trajectories, allocation, stale gates, and delayed key-on.
+
+PCSX-Redux audio fixtures pass in Debug and Release. The waveform fixture
+samples the first chord before another score step can reuse its voices; sweep
+readback is scheduled from observed key-on. The bounded cases have no skipped
+notes or overloads and remain within the 4,233-tick (1 ms) dispatch deadline:
+
+| Configuration | Service cost peak | Service interval peak | Dispatch peak |
+| --- | ---: | ---: | ---: |
+| Debug | 3,622 | 3,647 | 4,005 |
+| Release | 3,363 | 3,383 | 3,472 |
+
+The intentional 4,096-tile overload exceeds the normal deadline but stays
+below the 65,536-tick clock-wrap limit: cost/interval peaks are 6,695/6,729
+in Debug and 6,951/6,998 in Release. It reports skipped notes and overloads
+as designed. The isolated storage fixture's twelve-note playback path records
+SDK interrupt-stack peaks of 320/4,096 bytes in Debug and 336/4,096 in Release;
+main-stack peaks are 4,584 and 4,572 bytes respectively. These are observed
+emulator paths, not a hardware or all-path stack proof.
+
+Build, audio, and stack logs are under `build/validation/`, including
+`final3-{debug,release}-build.log`, `audio-{debug,release}-emulator.log`,
+`final3-audio-{debug,release}-runner.log`, and
+`storage-{debug,release}-normal-{0,1}.log`.
+
 ## Menu redesign verification (2026-09-24)
 
 The menu redesign passes `./scripts/test.sh` with ASan and

@@ -60,16 +60,18 @@ and `abi_checks.c` remain at the root because they span those groups.
 - `src/audio/sequencer.*`: SDK-independent runners, exact absolute deadlines,
   live runner reconciliation, ordered held locks, generation-tagged gate-offs,
   and bounded catch-up.
-- `src/audio/audio.*`: SDK-independent 12-note pair allocation,
+- `rust/src/audio.rs`: SDK-independent 12-note pair allocation,
   amplitude/mix envelopes, and fixed-point pitch sweep with an injected
   register driver for host tests.
+- `src/audio/audio.h`, `src/audio/audio_abi.c`: Shared voice layout and
+  aggregate-value callback adapters for the C sequencer and SPU driver.
 - `src/audio/audio_psx.c`: Double-buffered score publication, SPU upload/registers,
   timer interrupts, lifecycle, and debugger-visible measurements.
 - `scripts/generate-audio.py`: Deterministic five-wave ADPCM banks
   (`generated/wave_samples.h`), fixed-point control tables
-  (`generated/audio_tables.h`), and asset/trajectory report
-  (`generated/wave_samples.txt`). Both headers share one build rule and are
-  used by the editor and fixture executables.
+  (`generated/audio_tables.h` and `rust/src/audio_tables.rs`), and
+  asset/trajectory report (`generated/wave_samples.txt`). The C headers
+  and Rust tables come from the same generator.
 - `rust/src/input.rs`: Ordered input history, button presses, repeats,
   disconnection, and reconnection in a `no_std` static library.
 - `src/input/input.h`: Shared input-history layout and Rust function declarations.
@@ -97,10 +99,10 @@ The Rust crate targets `mipsel-sony-psx` and builds `core` from pinned
 static library into the game and fixtures.
 The editor, model, file codec, storage coordinator, and input history now run
 in Rust. C retains SDK and hardware access and display formatting. Shared
-aggregates cross the C/Rust boundary through pointers. Sequencer and voice
-synthesis still run in the timer callback as optimized C; moving either
-requires checking the 1 ms
-dispatch deadline and interrupt stack use on the emulator again.
+aggregates cross the C/Rust boundary through pointers. The sequencer still
+runs in the timer callback as optimized C. Voice synthesis runs there in Rust
+through C aggregate-value ABI adapters. Changes to either path require
+checking the 1 ms dispatch deadline and interrupt stack use on the emulator.
 `scripts/elf2x-rust.py` omits Rust's GNU_STACK metadata from the temporary ELF
 passed to the SDK converter. The linked ELF itself is unchanged. Host tests
 link the same Rust sources as a native static library.
