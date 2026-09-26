@@ -41,13 +41,12 @@ enum
  */
 static volatile int replacement_state;
 static int replacement_snapshot;
-static Audio audio;
+static Audio* audio;
 static AudioTime clock_ticks;
 static AudioTime service_previous;
 static uint16_t last_counter;
 static volatile int enabled;
 static volatile uint32_t published_revision;
-static uint32_t late_starts;
 volatile uint32_t audio_service_peak;
 volatile uint32_t audio_interval_peak;
 volatile uint32_t audio_services;
@@ -153,13 +152,14 @@ static int cached_pitch[SEQUENCER_VOICES];
  * Prepares both hardware halves from the same pitch bank while software
  * envelopes retain the score's millisecond attack and release settings.
  */
-static void start_voice(void* ctx, int slot, int bank, SoundSettings sound)
+static void start_voice(void* ctx, int slot, int bank,
+                        const SoundSettings* sound)
 {
     (void)ctx;
     for (int half = 0; half < 2; half++)
     {
         int voice = slot * 2 + half;
-        int wave = half ? sound.wave_b : sound.wave_a;
+        int wave = half ? sound->wave_b : sound->wave_a;
         unsigned address =
             WAVE_SPU_ADDRESS + wave_offsets[bank * WAVE_COUNT + wave];
         SpuSetVoiceStartAddr(voice, address);
@@ -215,34 +215,19 @@ static uint32_t hardware_mask(uint32_t logical)
 }
 
 /*
- * Commits logical key masks as paired hardware channels and rejects starts
- * that missed the one-millisecond dispatch deadline.
+ * Commits logical key masks after Rust rejects overdue starts. Rust supplies
+ * the wet mask so this callback does not reenter the mutable synthesizer.
  */
-static void flush(void* ctx, uint32_t starts, uint32_t stops)
+static void flush(void* ctx, uint32_t starts, uint32_t stops, uint32_t sends,
+                  uint32_t dispatch_peak)
 {
     (void)ctx;
     if (!(starts | stops)) return;
     AudioTime now = read_clock();
-    // A dense slice can become stale while this callback runs. Recheck at
-    // dispatch, not only at entry, so overload cannot turn into a late burst.
-    for (int i = 0; i < SEQUENCER_VOICES; i++)
-    {
-        if ((starts & (1u << i)) &&
-            now - audio.voices[i].start > SEQUENCER_HZ / 1000)
-        {
-            starts &= ~(1u << i);
-            stops |= 1u << i;
-            audio.voices[i].active = 0;
-            audio.idle_mask |= 1u << i;
-            volume(NULL, i, 0, 0);
-            late_starts++;
-        }
-    }
     // Flush is the sole runtime send-mask writer. Captured settings survive
     // holds and release ramps; rejected starts and retired pairs contribute no
     // bits. Recompute before key-on so reuse replaces both halves together. The
     // main thread changes only the shared network and its wet return.
-    uint32_t sends = audio_reverb_mask(&audio);
     SPU_REVERB_ON1 = sends & 0xffff;
     SPU_REVERB_ON2 = sends >> 16;
     if (stops) SpuSetKey(0, hardware_mask(stops));
@@ -253,8 +238,10 @@ static void flush(void* ctx, uint32_t starts, uint32_t stops)
         {
             if (starts & (1u << i))
             {
-                uint32_t late = (uint32_t)(now - audio.voices[i].start);
-                if (late > audio_dispatch_peak) audio_dispatch_peak = late;
+                if (dispatch_peak > audio_dispatch_peak)
+                {
+                    audio_dispatch_peak = dispatch_peak;
+                }
                 if (!audio_note_count) audio_first_note = (uint32_t)now;
                 audio_last_note = (uint32_t)now;
                 audio_note_count++;
@@ -273,6 +260,12 @@ static AudioTime read_clock(void)
     clock_ticks += (uint16_t)(counter - last_counter);
     last_counter = counter;
     return clock_ticks;
+}
+
+static AudioTime audio_clock(void* context)
+{
+    (void)context;
+    return read_clock();
 }
 
 /*
@@ -312,17 +305,16 @@ static void service(void)
     }
     else
     {
-        NoteSink sink = audio_sink(&audio);
+        NoteSink sink = audio_sink(audio);
         sink.advance(sink.context, now);
     }
     // Register fixtures use the completed control timestamp, since reading the
     // main-thread clock before readback can straddle another service.
     audio_control_time = (uint32_t)now;
     audio_modulation_start =
-        (uint32_t)(audio.voices[0].waiting ? now
-                                           : audio.voices[0].modulation_start);
-    audio_voice_steals = audio.steals;
-    audio_skipped_notes = seq->skipped + late_starts;
+        (uint32_t)audio_voice_modulation_start(audio, now);
+    audio_voice_steals = audio_steals(audio);
+    audio_skipped_notes = seq->skipped + audio_late_starts(audio);
     audio_overloads = seq->overloads;
     uint32_t elapsed = (uint32_t)(read_clock() - now);
     if (elapsed > audio_service_peak) audio_service_peak = elapsed;
@@ -347,8 +339,8 @@ void audio_platform_init(void)
         cached_pitch[i] = -1;
         volume(NULL, i, 0, 0);
     }
-    audio_init(&audio,
-               (AudioDriver){NULL, start_voice, volume, pitch, flush, ready});
+    audio = audio_init(NULL, start_voice, volume, pitch, flush, ready,
+                       audio_clock);
     // Timer 2 free-runs at CLK/8 (4,233,600 Hz). Timer 0 requests service every
     // 8,467 CPU clocks, approximately 0.25 ms, independently of VSync. Retain
     // the cadence used by the original sine backend; paired control cost and
@@ -389,8 +381,8 @@ void audio_platform_card_stop(void)
     SPU_REVERB_ON1 = SPU_REVERB_ON2 = 0;
     SPU_REVERB_VOL_L = SPU_REVERB_VOL_R = 0;
     SPU_CTRL &= ~0x80;
-    audio_init(&audio,
-               (AudioDriver){NULL, start_voice, volume, pitch, flush, ready});
+    audio = audio_init(NULL, start_voice, volume, pitch, flush, ready,
+                       audio_clock);
     for (int i = 0; i < AUDIO_HARDWARE_VOICES; i++) cached_volume[i] = -1;
     TIMER_CTRL(0) = 0;
     IRQ_MASK &= ~(1u << IRQ_TIMER0);
@@ -435,23 +427,19 @@ void audio_platform_update(const Score* score, int connected, int start)
         // The timer remains live while the immutable snapshot is prepared.
         // Nothing in the interrupt can observe this copy until publication.
         snapshots[0] = *score;
-        sequencer_start(seq, &snapshots[0], audio_sink(&audio), 0);
+        sequencer_start(seq, &snapshots[0], audio_sink(audio), 0);
         EnterCriticalSection();
         // Restart discards release tails. Zero their registers before reuse;
         // the regular stop path, in contrast, always completes its 5 ms ramp.
         for (int i = 0; i < SEQUENCER_VOICES; i++)
         {
-            audio.voices[i].active = 0;
             volume(NULL, i, 0, 0);
         }
         SPU_KEY_OFF1 = 0xffff;
         SPU_KEY_OFF2 = 0xff;
         // Let interrupt flush retire every old send, including unused pairs.
         // New starts remove their own stop bits through the normal allocator.
-        audio.starts = 0;
-        audio.stops = AUDIO_IDLE_MASK;
-        audio.idle_mask = AUDIO_IDLE_MASK;
-        audio.allocation_time = UINT64_MAX;
+        audio_restart(audio);
         // Begin the timeline after restart preparation. Charging register
         // cleanup to the first dispatch can drop an otherwise timely chord when
         // all 16 runners begin together.
@@ -459,7 +447,7 @@ void audio_platform_update(const Score* score, int connected, int start)
         for (int i = 0; i < seq->count; i++) seq->runners[i].next = now;
         audio_started = (uint32_t)now;
         audio_dispatch_peak = audio_note_count = audio_first_note =
-            audio_last_note = late_starts = 0;
+            audio_last_note = 0;
         active_snapshot = 0;
         pending_snapshot = -1;
         published_revision = score->revision;
@@ -513,7 +501,7 @@ int audio_platform_replace(const Score* incoming)
     snapshots[replacement_snapshot] = *incoming;
     Sequencer* prepared = seq == &states[0] ? &states[1] : &states[0];
     sequencer_start(prepared, &snapshots[replacement_snapshot],
-                    audio_sink(&audio), 0);
+                    audio_sink(audio), 0);
     EnterCriticalSection();
     if (enabled)
     {

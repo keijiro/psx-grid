@@ -1,13 +1,14 @@
 //! Allocates logical SPU voice pairs and evaluates their control envelopes.
 //!
-//! The caller owns fixed voice storage and supplies register callbacks. The
-//! timer service serializes every callback without allocation.
+//! Rust owns one fixed voice state and the caller supplies register callbacks.
+//! The timer service serializes every callback without allocation.
 
 // Implementation notes:
-// Keep divisions in 32 bits on MIPS. The C ABI adapter owns aggregate values
-// passed to or returned from C callbacks.
+// Keep divisions in 32 bits on MIPS. The C note-sink adapter owns its
+// aggregate input; driver callbacks use pointer and scalar arguments.
 
 use core::ffi::{c_int, c_void};
+use core::mem::MaybeUninit;
 
 use crate::audio_tables::{BANKS, PITCH, SNAP};
 use crate::score::SoundSettings;
@@ -17,14 +18,15 @@ const IDLE_MASK: u32 = (1 << VOICES) - 1;
 const LEVEL: u32 = 0x3fff;
 const HZ: u32 = 4_233_600;
 
-type Start = unsafe extern "C" fn(*mut c_void, c_int, c_int, SoundSettings);
+type Start =
+    unsafe extern "C" fn(*mut c_void, c_int, c_int, *const SoundSettings);
 type Volume = unsafe extern "C" fn(*mut c_void, c_int, c_int, c_int);
 type Pitch = unsafe extern "C" fn(*mut c_void, c_int, c_int);
-type Flush = unsafe extern "C" fn(*mut c_void, u32, u32);
+type Flush = unsafe extern "C" fn(*mut c_void, u32, u32, u32, u32);
 type Ready = unsafe extern "C" fn(*mut c_void, c_int) -> c_int;
+type Clock = unsafe extern "C" fn(*mut c_void) -> u64;
 
-/// C register callbacks mirrored for the fixed voice driver.
-#[repr(C)]
+/// Register callbacks installed by the C platform or host test.
 pub(crate) struct AudioDriver {
     context: *mut c_void,
     start: Option<Start>,
@@ -32,9 +34,9 @@ pub(crate) struct AudioDriver {
     pitch: Option<Pitch>,
     flush: Option<Flush>,
     ready: Option<Ready>,
+    clock: Option<Clock>,
 }
 
-#[repr(C)]
 struct AudioVoice {
     start: u64,
     release_at: u64,
@@ -52,7 +54,6 @@ struct AudioVoice {
     base_pitch: c_int,
 }
 
-#[repr(C)]
 pub(crate) struct Audio {
     voices: [AudioVoice; VOICES],
     driver: AudioDriver,
@@ -61,18 +62,25 @@ pub(crate) struct Audio {
     steals: u32,
     idle_mask: u32,
     allocation_time: u64,
+    late_starts: u32,
 }
 
-const _: () = assert!(core::mem::size_of::<AudioVoice>() == 104);
-const _: () = assert!(core::mem::offset_of!(Audio, driver) == 1248);
+// One instance suffices for the console and for each isolated test process.
+static mut AUDIO: MaybeUninit<Audio> = MaybeUninit::uninit();
 
-unsafe extern "C" {
-    fn audio_driver_start(
-        driver: *const AudioDriver,
-        slot: c_int,
-        bank: c_int,
-        sound: *const SoundSettings,
-    );
+/// Copied values used by host checks and console timing diagnostics.
+#[repr(C)]
+pub struct AudioVoiceView {
+    start: u64,
+    end: u64,
+    modulation_start: u64,
+    sound: SoundSettings,
+    active: c_int,
+    releasing: c_int,
+    waiting: c_int,
+    level: c_int,
+    pitch: c_int,
+    base_pitch: c_int,
 }
 
 /// Converts a supported millisecond duration to sequencer ticks.
@@ -189,23 +197,141 @@ fn mix_at(v: &AudioVoice, now: u64) -> c_int {
     0
 }
 
-/// Clears caller-owned voice state and installs its register driver.
+/// Initializes the one fixed voice state and installs its register driver.
+///
+/// # Safety
+/// Required callbacks must be valid and initialization must exclude service.
 #[no_mangle]
-pub unsafe extern "C" fn rust_audio_init(
-    a: *mut Audio,
-    driver: *const AudioDriver,
-) {
-    // SAFETY: C supplies a valid exclusive Audio and a live driver pointer.
+pub unsafe extern "C" fn audio_init(
+    context: *mut c_void,
+    start: Option<Start>,
+    volume: Option<Volume>,
+    pitch: Option<Pitch>,
+    flush: Option<Flush>,
+    ready: Option<Ready>,
+    clock: Option<Clock>,
+) -> *mut Audio {
+    // SAFETY: Service is excluded and the fixed allocation is aligned.
     unsafe {
+        let a = core::ptr::addr_of_mut!(AUDIO).cast::<Audio>();
         core::ptr::write_bytes(a, 0, 1);
-        core::ptr::copy_nonoverlapping(
-            driver.cast::<AudioDriver>(),
-            &mut (*a).driver,
-            1,
-        );
+        (*a).driver = AudioDriver {
+            context,
+            start,
+            volume,
+            pitch,
+            flush,
+            ready,
+            clock,
+        };
         (*a).idle_mask = IDLE_MASK;
         (*a).allocation_time = u64::MAX;
+        a
     }
+}
+
+/// Returns the fixed synthesizer's storage size for memory diagnostics.
+#[no_mangle]
+pub extern "C" fn audio_storage_size() -> usize {
+    core::mem::size_of::<Audio>()
+}
+
+/// Discards release tails and schedules a stop for every logical slot.
+///
+/// # Safety
+/// `a` must be the initialized instance with service excluded.
+#[no_mangle]
+pub unsafe extern "C" fn audio_restart(a: *mut Audio) {
+    // SAFETY: The caller excludes timer service during restart.
+    let a = unsafe { &mut *a };
+    for voice in &mut a.voices {
+        voice.active = 0;
+    }
+    a.starts = 0;
+    a.stops = IDLE_MASK;
+    a.idle_mask = IDLE_MASK;
+    a.allocation_time = u64::MAX;
+    a.late_starts = 0;
+}
+
+/// Copies one logical voice's current state into `view`.
+///
+/// # Safety
+/// `a` and `view` must be valid and `slot` must identify a logical voice.
+#[no_mangle]
+pub unsafe extern "C" fn audio_voice_view(
+    a: *const Audio,
+    slot: c_int,
+    view: *mut AudioVoiceView,
+) {
+    // SAFETY: The caller supplies valid pointers and an in-range slot.
+    let v = unsafe { &(*a).voices[slot as usize] };
+    // SAFETY: The output pointer is writable and does not overlap `a`.
+    unsafe {
+        core::ptr::write(
+            view,
+            AudioVoiceView {
+                start: v.start,
+                end: v.end,
+                modulation_start: v.modulation_start,
+                sound: v.sound,
+                active: v.active,
+                releasing: v.releasing,
+                waiting: v.waiting,
+                level: v.level,
+                pitch: v.pitch,
+                base_pitch: v.base_pitch,
+            },
+        );
+    }
+}
+
+/// Returns the effective start of the first voice's modulation clock.
+///
+/// # Safety
+/// `a` must point to the live instance outside mutable service.
+#[no_mangle]
+pub unsafe extern "C" fn audio_voice_modulation_start(
+    a: *const Audio,
+    now: u64,
+) -> u64 {
+    // SAFETY: The caller supplies a live instance after service completes.
+    let voice = unsafe { &(*a).voices[0] };
+    if voice.waiting != 0 {
+        now
+    } else {
+        voice.modulation_start
+    }
+}
+
+/// Returns the number of voice steals since initialization.
+///
+/// # Safety
+/// `a` must point to the live instance.
+#[no_mangle]
+pub unsafe extern "C" fn audio_steals(a: *const Audio) -> u32 {
+    // SAFETY: The caller supplies the live instance.
+    unsafe { (*a).steals }
+}
+
+/// Returns the number of starts rejected after the dispatch deadline.
+///
+/// # Safety
+/// `a` must point to the live instance.
+#[no_mangle]
+pub unsafe extern "C" fn audio_late_starts(a: *const Audio) -> u32 {
+    // SAFETY: The caller supplies the live instance.
+    unsafe { (*a).late_starts }
+}
+
+/// Returns the free-slot mask for diagnostics.
+///
+/// # Safety
+/// `a` must point to the live instance.
+#[no_mangle]
+pub unsafe extern "C" fn audio_idle_mask(a: *const Audio) -> u32 {
+    // SAFETY: The caller supplies the live instance.
+    unsafe { (*a).idle_mask }
 }
 
 /// Advances every active pair and commits queued key changes.
@@ -234,9 +360,14 @@ pub unsafe extern "C" fn rust_audio_advance(ctx: *mut c_void, now: u64) {
         }
         v.level = level_at(v, now);
         if a.starts & (1 << i) != 0 {
-            // SAFETY: C owns aggregate callback ABI and sound is live here.
+            // SAFETY: C receives a live sound pointer for this call.
             unsafe {
-                audio_driver_start(&a.driver, i as c_int, v.bank, &v.sound)
+                a.driver.start.unwrap_unchecked()(
+                    a.driver.context,
+                    i as c_int,
+                    v.bank,
+                    &v.sound,
+                )
             };
         }
         let b = v.level * mix_at(v, now) / LEVEL as c_int;
@@ -261,9 +392,55 @@ pub unsafe extern "C" fn rust_audio_advance(ctx: *mut c_void, now: u64) {
             a.starts &= !(1 << i);
         }
     }
-    // SAFETY: Flush is required by the C interface and serializes key writes.
+    // Query the hardware clock immediately before dispatch. The C callback
+    // never reenters this state while Rust has exclusive access to it.
+    let mut dispatch_peak = 0;
+    if a.starts != 0 {
+        if let Some(clock) = a.driver.clock {
+            // SAFETY: The driver context and clock callback remain live.
+            let dispatch = unsafe { clock(a.driver.context) };
+            for i in 0..VOICES {
+                if a.starts & (1 << i) == 0 {
+                    continue;
+                }
+                let age = dispatch.wrapping_sub(a.voices[i].start);
+                if age > HZ as u64 / 1000 {
+                    a.starts &= !(1 << i);
+                    a.stops |= 1 << i;
+                    a.voices[i].active = 0;
+                    a.idle_mask |= 1 << i;
+                    a.late_starts += 1;
+                    // SAFETY: The driver callback remains live during service.
+                    unsafe {
+                        a.driver.volume.unwrap_unchecked()(
+                            a.driver.context,
+                            i as c_int,
+                            0,
+                            0,
+                        );
+                    }
+                } else {
+                    dispatch_peak = dispatch_peak.max(age as u32);
+                }
+            }
+        }
+    }
+    // The register callback ignores an empty key change. Keep the wet-mask
+    // scan out of the common per-tick path when no send registers can change.
+    let wet = if (a.starts | a.stops) != 0 {
+        reverb_mask(a)
+    } else {
+        0
+    };
+    // SAFETY: Flush is required and performs hardware writes only.
     unsafe {
-        a.driver.flush.unwrap_unchecked()(a.driver.context, a.starts, a.stops)
+        a.driver.flush.unwrap_unchecked()(
+            a.driver.context,
+            a.starts,
+            a.stops,
+            wet,
+            dispatch_peak,
+        )
     };
     a.starts = 0;
     a.stops = 0;
@@ -412,11 +589,7 @@ pub unsafe extern "C" fn rust_audio_stop(ctx: *mut c_void, now: u64) {
     }
 }
 
-/// Returns both hardware channel bits for each active wet pair.
-#[no_mangle]
-pub unsafe extern "C" fn audio_reverb_mask(a: *const Audio) -> u32 {
-    // SAFETY: The platform passes a live Audio under serialized access.
-    let a = unsafe { &*a };
+fn reverb_mask(a: &Audio) -> u32 {
     let mut mask = 0;
     for i in 0..VOICES {
         let v = &a.voices[i];
@@ -425,4 +598,14 @@ pub unsafe extern "C" fn audio_reverb_mask(a: *const Audio) -> u32 {
         }
     }
     mask
+}
+
+/// Returns both hardware channel bits for each active wet pair.
+///
+/// # Safety
+/// `a` must point to a live instance outside a mutable service call.
+#[no_mangle]
+pub unsafe extern "C" fn audio_reverb_mask(a: *const Audio) -> u32 {
+    // SAFETY: The caller supplies the live instance outside service.
+    reverb_mask(unsafe { &*a })
 }

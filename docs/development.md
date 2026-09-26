@@ -63,8 +63,8 @@ and `abi_checks.c` remain at the root because they span those groups.
 - `rust/src/audio.rs`: SDK-independent 12-note pair allocation,
   amplitude/mix envelopes, and fixed-point pitch sweep with an injected
   register driver for host tests.
-- `src/audio/audio.h`, `src/audio/audio_abi.c`: Shared voice layout and
-  aggregate-value callback adapters for the C sequencer and SPU driver.
+- `src/audio/audio.h`, `src/audio/audio_abi.c`: Opaque Rust voice state and
+  the aggregate-value note-sink adapter for the C sequencer.
 - `src/audio/audio_psx.c`: Double-buffered score publication, SPU upload/registers,
   timer interrupts, lifecycle, and debugger-visible measurements.
 - `scripts/generate-audio.py`: Deterministic five-wave ADPCM banks

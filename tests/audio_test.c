@@ -20,8 +20,15 @@ static Score score;
 static Score snapshot;
 static Score updated;
 static Sequencer seq;
-static Audio audio;
+static Audio* audio;
 static Editor editor;
+
+static AudioVoiceView voice(int slot)
+{
+    AudioVoiceView view;
+    audio_voice_view(audio, slot, &view);
+    return view;
+}
 
 typedef struct
 {
@@ -39,6 +46,10 @@ static int levels[SEQUENCER_VOICES];
 static int pitches[SEQUENCER_VOICES];
 static int starts;
 static int stops;
+static uint32_t last_starts;
+static uint32_t last_stops;
+static uint32_t last_wet;
+static AudioTime dispatch_time;
 static uint32_t serial;
 
 static uint32_t note(void* ctx, AudioTime at, int pitch, SoundSettings sound)
@@ -289,7 +300,8 @@ static void gates_branches(void)
     assert(seq.runners[0].origin == 1 && events[0].sound.attack == 105);
 }
 
-static void driver_start(void* ctx, int voice, int bank, SoundSettings sound)
+static void driver_start(void* ctx, int voice, int bank,
+                         const SoundSettings* sound)
 {
     (void)ctx;
     (void)voice;
@@ -311,12 +323,23 @@ static void driver_volume(void* ctx, int voice, int a, int b)
     levels[voice] = a + b;
 }
 
-static void driver_flush(void* ctx, uint32_t on, uint32_t off_bits)
+static void driver_flush(void* ctx, uint32_t on, uint32_t off_bits,
+                         uint32_t wet, uint32_t dispatch_peak)
 {
     (void)ctx;
+    (void)dispatch_peak;
     assert(!(on & off_bits));
+    last_starts = on;
+    last_stops = off_bits;
+    last_wet = wet;
     starts += (on != 0);
     stops += (off_bits != 0);
+}
+
+static AudioTime driver_clock(void* context)
+{
+    (void)context;
+    return dispatch_time;
 }
 
 /*
@@ -325,9 +348,9 @@ static void driver_flush(void* ctx, uint32_t on, uint32_t off_bits)
  */
 static void voices(void)
 {
-    audio_init(&audio, (AudioDriver){NULL, driver_start, driver_volume,
-                                     driver_pitch, driver_flush, NULL});
-    NoteSink sink = audio_sink(&audio);
+    audio = audio_init(NULL, driver_start, driver_volume, driver_pitch,
+                       driver_flush, NULL, NULL);
+    NoteSink sink = audio_sink(audio);
     uint32_t tokens[SEQUENCER_VOICES];
     for (int i = 0; i < SEQUENCER_VOICES; i++)
     {
@@ -345,25 +368,25 @@ static void voices(void)
     uint32_t replacement =
         sink.on(sink.context, audio_ms(150), 80,
                 (SoundSettings){0, 5, WAVE_SINE, WAVE_SINE, 0, 0, 0, 200, 0});
-    assert((replacement & 31) == 0 && audio.steals == 1);
+    assert((replacement & 31) == 0 && audio_steals(audio) == 1);
     sink.off(sink.context, audio_ms(160), tokens[0]);
-    assert(!audio.voices[0].releasing);
+    assert(!voice(0).releasing);
     replacement =
         sink.on(sink.context, audio_ms(160), 81,
                 (SoundSettings){0, 0, WAVE_SINE, WAVE_SINE, 0, 0, 0, 200, 0});
     assert((replacement & 31) == 1);
     sink.off(sink.context, audio_ms(160), replacement);
     sink.advance(sink.context, audio_ms(160));
-    assert(!audio.voices[1].active && levels[1] == 0);
+    assert(!voice(1).active && levels[1] == 0);
     sink.on(
         sink.context, audio_ms(161), 82,
         (SoundSettings){16000, 16000, WAVE_SINE, WAVE_SINE, 0, 0, 0, 200, 0});
-    assert(audio.voices[1].pitch == 82);
+    assert(voice(1).pitch == 82);
     sink.stop(sink.context, audio_ms(200));
     sink.advance(sink.context, audio_ms(205));
     for (int i = 0; i < SEQUENCER_VOICES; i++)
     {
-        assert(!audio.voices[i].active && levels[i] == 0);
+        assert(!voice(i).active && levels[i] == 0);
     }
     assert(stops > 0);
     uint32_t old =
@@ -377,7 +400,7 @@ static void voices(void)
     assert((fresh & 31) == (old & 31) && fresh != old);
     sink.off(sink.context, audio_ms(1000), old);
     sink.advance(sink.context, audio_ms(1000));
-    assert(audio.voices[fresh & 31].active &&
+    assert(voice(fresh & 31).active &&
            levels[fresh & 31] == AUDIO_LEVEL);
     sink.stop(sink.context, audio_ms(1001));
     sink.advance(sink.context, audio_ms(1006));
@@ -389,7 +412,7 @@ static void voices(void)
            levels[0] <= (AUDIO_LEVEL + 1) / 2);
     sink.off(sink.context, audio_ms(8000), long_note);
     sink.advance(sink.context, audio_ms(24000));
-    assert(!audio.voices[0].active && !levels[0]);
+    assert(!voice(0).active && !levels[0]);
     AudioTime release_start = audio_ms(25000);
     uint32_t full_release = sink.on(
         sink.context, release_start, 48,
@@ -401,7 +424,7 @@ static void voices(void)
     assert(levels[0] >= AUDIO_LEVEL / 2 - 1 &&
            levels[0] <= (AUDIO_LEVEL + 1) / 2 + 1);
     sink.advance(sink.context, release_start + audio_ms(16000));
-    assert(!audio.voices[0].active && !levels[0]);
+    assert(!voice(0).active && !levels[0]);
     // Sequencer gate-offs carry the release captured at note-on.
     base(2);
     score.sounds[0] =
@@ -412,10 +435,29 @@ static void voices(void)
     sequencer_start(&seq, &snapshot, sink, 0);
     sequencer_service(&seq, 0);
     sequencer_service(&seq, SEQUENCER_HZ / 8);
-    assert(audio.voices[0].end == SEQUENCER_HZ / 8 + audio_ms(500));
+    assert(voice(0).end == SEQUENCER_HZ / 8 + audio_ms(500));
     sequencer_stop(&seq, SEQUENCER_HZ / 8);
     sequencer_service(&seq, SEQUENCER_HZ / 8 + audio_ms(5));
-    assert(!audio.voices[0].active);
+    assert(!voice(0).active);
+}
+
+/*
+ * A delayed hardware dispatch must retire its voice before key-on and remove
+ * the rejected slot from the wet-send mask passed to the register driver.
+ */
+static void late_dispatch(void)
+{
+    audio = audio_init(NULL, driver_start, driver_volume, driver_pitch,
+                       driver_flush, NULL, driver_clock);
+    SoundSettings sound =
+        {0, 100, WAVE_SINE, WAVE_SINE, 0, 0, 0, 200, 1};
+    dispatch_time = SEQUENCER_HZ / 1000 + 1;
+    NoteSink sink = audio_sink(audio);
+    sink.on(sink.context, 0, 48, sound);
+    sink.advance(sink.context, 0);
+    assert(!last_starts && last_stops == 1 && !last_wet);
+    assert(!voice(0).active && audio_idle_mask(audio) == AUDIO_IDLE_MASK);
+    assert(audio_late_starts(audio) == 1);
 }
 
 /*
@@ -1029,6 +1071,7 @@ int main(void)
     locks();
     gates_branches();
     voices();
+    late_dispatch();
     overload();
     model_editor();
     dense_and_rollback();
@@ -1042,5 +1085,5 @@ int main(void)
     printf("PASS: sequencer timing, locks, gates, branches, voices, overload, "
            "START and live "
            "resync; Score %zu, Sequencer %zu, Audio %zu bytes\n",
-           sizeof(Score), sizeof(Sequencer), sizeof(Audio));
+           sizeof(Score), sizeof(Sequencer), audio_storage_size());
 }

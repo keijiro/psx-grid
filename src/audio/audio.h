@@ -1,7 +1,7 @@
 /*
  * audio.h - Logical voice synthesis and PlayStation audio transport
  *
- * A caller-owned Audio synthesizer turns sequencer note events and sound
+ * A Rust-owned Audio synthesizer turns sequencer note events and sound
  * settings into controls for paired SPU voices. The same state machine drives
  * hardware or a caller-supplied test driver. It uses fixed storage and makes
  * no allocations. Sink calls must be serialized; platform lifecycle and
@@ -13,6 +13,7 @@
 
 #include "audio/sequencer.h"
 
+#include <stddef.h>
 #include <stdint.h>
 
 // The SPU has 24 channels; each logical slot reserves two of them.
@@ -23,53 +24,23 @@
 // equal-wave pairs within one voice budget; overlapping pairs can clip.
 #define AUDIO_LEVEL 0x3fff
 
-/*
- * Driver slots and flush masks refer to logical pairs, not SPU channels.
- * Register writes are injected so allocation, envelopes and stale gate-offs
- * use exactly the same code on the console and in the host fixture. flush
- * commits pending key changes; ready may be NULL if start is synchronous.
- */
-typedef struct
-{
-    void* context;
-    void (*start)(void* context, int slot, int bank, SoundSettings sound);
-    void (*volume)(void* context, int slot, int a, int b);
-    void (*pitch)(void* context, int slot, int value);
-    void (*flush)(void* context, uint32_t starts, uint32_t stops);
-    // Optional: both voices have begun playback after the latest key-on.
-    int (*ready)(void* context, int slot);
-} AudioDriver;
+// The single synthesizer lives in Rust fixed storage.
+typedef struct Audio Audio;
 
-// Envelope and modulation state of one allocated logical voice.
+// A copied voice view exposes timing and envelope state to diagnostics.
 typedef struct
 {
     AudioTime start;
-    AudioTime release_at;
     AudioTime end;
     AudioTime modulation_start;
-    uint32_t generation;
     SoundSettings sound;
     int active;
     int releasing;
     int waiting;
     int level;
-    int release_level;
     int pitch;
-    int bank;
     int base_pitch;
-} AudioVoice;
-
-// Caller-owned synthesizer with fixed storage for every logical voice.
-typedef struct
-{
-    AudioVoice voices[SEQUENCER_VOICES];
-    AudioDriver driver;
-    uint32_t starts;
-    uint32_t stops;
-    uint32_t steals;
-    uint32_t idle_mask;
-    AudioTime allocation_time;
-} Audio;
+} AudioVoiceView;
 
 /*
  * Converts a nonnegative millisecond duration to sequencer clock ticks.
@@ -78,11 +49,58 @@ typedef struct
 AudioTime audio_ms(int ms);
 
 /*
- * Initializes caller-owned `audio` with no active voices. `audio` must not be
- * NULL. All `driver` callbacks except ready must be non-NULL; ready may be
- * NULL when start begins playback synchronously.
+ * Initializes the single fixed synthesizer and returns its stable pointer.
+ * Slots and flush masks refer to logical pairs. `clock` is optional and
+ * enables the one-millisecond dispatch deadline on hardware. `ready` may be
+ * NULL when start begins playback synchronously. All other callbacks must
+ * be non-NULL. Call only while the timer service is excluded.
  */
-void audio_init(Audio* audio, AudioDriver driver);
+Audio* audio_init(void* context,
+                  void (*start)(void*, int, int, const SoundSettings*),
+                  void (*volume)(void*, int, int, int),
+                  void (*pitch)(void*, int, int),
+                  void (*flush)(void*, uint32_t, uint32_t, uint32_t, uint32_t),
+                  int (*ready)(void*, int), AudioTime (*clock)(void*));
+
+/*
+ * Returns the fixed Rust synthesizer's storage size in bytes.
+ */
+size_t audio_storage_size(void);
+
+/*
+ * Discards release tails before a transport restart and schedules key-off
+ * for every slot. `audio` must not be NULL and service must be excluded.
+ */
+void audio_restart(Audio* audio);
+
+/*
+ * Copies one voice's diagnostic state. `audio` and `view` must not be NULL;
+ * `slot` must be in 0..SEQUENCER_VOICES-1.
+ */
+void audio_voice_view(const Audio* audio, int slot, AudioVoiceView* view);
+
+/*
+ * Returns the first slot's effective modulation start for timer diagnostics.
+ * A pending key-on reports `now`. `audio` must not be NULL.
+ */
+AudioTime audio_voice_modulation_start(const Audio* audio, AudioTime now);
+
+/*
+ * Returns the number of stolen logical slots since initialization.
+ * `audio` must not be NULL.
+ */
+uint32_t audio_steals(const Audio* audio);
+
+/*
+ * Returns the number of starts rejected after the dispatch deadline.
+ * `audio` must not be NULL.
+ */
+uint32_t audio_late_starts(const Audio* audio);
+
+/*
+ * Returns the current free-slot mask. `audio` must not be NULL.
+ */
+uint32_t audio_idle_mask(const Audio* audio);
 
 /*
  * Returns callbacks referencing `audio`, which must not be NULL. The caller

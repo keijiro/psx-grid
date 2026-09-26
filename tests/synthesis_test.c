@@ -17,7 +17,15 @@
 #include <stdio.h>
 #include <string.h>
 
-static Audio audio;
+static Audio* audio;
+static int ready(void* ctx, int slot);
+
+static AudioVoiceView voice(int slot)
+{
+    AudioVoiceView view;
+    audio_voice_view(audio, slot, &view);
+    return view;
+}
 static int gains[SEQUENCER_VOICES][2];
 static int pitches[SEQUENCER_VOICES];
 static int banks[SEQUENCER_VOICES];
@@ -25,11 +33,12 @@ static SoundSettings captured[SEQUENCER_VOICES];
 static uint32_t started;
 static uint32_t stopped;
 
-static void start(void* ctx, int slot, int bank, SoundSettings sound)
+static void start(void* ctx, int slot, int bank,
+                  const SoundSettings* sound)
 {
     (void)ctx;
     banks[slot] = bank;
-    captured[slot] = sound;
+    captured[slot] = *sound;
 }
 
 static void volume(void* ctx, int slot, int a, int b)
@@ -47,19 +56,27 @@ static void pitch(void* ctx, int slot, int value)
     pitches[slot] = value;
 }
 
-static void flush(void* ctx, uint32_t on, uint32_t off)
+static void flush(void* ctx, uint32_t on, uint32_t off, uint32_t wet,
+                  uint32_t dispatch_peak)
 {
     (void)ctx;
+    (void)wet;
+    (void)dispatch_peak;
     assert(!(on & off));
     started = on;
     stopped = off;
 }
 
-static NoteSink reset(void)
+static NoteSink reset_ready(int (*ready_callback)(void*, int))
 {
     memset(gains, 0, sizeof(gains));
-    audio_init(&audio, (AudioDriver){NULL, start, volume, pitch, flush, NULL});
-    return audio_sink(&audio);
+    audio = audio_init(NULL, start, volume, pitch, flush, ready_callback, NULL);
+    return audio_sink(audio);
+}
+
+static NoteSink reset(void)
+{
+    return reset_ready(NULL);
 }
 
 static double ideal_register(int bank, double note)
@@ -153,7 +170,7 @@ static void sweeps(void)
                     if (i && depth < 0) assert(pitches[0] >= previous);
                     if (elapsed >= duration)
                     {
-                        assert(pitches[0] == audio.voices[0].base_pitch);
+                        assert(pitches[0] == voice(0).base_pitch);
                     }
                     previous = pitches[0];
                     samples++;
@@ -199,8 +216,8 @@ static void envelopes(void)
                         : release && t < attack + release
                             ? (attack + release - t) * AUDIO_LEVEL / release
                             : 0;
-                    assert(gains[0][0] + gains[0][1] == audio.voices[0].level);
-                    int expected = audio.voices[0].level * mix / AUDIO_LEVEL;
+                    assert(gains[0][0] + gains[0][1] == voice(0).level);
+                    int expected = voice(0).level * mix / AUDIO_LEVEL;
                     // Shifted control ticks can differ from the unquantized
                     // ramp by one gain step.
                     assert(gains[0][1] >= expected - 1 &&
@@ -209,7 +226,7 @@ static void envelopes(void)
                            captured[0].wave_b == wave);
                 }
                 sink.advance(sink.context, audio_ms(16003));
-                assert(!audio.voices[0].active && !gains[0][0] && !gains[0][1]);
+                assert(!voice(0).active && !gains[0][0] && !gains[0][1]);
             }
         }
     }
@@ -222,14 +239,14 @@ static void envelopes(void)
         uint32_t token = sink.on(sink.context, 0, 48, sound);
         sink.advance(sink.context, audio_ms(gate));
         int before = pitches[0];
-        int level = audio.voices[0].level;
+        int level = voice(0).level;
         sink.off(sink.context, audio_ms(gate), token);
         sink.advance(sink.context, audio_ms(gate));
-        assert(pitches[0] == before && audio.voices[0].level == level);
+        assert(pitches[0] == before && voice(0).level == level);
         sink.advance(sink.context, audio_ms(gate + 250));
-        assert(pitches[0] >= before && audio.voices[0].level <= level);
+        assert(pitches[0] >= before && voice(0).level <= level);
         sink.advance(sink.context, audio_ms(gate + 500));
-        assert(!audio.voices[0].active && !gains[0][0] && !gains[0][1]);
+        assert(!voice(0).active && !gains[0][0] && !gains[0][1]);
     }
     NoteSink sink = reset();
     SoundSettings sound = {0, 0, WAVE_SINE, WAVE_NOISE, 0, 0, 0, 0, 0};
@@ -259,8 +276,7 @@ static void transients(void)
     AudioTime origin = UINT64_C(0x100000000) + 17;
     for (int delay = 1; delay <= 20; delay++)
     {
-        NoteSink sink = reset();
-        audio.driver.ready = ready;
+        NoteSink sink = reset_ready(ready);
         ready_mask = 0;
         uint32_t token = sink.on(sink.context, origin, 48, sound);
         // Even the initial register dispatch can be later than the note's
@@ -275,20 +291,19 @@ static void transients(void)
         AudioTime onset = origin + audio_ms(delay + 1) / 4;
         ready_mask = 1;
         sink.advance(sink.context, onset);
-        assert(!audio.voices[0].waiting && audio.voices[0].start == origin);
+        assert(!voice(0).waiting && voice(0).start == origin);
         assert(gains[0][1] == AUDIO_LEVEL && pitches[0] == initial);
         sink.advance(sink.context, onset + audio_ms(1) / 2);
         assert(gains[0][1] >= AUDIO_LEVEL / 2 - 1 &&
                gains[0][1] <= (AUDIO_LEVEL + 1) / 2 + 1 &&
                pitches[0] < initial);
         sink.advance(sink.context, onset + audio_ms(1));
-        assert(!gains[0][1] && pitches[0] == audio.voices[0].base_pitch);
+        assert(!gains[0][1] && pitches[0] == voice(0).base_pitch);
         sink.off(sink.context, onset + audio_ms(2), token);
         sink.advance(sink.context, onset + audio_ms(3));
-        assert(!audio.voices[0].active);
+        assert(!voice(0).active);
     }
-    NoteSink sink = reset();
-    audio.driver.ready = ready;
+    NoteSink sink = reset_ready(ready);
     ready_mask = 0;
     uint32_t tokens[SEQUENCER_VOICES];
     for (int i = 0; i < SEQUENCER_VOICES; i++)
@@ -303,31 +318,31 @@ static void transients(void)
     ready_mask = (1u << SEQUENCER_VOICES) - 1;
     sink.advance(sink.context, origin + audio_ms(5));
     uint32_t fresh = sink.on(sink.context, origin + audio_ms(6), 48, sound);
-    assert((fresh & 31) == 0 && audio.steals == 1);
+    assert((fresh & 31) == 0 && audio_steals(audio) == 1);
     // A stale ready value before flush must not acknowledge the replacement.
     sink.advance(sink.context, origin + audio_ms(6));
-    assert(audio.voices[0].waiting && gains[0][1] == AUDIO_LEVEL);
+    assert(voice(0).waiting && gains[0][1] == AUDIO_LEVEL);
     ready_mask = 0;
     sink.off(sink.context, origin + audio_ms(6), tokens[0]);
-    assert(!audio.voices[0].releasing);
+    assert(!voice(0).releasing);
     sink.off(sink.context, origin + audio_ms(7), fresh);
     sink.advance(sink.context, origin + audio_ms(8));
-    assert(!audio.voices[0].active && !gains[0][0] && !gains[0][1]);
+    assert(!voice(0).active && !gains[0][0] && !gains[0][1]);
     sink.stop(sink.context, origin + audio_ms(8));
     sink.advance(sink.context, origin + audio_ms(13));
-    assert(audio.idle_mask == AUDIO_IDLE_MASK);
+    assert(audio_idle_mask(audio) == AUDIO_IDLE_MASK);
     sound.release = 0;
     fresh = sink.on(sink.context, origin + audio_ms(14), 48, sound);
     sink.advance(sink.context, origin + audio_ms(14));
     sink.off(sink.context, origin + audio_ms(15), fresh);
     sink.advance(sink.context, origin + audio_ms(15));
-    assert(!audio.voices[0].active && !gains[0][1]);
+    assert(!voice(0).active && !gains[0][1]);
     sink.on(sink.context, origin + audio_ms(16), 48, sound);
     sink.advance(sink.context, origin + audio_ms(16));
-    assert(audio.voices[0].waiting);
+    assert(voice(0).waiting);
     sink.stop(sink.context, origin + audio_ms(17));
     sink.advance(sink.context, origin + audio_ms(22));
-    assert(audio.idle_mask == AUDIO_IDLE_MASK && !gains[0][1]);
+    assert(audio_idle_mask(audio) == AUDIO_IDLE_MASK && !gains[0][1]);
     puts("PASS: delayed transient onset, independent pairs, stolen voices, "
          "stale gates and stop "
          "while pending");
@@ -358,8 +373,9 @@ static void snapshots(void)
     SoundSettings resolved = old;
     resolved.attack = 7;
     resolved.release = 381;
-    assert(!memcmp(&audio.voices[0].sound, &resolved, sizeof(resolved)));
-    assert(audio_reverb_mask(&audio) == 3);
+    SoundSettings sounding = voice(0).sound;
+    assert(!memcmp(&sounding, &resolved, sizeof(resolved)));
+    assert(audio_reverb_mask(audio) == 3);
     SoundSettings fresh = {0, 600, WAVE_SQUARE, WAVE_TRIANGLE, 0, 500, 24,
                            1, 0};
     updated = score;
@@ -370,14 +386,15 @@ static void snapshots(void)
     sequencer_service(&seq, next);
     fresh.attack = 7;
     fresh.release = 581;
-    assert(!memcmp(&audio.voices[0].sound, &resolved, sizeof(resolved)));
-    assert(audio_reverb_mask(&audio) == 3);
+    sounding = voice(0).sound;
+    assert(!memcmp(&sounding, &resolved, sizeof(resolved)));
+    assert(audio_reverb_mask(audio) == 3);
     assert(!memcmp(&captured[0], &resolved, sizeof(resolved)));
     assert(!memcmp(&captured[1], &fresh, sizeof(fresh)));
     sink.stop(sink.context, next);
     sink.advance(sink.context, next + audio_ms(5));
-    assert(audio.idle_mask == AUDIO_IDLE_MASK && stopped == 3 &&
-           !audio_reverb_mask(&audio));
+    assert(audio_idle_mask(audio) == AUDIO_IDLE_MASK && stopped == 3 &&
+           !audio_reverb_mask(audio));
     puts("PASS: amplitude locks preserve synthesis fields; sounding notes "
          "retain complete settings "
          "snapshots");
