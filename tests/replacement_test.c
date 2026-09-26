@@ -9,7 +9,7 @@
 
 #include "value_api.h"
 
-#include "sequencer.h"
+#include "audio/sequencer.h"
 
 #include <assert.h>
 #include <stdio.h>

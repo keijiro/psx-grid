@@ -8,10 +8,10 @@
  * boundary before linking.
  */
 
-#include "editor.h"
-#include "input.h"
-#include "score_format.h"
-#include "storage.h"
+#include "ui/editor.h"
+#include "input/input.h"
+#include "score/score_format.h"
+#include "storage/storage.h"
 
 // The Rust codec uses these discriminants as stable wire tags.
 _Static_assert(WAVE_SINE == 0 && WAVE_TRIANGLE == 1 && WAVE_SAW == 2 &&

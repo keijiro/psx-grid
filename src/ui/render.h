@@ -9,7 +9,7 @@
 #ifndef RENDER_H
 #define RENDER_H
 
-#include "editor.h"
+#include "ui/editor.h"
 
 /*
  * Initializes video state, texture data and both command buffers.

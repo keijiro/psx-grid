@@ -7,8 +7,8 @@
  * card access through an explicit ownership handoff.
  */
 
-#include "pad.h"
-#include "input.h"
+#include "input/pad.h"
+#include "input/input.h"
 
 #include <psxapi.h>
 #include <psxetc.h>

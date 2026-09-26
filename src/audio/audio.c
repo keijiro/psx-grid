@@ -7,7 +7,7 @@
  * It keeps envelope math in bounded integer ranges for timer service.
  */
 
-#include "audio.h"
+#include "audio/audio.h"
 
 #include <string.h>
 

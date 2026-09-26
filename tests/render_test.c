@@ -9,8 +9,8 @@
 
 #include "value_api.h"
 
-#include "render.h"
-#include "ui_style.h"
+#include "ui/render.h"
+#include "ui/ui_style.h"
 
 #include <assert.h>
 #include <psxgpu.h>

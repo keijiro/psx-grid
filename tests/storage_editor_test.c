@@ -9,7 +9,7 @@
 
 #include "value_api.h"
 
-#include "editor.h"
+#include "ui/editor.h"
 
 #include <assert.h>
 #include <stdio.h>

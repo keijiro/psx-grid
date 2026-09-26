@@ -9,8 +9,8 @@
 
 #include "value_api.h"
 
-#include "audio.h"
-#include "pad.h"
+#include "audio/audio.h"
+#include "input/pad.h"
 
 #include <psxapi.h>
 #include <psxetc.h>

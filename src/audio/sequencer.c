@@ -7,7 +7,7 @@
  * each timer service call. Score replacement waits for a complete slice.
  */
 
-#include "sequencer.h"
+#include "audio/sequencer.h"
 
 #include <string.h>
 

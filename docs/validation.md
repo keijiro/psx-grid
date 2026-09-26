@@ -916,7 +916,7 @@ filename with a terminator that overwrites `DIRENTRY.attr` (see the
 [pinned OpenBIOS source](https://github.com/grumpycoders/pcsx-redux/blob/c2e2dec197d3eb8f3db2ee63b8037321dbe1085e/src/mips/openbios/card/device.c#L538-L560)).
 The backend now uses the enumerated name and size, which storage validates,
 without rejecting that overwritten attribute. Both fixes are in
-`src/card_bios.c`; the traces
+`src/storage/card_bios.c`; the traces
 are `openbios-card-transfer-stage/run.log` and
 `openbios-card-list-entry/run.log` in the validation directory above.
 

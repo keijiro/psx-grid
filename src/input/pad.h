@@ -9,7 +9,7 @@
 #ifndef PAD_H
 #define PAD_H
 
-#include "input_queue.h"
+#include "input/input_queue.h"
 
 /*
  * Initializes after render_init and audio_platform_init. Timer service and

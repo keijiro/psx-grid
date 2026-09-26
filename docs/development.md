@@ -40,24 +40,30 @@ to a gamepad or keyboard. See [usage.md](usage.md) for the editing walkthrough.
 
 ## Structure and Validation
 
+The C tree groups score contracts, storage, input, audio, and UI under `src/`.
+Headers shared with Rust stay beside the C code for their feature. `main.c`
+and `abi_checks.c` remain at the root because they span those groups.
+
 - `rust/src/score.rs`, `rust/src/score_edit.rs`: SDK-independent model,
   validation, and transactional edits in fixed caller-owned storage.
-- `src/score.h`: Shared C layout and pointer-based model declarations.
+- `src/score/score.h`: Shared C layout and pointer-based model declarations.
 - `rust/src/score_format.rs`: Portable v1 codec, shared sizing, and generation
   stamping in the `no_std` static library.
-- `src/score_format.h`: C declarations for the Rust file codec.
+- `src/score/score_format.h`: C declarations for the Rust file codec.
 - `src/abi_checks.c`: Compile-time checks for shared C/Rust layouts and values.
 - `rust/src/storage.rs`: Numbered card files, discovery, and recovery through
   the injected card backend.
-- `src/storage.h`: Shared C layout and pointer-based backend initialization.
-- `src/card.h`, `src/card_bios.c`: File-level card interface and BIOS backend.
-- `src/sequencer.*`: SDK-independent runners, exact absolute deadlines,
+- `src/storage/storage.h`: Shared C layout and pointer-based backend
+  initialization.
+- `src/storage/card.h`, `src/storage/card_bios.c`: File-level card interface
+  and BIOS backend.
+- `src/audio/sequencer.*`: SDK-independent runners, exact absolute deadlines,
   live runner reconciliation, ordered held locks, generation-tagged gate-offs,
   and bounded catch-up.
-- `src/audio.*`: SDK-independent 12-note pair allocation, amplitude/mix envelopes,
-  and fixed-point pitch sweep with
-  an injected register driver for host tests.
-- `src/audio_psx.c`: Double-buffered score publication, SPU upload/registers,
+- `src/audio/audio.*`: SDK-independent 12-note pair allocation,
+  amplitude/mix envelopes, and fixed-point pitch sweep with an injected
+  register driver for host tests.
+- `src/audio/audio_psx.c`: Double-buffered score publication, SPU upload/registers,
   timer interrupts, lifecycle, and debugger-visible measurements.
 - `scripts/generate-audio.py`: Deterministic five-wave ADPCM banks
   (`generated/wave_samples.h`), fixed-point control tables
@@ -66,20 +72,24 @@ to a gamepad or keyboard. See [usage.md](usage.md) for the editing walkthrough.
   used by the editor and fixture executables.
 - `rust/src/input.rs`: Ordered input history, button presses, repeats,
   disconnection, and reconnection in a `no_std` static library.
-- `src/input.h`: Shared input-history layout and Rust function declarations.
-- `src/input_queue.c`, `src/input_queue.h`: Interrupt-facing sample queue.
-- `src/pad.*`: Port 1 asynchronous SIO polling and completed-report publication.
+- `src/input/input.h`: Shared input-history layout and Rust function declarations.
+- `src/input/input_queue.c`, `src/input/input_queue.h`: Interrupt-facing
+  sample queue.
+- `src/input/pad.*`: Port 1 asynchronous SIO polling and completed-report
+  publication.
 - `rust/src/editor.rs`: Menus, inline property edits, clipboard, deletion
   confirmation, and press/hold/release movement transitions.
-- `src/editor.h`: Shared editor layout and Rust function declarations.
-- `src/ui_format.c`, `src/ui_format.h`: C display formatting for menu values.
-- `src/render.*`: 320 x 240 NTSC output, double buffering, scrolling, and
+- `src/ui/editor.h`: Shared editor layout and Rust function declarations.
+- `src/ui/ui_format.c`, `src/ui/ui_format.h`: C display formatting for menu
+  values.
+- `src/ui/render.*`: 320 x 240 NTSC output, double buffering, scrolling, and
   render-packet management.
 - [`assets/ui/`](../assets/ui/README.md), `scripts/generate-assets.py`: editable
   masks, font attribution, and deterministic indexed-atlas generation
   (Python 3, no extra packages).
-- `src/ui_style.h`: shared screen geometry and grayscale roles.
-- `src/main.c`: Input history consumption, editor processing, START, and frame/status updates.
+- `src/ui/ui_style.h`: shared screen geometry and grayscale roles.
+- `src/main.c`: Input history consumption, editor processing, START, and
+  frame/status updates.
 - `build/{debug,release}/psx-grid.{elf,exe}`: ELF and PS-X EXE outputs.
 
 The Rust crate targets `mipsel-sony-psx` and builds `core` from pinned

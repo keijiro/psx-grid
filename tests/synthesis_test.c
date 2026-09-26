@@ -9,7 +9,7 @@
 
 #include "value_api.h"
 
-#include "audio.h"
+#include "audio/audio.h"
 #include "audio_tables.h"
 
 #include <assert.h>

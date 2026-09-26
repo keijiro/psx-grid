@@ -7,13 +7,13 @@
  * score preparation, SPU resource setup and card-session handoffs.
  */
 
-#include "audio.h"
+#include "audio/audio.h"
 
 #include <psxapi.h>
 #include <psxetc.h>
 #include <psxspu.h>
 
-#include "pad.h"
+#include "input/pad.h"
 #include "wave_samples.h"
 
 /*

@@ -6,7 +6,7 @@
  * The queue crosses the pad interrupt and main thread, so it remains in C.
  */
 
-#include "input_queue.h"
+#include "input/input_queue.h"
 
 void input_queue_init(InputQueue* q)
 {

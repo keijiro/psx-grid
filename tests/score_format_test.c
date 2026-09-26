@@ -9,7 +9,7 @@
 
 #include "value_api.h"
 
-#include "score_format.h"
+#include "score/score_format.h"
 
 #include <assert.h>
 #include <stdio.h>

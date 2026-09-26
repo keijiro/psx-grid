@@ -8,7 +8,7 @@
 #ifndef UI_FORMAT_H
 #define UI_FORMAT_H
 
-#include "editor.h"
+#include "ui/editor.h"
 
 /*
  * Formats a valid row `id` in `editor` into `buffer`. A row without a value
