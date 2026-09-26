@@ -11,6 +11,7 @@
 
 #include "editor.h"
 #include "input.h"
+#include "input_queue.h"
 
 #include <assert.h>
 #include <stdio.h>

@@ -45,7 +45,8 @@ to a gamepad or keyboard. See [usage.md](usage.md) for the editing walkthrough.
 - `src/score.h`: Shared C layout and pointer-based model declarations.
 - `rust/src/score_format.rs`: Portable v1 codec, shared sizing, and generation
   stamping in the `no_std` static library.
-- `src/score_format.c`, `src/score_format.h`: C ABI layout guards and declarations.
+- `src/score_format.h`: C declarations for the Rust file codec.
+- `src/abi_checks.c`: Compile-time checks for shared C/Rust layouts and values.
 - `rust/src/storage.rs`: Numbered card files, discovery, and recovery through
   the injected card backend.
 - `src/storage.h`: Shared C layout and pointer-based backend initialization.
@@ -65,11 +66,13 @@ to a gamepad or keyboard. See [usage.md](usage.md) for the editing walkthrough.
   used by the editor and fixture executables.
 - `rust/src/input.rs`: Ordered input history, button presses, repeats,
   disconnection, and reconnection in a `no_std` static library.
-- `src/input.c`, `src/input.h`: Interrupt-facing sample queue and shared layout.
+- `src/input.h`: Shared input-history layout and Rust function declarations.
+- `src/input_queue.c`, `src/input_queue.h`: Interrupt-facing sample queue.
 - `src/pad.*`: Port 1 asynchronous SIO polling and completed-report publication.
 - `rust/src/editor.rs`: Menus, inline property edits, clipboard, deletion
   confirmation, and press/hold/release movement transitions.
-- `src/editor.c`, `src/editor.h`: Shared editor layout and display formatting.
+- `src/editor.h`: Shared editor layout and Rust function declarations.
+- `src/ui_format.c`, `src/ui_format.h`: C display formatting for menu values.
 - `src/render.*`: 320 x 240 NTSC output, double buffering, scrolling, and
   render-packet management.
 - [`assets/ui/`](../assets/ui/README.md), `scripts/generate-assets.py`: editable

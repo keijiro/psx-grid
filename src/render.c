@@ -8,6 +8,7 @@
  */
 
 #include "render.h"
+#include "ui_format.h"
 
 #include <psxetc.h>
 #include <psxgpu.h>
@@ -216,7 +217,7 @@ static void menu_row(const Editor* e, const EditorRow* row, int index, int x,
                      int y, int width)
 {
     char value[48];
-    editor_row_value(e, row->id, value, sizeof(value));
+    ui_format_row_value(e, row->id, value, sizeof(value));
     int right = x + width;
     int value_x = right - text_width(value);
     clipped_text(x, y, row->label, value[0] ? value_x - 6 : right);
@@ -285,7 +286,7 @@ static int menu_width(const Editor* e, const EditorRow* rows, int count,
     {
         for (int i = 0; i < count; i++)
         {
-            editor_row_value(e, rows[i].id, value, sizeof(value));
+            ui_format_row_value(e, rows[i].id, value, sizeof(value));
             int row_width = text_width(rows[i].label) + text_width(value) +
                             (value[0] ? 12 : 0) + 30;
             if (row_width > width) width = row_width;

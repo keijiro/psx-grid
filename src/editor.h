@@ -152,12 +152,7 @@ const char* editor_action_label(EditorAction action);
  * `editor` and `rows` must not be NULL.
  */
 int editor_rows(const Editor* editor, EditorRow rows[EDITOR_ROWS]);
-/*
- * Formats a valid row `id` in `editor` into `buffer`. A row without a value
- * leaves an empty string. `size` must be positive.
- * `editor` and `buffer` must not be NULL.
- */
-void editor_row_value(const Editor* editor, int id, char* buffer, int size);
+
 /*
  * Applies one normalized `input` frame to `editor` and records any storage
  * request.

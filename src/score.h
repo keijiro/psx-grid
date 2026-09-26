@@ -353,11 +353,4 @@ const char* score_message(ScoreResult result);
  */
 const char* score_note_name(int pitch);
 
-// C and Rust share these fixed layouts across the pointer-only interface.
-_Static_assert(sizeof(Score) == 199524, "Rust Score ABI changed");
-_Static_assert(sizeof(TileValue) == 36, "Rust TileValue ABI changed");
-_Static_assert(sizeof(Cell) == 20, "Rust Cell ABI changed");
-_Static_assert(sizeof(Clipboard) == 2308, "Rust Clipboard ABI changed");
-_Static_assert(sizeof(MovePlan) == 20, "Rust MovePlan ABI changed");
-
 #endif // SCORE_H

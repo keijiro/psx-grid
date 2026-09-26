@@ -1,9 +1,8 @@
 /*
- * input.h - Controller samples, event edges and repeat timing
+ * input.h - Controller history, event edges and repeat timing
  *
- * The C pad service queues raw samples in a fixed single-producer,
- * single-consumer ring; Rust normalizes them for the editor on the main
- * thread. Caller-owned Input state retains button and repeat history.
+ * Rust normalizes controller reports for the editor on the main thread.
+ * Caller-owned Input state retains button and repeat history.
  */
 
 #ifndef INPUT_H
@@ -11,8 +10,6 @@
 
 #include <stdint.h>
 
-// Eight delayed render frames can cover over 64 pad reports under load.
-#define INPUT_QUEUE_CAPACITY 128
 // Repeat delays are measured in calls to input_update at the display cadence.
 #define INPUT_DELAY 18
 #define INPUT_INTERVAL 3
@@ -65,39 +62,6 @@ typedef struct
     int select;
 } InputFrame;
 
-// Raw connection state and active-high button mask from one poll.
-typedef struct
-{
-    int connected;
-    uint16_t held;
-} InputSample;
-
-// Single-producer, single-consumer ring of raw samples.
-typedef struct
-{
-    InputSample samples[INPUT_QUEUE_CAPACITY];
-    unsigned read;
-    unsigned write;
-} InputQueue;
-
-/*
- * Resets caller-owned `queue` to empty before its first push or pop.
- * `queue` must not be NULL.
- */
-void input_queue_init(InputQueue* queue);
-/*
- * Enqueues `sample` in `queue` and returns one if the queue overflowed, or
- * zero otherwise.
- * Overflow resets history and inserts a disconnect sample before the report.
- * `queue` must not be NULL.
- */
-int input_queue_push(InputQueue* queue, InputSample sample);
-/*
- * Removes the oldest sample into `sample` and returns one. Returns zero
- * without writing `sample` when the queue is empty.
- * `queue` and `sample` must not be NULL.
- */
-int input_queue_pop(InputQueue* queue, InputSample* sample);
 /*
  * Clears caller-owned `input` connection, button history and repeat state.
  * `input` must not be NULL.
@@ -120,9 +84,5 @@ void input_reset_value_repeat(Input* input);
  */
 void input_update(Input* input, int connected, uint16_t held,
                   InputFrame* frame);
-
-// C and Rust share these fixed layouts across the pointer-only interface.
-_Static_assert(sizeof(Input) == 40, "Rust Input ABI changed");
-_Static_assert(sizeof(InputFrame) == 48, "Rust InputFrame ABI changed");
 
 #endif // INPUT_H

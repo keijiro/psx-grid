@@ -82,7 +82,4 @@ StorageResult storage_load(Storage* storage, int slot);
  */
 const char* storage_message(StorageResult result);
 
-// C and Rust share this fixed directory-entry layout.
-_Static_assert(sizeof(CardFile) == 28, "Rust CardFile ABI changed");
-
 #endif // STORAGE_H

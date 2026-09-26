@@ -1,29 +1,14 @@
 /*
- * editor.c - C formatting for the Rust editor
+ * ui_format.c - C formatting for editor menu values
  *
  * Implementation notes:
  *
  * The renderer uses C formatting for settings and context rows.
  */
 
-#include "editor.h"
+#include "ui_format.h"
 
 #include <stdio.h>
-
-// These shared values also shape Rust menu arrays and value ranges.
-_Static_assert(EDITOR_MENU_ITEMS == 8 && EDITOR_ROWS == 16, "editor menu bounds");
-_Static_assert(SCORE_WIDTH == 128 && SCORE_HEIGHT == 64, "editor grid bounds");
-_Static_assert(SCORE_FILE_BYTES == 8192 && STORAGE_SLOTS == 15,
-               "editor card bounds");
-_Static_assert(SCORE_CHANNELS == 8 && SCORE_DIVISIONS == 12,
-               "editor score bounds");
-_Static_assert(SOUND_MAX_MS == 16000 && SOUND_MAX_MIX_MS == 500 &&
-               SOUND_MAX_DECAY_MS == 2000 && SOUND_MAX_SWEEP == 24 &&
-               WAVE_COUNT == 5,
-               "editor sound bounds");
-_Static_assert(EDIT_REVERB == 8 && ACTION_LOCK_RELEASE == 18 &&
-               TILE_RELATIVE == 5 && CELL_END == 4,
-               "editor discriminants");
 
 /*
  * Setting row IDs live above context-action IDs so the shared value editor
@@ -50,7 +35,7 @@ enum
     ROW_SEND                        // Adjusts reverb send.
 };
 
-void editor_row_value(const Editor* e, int id, char* b, int size)
+void ui_format_row_value(const Editor* e, int id, char* b, int size)
 {
     const SoundSettings* s = &e->score.sounds[e->sound_channel];
     TileValue v = e->target ? e->score.tiles[e->target].value : e->value;
