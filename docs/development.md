@@ -5,9 +5,10 @@ See [C code style](c-style.md) for source formatting and comments.
 ## Setup and Execution
 
 The setup requires an Apple Silicon Mac, Xcode Command Line Tools, Homebrew,
-Git, and Python 3. The pinned dependencies are PSn00bSDK v0.24, MIPS GCC
-16.2.0, binutils 2.47, PCSX-Redux build 250, and its bundled OpenBIOS. See [toolchain.lock](../toolchain.lock) for the pinned
-details.
+Git, Python 3, and rustup. The pinned dependencies are PSn00bSDK v0.24,
+MIPS GCC 16.2.0, binutils 2.47, Rust nightly 2026-09-26, PCSX-Redux build
+250, and its bundled OpenBIOS. See [toolchain.lock](../toolchain.lock) for the
+pinned details.
 
 Run these commands from the repository root:
 
@@ -56,8 +57,9 @@ to a gamepad or keyboard. See [usage.md](usage.md) for the editing walkthrough.
   (`generated/audio_tables.h`), and asset/trajectory report
   (`generated/wave_samples.txt`). Both headers share one build rule and are
   used by the editor and fixture executables.
-- `src/input.*`: Ordered input history, button presses, repeats, disconnection,
-  and reconnection.
+- `rust/src/input.rs`: Ordered input history, button presses, repeats,
+  disconnection, and reconnection in a `no_std` static library.
+- `src/input.c`, `src/input.h`: C ABI adapter and interrupt-facing sample queue.
 - `src/pad.*`: Port 1 asynchronous SIO polling and completed-report publication.
 - `src/editor.*`: Menus, inline property edits, clipboard, deletion confirmation,
   and press/hold/release movement transitions.
@@ -69,6 +71,13 @@ to a gamepad or keyboard. See [usage.md](usage.md) for the editing walkthrough.
 - `src/ui_style.h`: shared screen geometry and grayscale roles.
 - `src/main.c`: Input history consumption, editor processing, START, and frame/status updates.
 - `build/{debug,release}/psx-grid.{elf,exe}`: ELF and PS-X EXE outputs.
+
+The Rust crate targets `mipsel-sony-psx` and builds `core` from pinned
+`rust-src` with `noabicalls` to match the SDK's fixed GP. CMake links its
+static library into the game and fixtures.
+`scripts/elf2x-rust.py` omits Rust's GNU_STACK metadata from the temporary ELF
+passed to the SDK converter. The linked ELF itself is unchanged. Host tests
+link the same Rust sources as a native static library.
 
 Run the host tests with Clang, ASan, and UBSan:
 

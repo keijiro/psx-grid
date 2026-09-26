@@ -1,0 +1,18 @@
+[package]
+name = "psx-grid-core"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["staticlib"]
+
+[profile.dev]
+panic = "abort"
+# Unoptimized input processing overflows the pad queue under fixture load.
+opt-level = 1
+
+[profile.release]
+panic = "abort"
+# This is the optimized profile verified on the PSX emulator.
+opt-level = 1
+codegen-units = 1

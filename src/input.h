@@ -1,8 +1,8 @@
 /*
  * input.h - Controller samples, event edges and repeat timing
  *
- * The pad service queues raw samples in a fixed single-producer,
- * single-consumer ring; the editor consumes normalized frames on the main
+ * The C pad service queues raw samples in a fixed single-producer,
+ * single-consumer ring; Rust normalizes them for the editor on the main
  * thread. Caller-owned Input state retains button and repeat history.
  */
 
@@ -11,8 +11,8 @@
 
 #include <stdint.h>
 
-// Fixed queue absorbs controller reports between main-thread frames.
-#define INPUT_QUEUE_CAPACITY 64
+// Eight delayed render frames can cover over 64 pad reports under load.
+#define INPUT_QUEUE_CAPACITY 128
 // Repeat delays are measured in calls to input_update at the display cadence.
 #define INPUT_DELAY 18
 #define INPUT_INTERVAL 3

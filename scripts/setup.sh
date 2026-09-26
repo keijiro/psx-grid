@@ -55,6 +55,10 @@ fetch_checked() {
 [ "$(uname -m)" = "arm64" ] || die "this setup is pinned to Apple Silicon (arm64)"
 command -v brew >/dev/null || die "Homebrew is required"
 command -v git >/dev/null || die "Git is required"
+command -v rustup >/dev/null || die "rustup is required; install it from https://rustup.rs"
+
+rustup toolchain install nightly-2026-09-26 --profile minimal \
+  --component rust-src --component rustfmt --component clippy
 
 mkdir -p "${FORMULA_DIR}" "${DOWNLOAD_DIR}" "${PROJECT_ROOT}/third_party" "${PROJECT_ROOT}/build"
 
