@@ -26,6 +26,41 @@
 // The single synthesizer lives in Rust fixed storage.
 typedef struct Audio Audio;
 
+/*
+ * Allocates a note from settings that remain live for this call. `context`
+ * must point to the active Audio, and calls must be serialized.
+ */
+uint32_t rust_audio_on(void* context, AudioTime now, int pitch,
+                       const SoundSettings* sound);
+
+/*
+ * Releases a note by its generation token. `context` must point to the active
+ * Audio, and calls must be serialized.
+ */
+void rust_audio_off(void* context, AudioTime now, uint32_t token);
+
+/*
+ * Releases all active notes. `context` must point to the active Audio, and
+ * calls must be serialized.
+ */
+void rust_audio_stop(void* context, AudioTime now);
+
+/*
+ * Advances voice controls. `context` must point to the active Audio, and
+ * calls must be serialized.
+ */
+void rust_audio_advance(void* context, AudioTime now);
+
+/*
+ * Returns callbacks referencing `audio`, which must not be NULL. The caller
+ * keeps it alive and excludes concurrent access while the sink may be called.
+ */
+static inline NoteSink audio_sink(Audio* audio)
+{
+    return (NoteSink){audio, rust_audio_on, rust_audio_off, rust_audio_stop,
+                      rust_audio_advance};
+}
+
 // A copied voice view exposes timing and envelope state to diagnostics.
 typedef struct
 {

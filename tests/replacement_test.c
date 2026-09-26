@@ -37,12 +37,12 @@ static int slot;
 static uint32_t serial;
 
 static uint32_t note(void* context, AudioTime at, int pitch,
-                     SoundSettings sound)
+                     const SoundSettings* sound)
 {
     (void)context;
     assert(event_count < (int)(sizeof(events) / sizeof(events[0])));
     uint32_t token = (++serial << 5) | (slot++ % SEQUENCER_VOICES);
-    events[event_count++] = (Event){EVENT_ON, at, pitch, sound, token};
+    events[event_count++] = (Event){EVENT_ON, at, pitch, *sound, token};
     return token;
 }
 

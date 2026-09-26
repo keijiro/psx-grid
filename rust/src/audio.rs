@@ -454,7 +454,7 @@ pub unsafe extern "C" fn rust_audio_on(
     pitch: c_int,
     sound: *const SoundSettings,
 ) -> u32 {
-    // SAFETY: The C adapter passes live pointers under serialized access.
+    // SAFETY: The C sequencer passes live pointers under serialized access.
     let a = unsafe { &mut *(ctx as *mut Audio) };
     // SAFETY: The sound argument remains live for this call.
     let sound = unsafe { *sound };

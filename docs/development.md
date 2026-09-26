@@ -71,9 +71,8 @@ those groups.
 - `rust/src/audio.rs`: SDK-independent 12-note pair allocation,
   amplitude/mix envelopes, and fixed-point pitch sweep with an injected
   register driver for host tests.
-- `include/audio_synth.h`: Opaque Rust voice state and synthesis declarations.
-- `src/audio/audio_abi.h`, `src/audio/audio_abi.c`: Aggregate-value note-sink
-  adapter for the C sequencer.
+- `include/audio_synth.h`: Opaque Rust voice state, synthesis declarations,
+  and the inline binding from the C sequencer to pointer-based Rust callbacks.
 - `src/audio/audio_platform.h`, `src/audio/audio_psx.c`: Double-buffered score
   publication, SPU upload/registers, timer interrupts, lifecycle, and
   debugger-visible measurements.
@@ -113,7 +112,7 @@ The editor, model, file codec, storage coordinator, input history, and display
 formatting run in Rust. C retains SDK and hardware access. Shared
 aggregates cross the C/Rust boundary through pointers. The sequencer still
 runs in the timer callback as optimized C. Voice synthesis runs there in Rust
-through C aggregate-value ABI adapters. Changes to either path require
+through pointer-based callbacks. Changes to either path require
 checking the 1 ms dispatch deadline and interrupt stack use on the emulator.
 `scripts/elf2x-rust.py` omits Rust's GNU_STACK metadata from the temporary ELF
 passed to the SDK converter. The linked ELF itself is unchanged. Host tests

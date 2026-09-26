@@ -27,13 +27,14 @@ typedef uint64_t AudioTime;
 
 /*
  * Sink callbacks consume event times in sequencer ticks; context remains live.
- * on returns zero to drop a note, or a generation token whose low five bits
- * identify a logical slot in 0..11. off receives that same token unchanged.
+ * The sound pointer is valid only during on and must not be retained or
+ * modified. on returns zero to drop a note, or a generation token whose low
+ * five bits identify a logical slot in 0..11. off receives it unchanged.
  */
 typedef struct
 {
     void* context;
-    uint32_t (*on)(void*, AudioTime, int, SoundSettings);
+    uint32_t (*on)(void*, AudioTime, int, const SoundSettings*);
     void (*off)(void*, AudioTime, uint32_t);
     void (*stop)(void*, AudioTime);
     void (*advance)(void*, AudioTime);

@@ -300,7 +300,7 @@ static void tile_event(Sequencer* s, Runner* r, TileId t, AudioTime now)
         }
         uint32_t token =
             s->sink.on(s->sink.context, s->slice_at, v.pitch,
-                       s->working[s->score->lanes[r->origin].channel]);
+                       &s->working[s->score->lanes[r->origin].channel]);
         if (token)
         {
             s->offs[token & 31] = (NoteOff){

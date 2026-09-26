@@ -1,11 +1,27 @@
 # Validation Record
 
+## Pointer-based audio callback verification (2026-09-26)
+
+The host suite and Debug/Release PlayStation builds pass after switching the
+sequencer note callback to a `SoundSettings` pointer. PCSX-Redux audio fixtures
+pass in both configurations. The largest bounded normal dispatch is 3,434
+ticks in Debug and 3,154 ticks in Release, below the 4,233-tick (1 ms)
+deadline. The intentional 4,096-tile overload reports skips and overloads as
+expected.
+
+The normal storage fixture records main-stack peaks of 4,584 bytes in Debug
+and 4,572 bytes in Release. Interrupt-stack peaks are 244/4,096 and
+252/4,096 bytes, respectively. Build, runner, and stack logs are under
+`build/verification/audio-pointer-*`; raw emulator logs are under
+`build/validation/`.
+
 ## Rust voice synthesis verification (2026-09-26)
 
 The logical voice allocator, envelopes, mix, pitch sweep, and reverb mask now
-run in Rust. A C adapter retains the aggregate-value callback boundary with
-the C sequencer and SPU driver. The host suite passes, including all-note
-sweep and mix trajectories, allocation, stale gates, and delayed key-on.
+run in Rust. At the time of this measurement, a C adapter retained the
+aggregate-value callback boundary with the C sequencer and SPU driver. The
+host suite passed, including all-note sweep and mix trajectories, allocation,
+stale gates, and delayed key-on.
 
 PCSX-Redux audio fixtures pass in Debug and Release. The waveform fixture
 samples the first chord before another score step can reuse its voices; sweep

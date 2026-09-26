@@ -9,7 +9,7 @@
 
 #include "value_api.h"
 
-#include "audio/audio_abi.h"
+#include "audio_synth.h"
 #include "editor.h"
 
 #include <assert.h>
@@ -52,11 +52,12 @@ static uint32_t last_wet;
 static AudioTime dispatch_time;
 static uint32_t serial;
 
-static uint32_t note(void* ctx, AudioTime at, int pitch, SoundSettings sound)
+static uint32_t note(void* ctx, AudioTime at, int pitch,
+                     const SoundSettings* sound)
 {
     (void)ctx;
     assert(count < 4096);
-    events[count++] = (Event){at, pitch, sound};
+    events[count++] = (Event){at, pitch, *sound};
     return (++serial << 5) | (slot++ % SEQUENCER_VOICES);
 }
 
@@ -356,7 +357,7 @@ static void voices(void)
     {
         tokens[i] = sink.on(
             sink.context, 0, 48 + i,
-            (SoundSettings){100, 200, WAVE_SINE, WAVE_SINE, 0, 0, 0, 200, 0});
+            &(SoundSettings){100, 200, WAVE_SINE, WAVE_SINE, 0, 0, 0, 200, 0});
     }
     sink.advance(sink.context, audio_ms(50));
     assert(levels[0] >= AUDIO_LEVEL / 2 - 1 &&
@@ -367,20 +368,20 @@ static void voices(void)
            levels[0] <= (AUDIO_LEVEL + 3) / 4 + 1);
     uint32_t replacement =
         sink.on(sink.context, audio_ms(150), 80,
-                (SoundSettings){0, 5, WAVE_SINE, WAVE_SINE, 0, 0, 0, 200, 0});
+                &(SoundSettings){0, 5, WAVE_SINE, WAVE_SINE, 0, 0, 0, 200, 0});
     assert((replacement & 31) == 0 && audio_steals(audio) == 1);
     sink.off(sink.context, audio_ms(160), tokens[0]);
     assert(!voice(0).releasing);
     replacement =
         sink.on(sink.context, audio_ms(160), 81,
-                (SoundSettings){0, 0, WAVE_SINE, WAVE_SINE, 0, 0, 0, 200, 0});
+                &(SoundSettings){0, 0, WAVE_SINE, WAVE_SINE, 0, 0, 0, 200, 0});
     assert((replacement & 31) == 1);
     sink.off(sink.context, audio_ms(160), replacement);
     sink.advance(sink.context, audio_ms(160));
     assert(!voice(1).active && levels[1] == 0);
     sink.on(
         sink.context, audio_ms(161), 82,
-        (SoundSettings){16000, 16000, WAVE_SINE, WAVE_SINE, 0, 0, 0, 200, 0});
+        &(SoundSettings){16000, 16000, WAVE_SINE, WAVE_SINE, 0, 0, 0, 200, 0});
     assert(voice(1).pitch == 82);
     sink.stop(sink.context, audio_ms(200));
     sink.advance(sink.context, audio_ms(205));
@@ -391,12 +392,12 @@ static void voices(void)
     assert(stops > 0);
     uint32_t old =
         sink.on(sink.context, audio_ms(1000), 48,
-                (SoundSettings){0, 0, WAVE_SINE, WAVE_SINE, 0, 0, 0, 200, 0});
+                &(SoundSettings){0, 0, WAVE_SINE, WAVE_SINE, 0, 0, 0, 200, 0});
     sink.advance(sink.context, audio_ms(1000));
     sink.off(sink.context, audio_ms(1000), old);
     uint32_t fresh =
         sink.on(sink.context, audio_ms(1000), 60,
-                (SoundSettings){0, 0, WAVE_SINE, WAVE_SINE, 0, 0, 0, 200, 0});
+                &(SoundSettings){0, 0, WAVE_SINE, WAVE_SINE, 0, 0, 0, 200, 0});
     assert((fresh & 31) == (old & 31) && fresh != old);
     sink.off(sink.context, audio_ms(1000), old);
     sink.advance(sink.context, audio_ms(1000));
@@ -406,7 +407,7 @@ static void voices(void)
     sink.advance(sink.context, audio_ms(1006));
     uint32_t long_note = sink.on(
         sink.context, 0, 48,
-        (SoundSettings){16000, 16000, WAVE_SINE, WAVE_SINE, 0, 0, 0, 200, 0});
+        &(SoundSettings){16000, 16000, WAVE_SINE, WAVE_SINE, 0, 0, 0, 200, 0});
     sink.advance(sink.context, audio_ms(8000));
     assert(levels[0] >= AUDIO_LEVEL / 2 - 1 &&
            levels[0] <= (AUDIO_LEVEL + 1) / 2);
@@ -416,7 +417,7 @@ static void voices(void)
     AudioTime release_start = audio_ms(25000);
     uint32_t full_release = sink.on(
         sink.context, release_start, 48,
-        (SoundSettings){0, 16000, WAVE_SINE, WAVE_SINE, 0, 0, 0, 200, 0});
+        &(SoundSettings){0, 16000, WAVE_SINE, WAVE_SINE, 0, 0, 0, 200, 0});
     sink.advance(sink.context, release_start);
     assert(levels[0] == AUDIO_LEVEL);
     sink.off(sink.context, release_start, full_release);
@@ -453,7 +454,7 @@ static void late_dispatch(void)
         {0, 100, WAVE_SINE, WAVE_SINE, 0, 0, 0, 200, 1};
     dispatch_time = SEQUENCER_HZ / 1000 + 1;
     NoteSink sink = audio_sink(audio);
-    sink.on(sink.context, 0, 48, sound);
+    sink.on(sink.context, 0, 48, &sound);
     sink.advance(sink.context, 0);
     assert(!last_starts && last_stops == 1 && !last_wet);
     assert(!voice(0).active && audio_idle_mask(audio) == AUDIO_IDLE_MASK);

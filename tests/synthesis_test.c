@@ -9,7 +9,7 @@
 
 #include "value_api.h"
 
-#include "audio/audio_abi.h"
+#include "audio_synth.h"
 #include "audio_tables.h"
 
 #include <assert.h>
@@ -116,7 +116,7 @@ static void sweeps(void)
                 SoundSettings sound = {0,   16000, WAVE_SAW, WAVE_TRIANGLE,
                                        120, 280,   depth,    decays[d],
                                        0};
-                sink.on(sink.context, origin, note, sound);
+                sink.on(sink.context, origin, note, &sound);
                 AudioTime duration = audio_ms(decays[d]);
                 int previous = 0;
                 for (int i = 0; i <= 513; i++)
@@ -203,7 +203,7 @@ static void envelopes(void)
                 NoteSink sink = reset();
                 SoundSettings sound = {0,        16000, wave, wave, times[a],
                                        times[r], 24,    2000, 0};
-                uint32_t token = sink.on(sink.context, 0, 48, sound);
+                uint32_t token = sink.on(sink.context, 0, 48, &sound);
                 AudioTime attack = audio_ms(times[a]);
                 AudioTime release = audio_ms(times[r]);
                 for (int ms = 0; ms <= 1001; ms++)
@@ -236,7 +236,7 @@ static void envelopes(void)
         NoteSink sink = reset();
         SoundSettings sound = {100, 500,  WAVE_NOISE, WAVE_SQUARE, 120, 280,
                                -24, 2000, 0};
-        uint32_t token = sink.on(sink.context, 0, 48, sound);
+        uint32_t token = sink.on(sink.context, 0, 48, &sound);
         sink.advance(sink.context, audio_ms(gate));
         int before = pitches[0];
         int level = voice(0).level;
@@ -250,7 +250,7 @@ static void envelopes(void)
     }
     NoteSink sink = reset();
     SoundSettings sound = {0, 0, WAVE_SINE, WAVE_NOISE, 0, 0, 0, 0, 0};
-    uint32_t token = sink.on(sink.context, 0, 48, sound);
+    uint32_t token = sink.on(sink.context, 0, 48, &sound);
     sink.off(sink.context, 0, token);
     sink.advance(sink.context, 0);
     assert(!started && stopped == 1 && !gains[0][0] && !gains[0][1]);
@@ -278,7 +278,7 @@ static void transients(void)
     {
         NoteSink sink = reset_ready(ready);
         ready_mask = 0;
-        uint32_t token = sink.on(sink.context, origin, 48, sound);
+        uint32_t token = sink.on(sink.context, origin, 48, &sound);
         // Even the initial register dispatch can be later than the note's
         // timestamp. Neither that delay nor pending mixer work eats the snap.
         sink.advance(sink.context, origin + audio_ms(1) / 4);
@@ -308,7 +308,7 @@ static void transients(void)
     uint32_t tokens[SEQUENCER_VOICES];
     for (int i = 0; i < SEQUENCER_VOICES; i++)
     {
-        tokens[i] = sink.on(sink.context, origin, 48, sound);
+        tokens[i] = sink.on(sink.context, origin, 48, &sound);
     }
     sink.advance(sink.context, origin);
     ready_mask = 2;
@@ -317,7 +317,7 @@ static void transients(void)
     assert(gains[0][1] == AUDIO_LEVEL && !gains[1][1]);
     ready_mask = (1u << SEQUENCER_VOICES) - 1;
     sink.advance(sink.context, origin + audio_ms(5));
-    uint32_t fresh = sink.on(sink.context, origin + audio_ms(6), 48, sound);
+    uint32_t fresh = sink.on(sink.context, origin + audio_ms(6), 48, &sound);
     assert((fresh & 31) == 0 && audio_steals(audio) == 1);
     // A stale ready value before flush must not acknowledge the replacement.
     sink.advance(sink.context, origin + audio_ms(6));
@@ -332,12 +332,12 @@ static void transients(void)
     sink.advance(sink.context, origin + audio_ms(13));
     assert(audio_idle_mask(audio) == AUDIO_IDLE_MASK);
     sound.release = 0;
-    fresh = sink.on(sink.context, origin + audio_ms(14), 48, sound);
+    fresh = sink.on(sink.context, origin + audio_ms(14), 48, &sound);
     sink.advance(sink.context, origin + audio_ms(14));
     sink.off(sink.context, origin + audio_ms(15), fresh);
     sink.advance(sink.context, origin + audio_ms(15));
     assert(!voice(0).active && !gains[0][1]);
-    sink.on(sink.context, origin + audio_ms(16), 48, sound);
+    sink.on(sink.context, origin + audio_ms(16), 48, &sound);
     sink.advance(sink.context, origin + audio_ms(16));
     assert(voice(0).waiting);
     sink.stop(sink.context, origin + audio_ms(17));

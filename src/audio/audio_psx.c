@@ -8,8 +8,7 @@
  */
 
 #include "audio/audio_platform.h"
-
-#include "audio/audio_abi.h"
+#include "audio_synth.h"
 
 #include <psxapi.h>
 #include <psxetc.h>
