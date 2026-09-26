@@ -53,8 +53,8 @@ link_grid_rust(psx-grid)
 target_include_directories(psx-grid PRIVATE include src "${CMAKE_CURRENT_BINARY_DIR}/generated")
 target_compile_options(psx-grid PRIVATE -Wall -Wextra)
 
-# Keep the C portion of the interrupt path optimized in Debug as well. The
-# Rust profile controls voice synthesis; emulator fixtures check both builds.
+# Keep the C entry point and platform interrupt path optimized in Debug.
+# The Rust profile controls traversal and synthesis; fixtures check both builds.
 set_source_files_properties(src/audio/sequencer.c src/audio/audio_psx.c src/input/pad.c PROPERTIES COMPILE_OPTIONS -O2)
 
 # PSn00bSDK GPU packet macros intentionally alias the DMA tag types.

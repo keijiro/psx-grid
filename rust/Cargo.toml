@@ -8,8 +8,10 @@ crate-type = ["staticlib"]
 
 [profile.dev]
 panic = "abort"
-# Voice service must meet the 1 ms dispatch deadline in Debug fixtures.
-opt-level = 3
+# Rust traversal and synthesis share the 1 ms timer budget in Debug;
+# emulator fixtures validate this profile under dense note load.
+opt-level = 2
+overflow-checks = false
 
 [profile.release]
 panic = "abort"

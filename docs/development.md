@@ -65,14 +65,16 @@ those groups.
   initialization.
 - `src/storage/card.h`, `src/storage/card_bios.c`: File-level card interface
   and BIOS backend.
-- `src/audio/sequencer.*`: SDK-independent runners, exact absolute deadlines,
+- `rust/src/sequencer.rs`: SDK-independent runners, exact absolute deadlines,
   live runner reconciliation, ordered held locks, generation-tagged gate-offs,
   and bounded catch-up.
+- `src/audio/sequencer.h`, `src/audio/sequencer.c`: Shared caller-owned layout,
+  C declarations, and aggregate-value sink adapter for generic C callbacks.
 - `rust/src/audio.rs`: SDK-independent 12-note pair allocation,
   amplitude/mix envelopes, and fixed-point pitch sweep with an injected
   register driver for host tests.
 - `include/audio_synth.h`: Opaque Rust voice state, synthesis declarations,
-  and the inline binding from the C sequencer to pointer-based Rust callbacks.
+  and the inline binding to pointer-based Rust callbacks.
 - `src/audio/audio_platform.h`, `src/audio/audio_psx.c`: Double-buffered score
   publication, SPU upload/registers, timer interrupts, lifecycle, and
   debugger-visible measurements.
@@ -110,9 +112,8 @@ The Rust crate targets `mipsel-sony-psx` and builds `core` from pinned
 static library into the game and fixtures.
 The editor, model, file codec, storage coordinator, input history, and display
 formatting run in Rust. C retains SDK and hardware access. Shared
-aggregates cross the C/Rust boundary through pointers. The sequencer still
-runs in the timer callback as optimized C. Voice synthesis runs there in Rust
-through pointer-based callbacks. Changes to either path require
+aggregates cross the C/Rust boundary through pointers. Sequencing and voice
+synthesis run in Rust from the timer callback. Changes to either path require
 checking the 1 ms dispatch deadline and interrupt stack use on the emulator.
 `scripts/elf2x-rust.py` omits Rust's GNU_STACK metadata from the temporary ELF
 passed to the SDK converter. The linked ELF itself is unchanged. Host tests

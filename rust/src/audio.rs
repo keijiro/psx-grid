@@ -62,6 +62,7 @@ pub(crate) struct Audio {
     steals: u32,
     idle_mask: u32,
     allocation_time: u64,
+    steal_next: c_int,
     late_starts: u32,
 }
 
@@ -226,6 +227,7 @@ pub unsafe extern "C" fn audio_init(
         };
         (*a).idle_mask = IDLE_MASK;
         (*a).allocation_time = u64::MAX;
+        (*a).steal_next = VOICES as c_int;
         a
     }
 }
@@ -251,6 +253,7 @@ pub unsafe extern "C" fn audio_restart(a: *mut Audio) {
     a.stops = IDLE_MASK;
     a.idle_mask = IDLE_MASK;
     a.allocation_time = u64::MAX;
+    a.steal_next = VOICES as c_int;
     a.late_starts = 0;
 }
 
@@ -339,6 +342,7 @@ pub unsafe extern "C" fn audio_idle_mask(a: *const Audio) -> u32 {
 pub unsafe extern "C" fn rust_audio_advance(ctx: *mut c_void, now: u64) {
     // SAFETY: The sequencer serializes calls and keeps its Audio context live.
     let a = unsafe { &mut *(ctx as *mut Audio) };
+    a.steal_next = VOICES as c_int;
     if a.idle_mask == IDLE_MASK && a.starts | a.stops == 0 {
         return;
     }
@@ -463,6 +467,9 @@ pub unsafe extern "C" fn rust_audio_on(
     // Reclaim at most once per event time so chords share allocation state.
     if a.allocation_time != now {
         a.allocation_time = now;
+        a.steal_next = VOICES as c_int;
+        let common_start = a.voices[0].start;
+        let mut uniform_chord = a.idle_mask == 0 && common_start < now;
         for i in 0..VOICES {
             let v = &mut a.voices[i];
             if v.active != 0 && v.releasing != 0 && now >= v.end {
@@ -480,11 +487,23 @@ pub unsafe extern "C" fn rust_audio_on(
                     )
                 };
             }
+            if v.active == 0 || v.releasing != 0 || v.start != common_start {
+                uniform_chord = false;
+            }
+        }
+        // Tied oldest starts are stolen in slot order. Cache that order for
+        // a full unreleased chord instead of rescanning twelve slots per note.
+        if uniform_chord && a.idle_mask == 0 {
+            a.steal_next = 0;
         }
     }
     if a.idle_mask != 0 {
         slot = a.idle_mask.trailing_zeros() as usize;
         a.idle_mask &= !(1 << slot);
+    } else if a.steal_next < VOICES as c_int {
+        slot = a.steal_next as usize;
+        a.steal_next += 1;
+        a.steals += 1;
     } else {
         let mut quiet = None;
         let mut quiet_level = LEVEL as c_int + 1;
@@ -551,6 +570,7 @@ pub unsafe extern "C" fn rust_audio_off(
 ) {
     // SAFETY: The sequencer keeps its context live and serializes callbacks.
     let a = unsafe { &mut *(ctx as *mut Audio) };
+    a.steal_next = VOICES as c_int;
     let i = (token & 31) as usize;
     if i >= VOICES {
         return;
@@ -582,6 +602,7 @@ pub unsafe extern "C" fn rust_audio_off(
 pub unsafe extern "C" fn rust_audio_stop(ctx: *mut c_void, now: u64) {
     // SAFETY: The sequencer keeps its context live and serializes callbacks.
     let a = unsafe { &mut *(ctx as *mut Audio) };
+    a.steal_next = VOICES as c_int;
     for i in 0..VOICES {
         if a.voices[i].active != 0 {
             release(a, i, now, 5);

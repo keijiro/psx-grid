@@ -443,6 +443,37 @@ static void voices(void)
 }
 
 /*
+ * A full chord with tied starts must steal each old pair in slot order.
+ */
+static void uniform_steals(void)
+{
+    audio = audio_init(NULL, driver_start, driver_volume, driver_pitch,
+                       driver_flush, NULL, NULL);
+    NoteSink sink = audio_sink(audio);
+    SoundSettings sound = SOUND_DEFAULT;
+    uint32_t old[SEQUENCER_VOICES];
+    for (int i = 0; i < SEQUENCER_VOICES; i++)
+    {
+        old[i] = sink.on(sink.context, 0, 48 + i, &sound);
+        assert((old[i] & 31) == (uint32_t)i);
+    }
+    sink.advance(sink.context, 0);
+    AudioTime now = audio_ms(100);
+    for (int i = 0; i < SEQUENCER_VOICES; i++)
+    {
+        uint32_t token = sink.on(sink.context, now, 60 + i, &sound);
+        assert((token & 31) == (uint32_t)i);
+    }
+    assert(audio_steals(audio) == SEQUENCER_VOICES);
+    for (int i = 0; i < SEQUENCER_VOICES; i++)
+    {
+        sink.off(sink.context, now, old[i]);
+        assert(voice(i).active && !voice(i).releasing &&
+               voice(i).pitch == 60 + i);
+    }
+}
+
+/*
  * A delayed hardware dispatch must retire its voice before key-on and remove
  * the rejected slot from the wet-send mask passed to the register driver.
  */
@@ -1072,6 +1103,7 @@ int main(void)
     locks();
     gates_branches();
     voices();
+    uniform_steals();
     late_dispatch();
     overload();
     model_editor();

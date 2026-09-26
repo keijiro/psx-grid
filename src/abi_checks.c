@@ -12,6 +12,7 @@
 #include "input.h"
 #include "score_format.h"
 #include "storage.h"
+#include "audio/sequencer.h"
 #include "ui/ui_style.h"
 
 // The Rust codec uses these discriminants as stable wire tags.
@@ -22,6 +23,9 @@ _Static_assert(TILE_NOTE == 1 && TILE_CYCLE == 2 && TILE_PROBABILITY == 3 &&
                    TILE_JUMP == 4 && TILE_RELATIVE == 5,
                "Rust tile tags must match the C model");
 _Static_assert(sizeof(Score) == 199524, "Rust Score ABI changed");
+_Static_assert(sizeof(Runner) == 432, "Rust Runner ABI changed");
+_Static_assert(sizeof(Sequencer) == (sizeof(void*) == 4 ? 7632 : 7664),
+               "Rust Sequencer ABI changed");
 _Static_assert(sizeof(TileValue) == 36, "Rust TileValue ABI changed");
 _Static_assert(sizeof(Cell) == 20, "Rust Cell ABI changed");
 _Static_assert(sizeof(Clipboard) == 2308, "Rust Clipboard ABI changed");

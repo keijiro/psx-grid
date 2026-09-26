@@ -12,6 +12,7 @@ mod input;
 mod score;
 mod score_edit;
 mod score_format;
+mod sequencer;
 mod storage;
 mod ui_format;
 mod ui_metrics;

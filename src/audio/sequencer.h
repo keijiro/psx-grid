@@ -1,10 +1,10 @@
 /*
  * sequencer.h - Clocked traversal of score lanes into note events
  *
- * A caller-owned Sequencer traverses an immutable Score snapshot into note
- * events through a supplied sink. It uses fixed storage for pending note-offs
- * and must be serviced with serialized access. A replacement is adopted only
- * at a complete slice edge.
+ * A caller-owned Sequencer holds Rust traversal state for an immutable Score
+ * snapshot and supplies note events through a sink. It uses fixed storage for
+ * pending note-offs and must be serviced with serialized access. A replacement
+ * is adopted only at a complete slice edge.
  */
 
 #ifndef SEQUENCER_H
@@ -91,6 +91,14 @@ typedef struct Sequencer
     int held_index;
     int jump;
     TileId cursor;
+    // BPM quotient refreshed when the active score snapshot changes.
+    uint32_t step_ticks;
+    // Derived origin channels stay outside runner cursors across live edits.
+    int channels[SCORE_LANES];
+    // Locks or publication require a fresh working bank at the next slice.
+    int working_dirty;
+    // Conservative earliest gate deadline avoids scanning future offs.
+    AudioTime off_min;
 } Sequencer;
 
 /*
