@@ -122,7 +122,8 @@ int main(void)
     render_init();
     audio_platform_init();
     pad_init();
-    storage_init(&storage, card_platform_backend());
+    CardBackend backend = card_platform_backend();
+    storage_init(&storage, &backend);
     int connected = 0;
     for (;;)
     {
@@ -134,8 +135,9 @@ int main(void)
             connected = sample.connected;
             EditorMode before = editor.mode;
             int selected = editor.selected;
-            InputFrame frame = input_update(&input, connected, sample.held);
-            editor_update(&editor, frame);
+            InputFrame frame;
+            input_update(&input, connected, sample.held, &frame);
+            editor_update(&editor, &frame);
             if (editor.mode != before) input_reset_repeat(&input);
             else if (editor.selected != selected)
             {

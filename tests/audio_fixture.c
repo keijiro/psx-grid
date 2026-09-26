@@ -7,6 +7,8 @@
  * and reports hardware counters for emulator-driven checks.
  */
 
+#include "value_api.h"
+
 #include "audio.h"
 #include "editor.h"
 #include "pad.h"
@@ -122,7 +124,7 @@ static void publish_revisions(const char* phase, int count)
         }
         TileValue value = editor.score.tiles[tile].value;
         value.pitch = value.pitch == 48 ? 55 : 48;
-        score_edit(&editor.score, tile, value);
+        test_score_edit(&editor.score, tile, value);
         AudioTime begin = audio_platform_time();
         audio_platform_update(&editor.score, 1, 0);
         uint32_t copied = (uint32_t)(audio_platform_time() - begin);
@@ -156,7 +158,7 @@ static void stop_pending(int disconnect)
         TileId tile = editor.score.lanes[0].tiles[0];
         TileValue value = editor.score.tiles[tile].value;
         value.pitch = value.pitch == 48 ? 55 : 48;
-        score_edit(&editor.score, tile, value);
+        test_score_edit(&editor.score, tile, value);
         audio_platform_update(&editor.score, 1, 0);
         // Freeze only the adoption window after the large copy has finished.
         // This makes the pending-stop case observable without masking the timer
@@ -199,7 +201,7 @@ static void coalesce_revision(void)
         {
             SoundSettings sound = editor.score.sounds[channel];
             sound.reverb = !sound.reverb;
-            score_set_sound(&editor.score, channel, sound);
+            test_score_set_sound(&editor.score, channel, sound);
             audio_platform_update(&editor.score, 1, 0);
             deferred = audio_platform_revision() == before;
         }
@@ -229,13 +231,13 @@ static void synthesis_checks(void)
         score_init(&editor.score);
         score_create(&editor.score, 0, 0, 1);
         score_set_division(&editor.score, 0, 1);
-        score_set_sound(&editor.score, 0,
+        test_score_set_sound(&editor.score, 0,
                         (SoundSettings){0, 5, wave, wave, 0, 0, 0, 200, 0});
-        TileValue note = score_default(TILE_NOTE);
+        TileValue note = test_score_default(TILE_NOTE);
         note.length = 1280;
         for (int i = 0; i < SEQUENCER_VOICES; i++)
         {
-            score_place_value(&editor.score, 1, i, note);
+            test_score_place_value(&editor.score, 1, i, note);
         }
         audio_platform_update(&editor.score, 1, 1);
         frames(12);
@@ -271,14 +273,14 @@ static void synthesis_checks(void)
         score_init(&editor.score);
         score_create(&editor.score, 0, 0, 1);
         score_set_division(&editor.score, 0, 1);
-        score_set_sound(&editor.score, 0,
+        test_score_set_sound(&editor.score, 0,
                         (SoundSettings){0, 500, WAVE_SAW, WAVE_SQUARE, 100, 100,
                                         sign * 24, 200, 0});
-        TileValue note = score_default(TILE_NOTE);
+        TileValue note = test_score_default(TILE_NOTE);
         note.length = 1280;
         for (int i = 0; i < SEQUENCER_VOICES; i++)
         {
-            score_place_value(&editor.score, 1, i, note);
+            test_score_place_value(&editor.score, 1, i, note);
         }
         audio_platform_update(&editor.score, 1, 1);
         const int times[] =
@@ -344,12 +346,12 @@ static void transient_checks(void)
         score_init(&editor.score);
         score_create(&editor.score, 0, 0, 1);
         score_set_division(&editor.score, 0, 1);
-        score_set_sound(
+        test_score_set_sound(
             &editor.score, 0,
             (SoundSettings){0, 5, WAVE_SINE, WAVE_NOISE, 0, 1, 24, 1, 0});
-        TileValue note = score_default(TILE_NOTE);
+        TileValue note = test_score_default(TILE_NOTE);
         note.length = 1280;
-        score_place_value(&editor.score, 1, 0, note);
+        test_score_place_value(&editor.score, 1, 0, note);
         audio_platform_update(&editor.score, 1, 1);
         int saw_initial = 0;
         int saw_end = 0;
@@ -443,20 +445,20 @@ static void channel_checks(void)
             sound.reverb = i ? !wet : wet;
             sound.mix_attack = sound.mix_release = 0;
             sound.wave_a = sound.wave_b = i ? WAVE_SQUARE : WAVE_SAW;
-            score_set_sound(&editor.score, i, sound);
-            TileValue note = score_default(TILE_NOTE);
+            test_score_set_sound(&editor.score, i, sound);
+            TileValue note = test_score_default(TILE_NOTE);
             note.length = i ? 1280 : 8;
-            score_place_value(&editor.score, i * 6 + 1, 0, note);
-            if (!i) score_place_value(&editor.score, 3, 0, note);
+            test_score_place_value(&editor.score, i * 6 + 1, 0, note);
+            if (!i) test_score_place_value(&editor.score, 3, 0, note);
         }
-        score_set_reverb(&editor.score, (ReverbSettings){2, 100});
+        test_score_set_reverb(&editor.score, (ReverbSettings){2, 100});
         audio_platform_update(&editor.score, 1, 1);
         channel_wait(100);
         channel_sample(wet, "held");
         SoundSettings sound = editor.score.sounds[0];
         sound.reverb = !wet;
         sound.release = 0;
-        score_set_sound(&editor.score, 0, sound);
+        test_score_set_sound(&editor.score, 0, sound);
         audio_platform_update(&editor.score, 1, 0);
         channel_wait(150);
         channel_sample(wet, "edited");
@@ -511,12 +513,12 @@ static void channel_checks(void)
         sound.reverb = i % 2;
         sound.attack = sound.release = sound.mix_attack = sound.mix_release = 0;
         sound.wave_a = sound.wave_b = i % WAVE_COUNT;
-        score_set_sound(&editor.score, i % SCORE_CHANNELS, sound);
-        TileValue note = score_default(TILE_NOTE);
+        test_score_set_sound(&editor.score, i % SCORE_CHANNELS, sound);
+        TileValue note = test_score_default(TILE_NOTE);
         note.length = 10;
         if (i < SEQUENCER_VOICES)
         {
-            score_place_value(&editor.score, i * 6 + 1, 0, note);
+            test_score_place_value(&editor.score, i * 6 + 1, 0, note);
         }
     }
     audio_service_peak = audio_interval_peak = 0;
@@ -563,13 +565,13 @@ static void menu_audio_checks(void)
         // retriggering before its captured send is inspected.
         score_create(&editor.score, 0, 0, 16);
         score_set_division(&editor.score, 0, 1);
-        TileValue note = score_default(TILE_NOTE);
+        TileValue note = test_score_default(TILE_NOTE);
         note.length = 1280;
-        score_place_value(&editor.score, 1, 0, note);
+        test_score_place_value(&editor.score, 1, 0, note);
         SoundSettings sound = editor.score.sounds[0];
         sound.reverb = 1;
-        score_set_sound(&editor.score, 0, sound);
-        score_set_reverb(&editor.score, (ReverbSettings){size, 100});
+        test_score_set_sound(&editor.score, 0, sound);
+        test_score_set_reverb(&editor.score, (ReverbSettings){size, 100});
         audio_platform_update(&editor.score, 1, 1);
         frames(60);
         // Read the effect work area through SPU DMA. Nonzero feedback memory
@@ -595,22 +597,22 @@ static void menu_audio_checks(void)
             (unsigned)SPU_REVERB_ON1 | ((unsigned)SPU_REVERB_ON2 << 16),
             nonzero);
         sound.reverb = 0;
-        score_set_sound(&editor.score, 0, sound);
+        test_score_set_sound(&editor.score, 0, sound);
         audio_platform_update(&editor.score, 1, 0);
         frames(4);
         log_message("REVERB held size=%d send=%u\n", size,
                     (unsigned)SPU_REVERB_ON1 |
                         ((unsigned)SPU_REVERB_ON2 << 16));
         sound.reverb = 1;
-        score_set_sound(&editor.score, 0, sound);
-        score_set_reverb(&editor.score, (ReverbSettings){size, 0});
+        test_score_set_sound(&editor.score, 0, sound);
+        test_score_set_reverb(&editor.score, (ReverbSettings){size, 0});
         audio_platform_update(&editor.score, 1, 0);
         frames(4);
         log_message("REVERB zero size=%d left=%u right=%u send=%u\n", size,
                     (unsigned)SPU_REVERB_VOL_L, (unsigned)SPU_REVERB_VOL_R,
                     (unsigned)SPU_REVERB_ON1 |
                         ((unsigned)SPU_REVERB_ON2 << 16));
-        score_set_reverb(&editor.score, (ReverbSettings){(size + 1) % 3, 100});
+        test_score_set_reverb(&editor.score, (ReverbSettings){(size + 1) % 3, 100});
         audio_service_peak = audio_interval_peak = 0;
         AudioTime begin = audio_platform_time();
         audio_platform_update(&editor.score, 1, 0);
@@ -661,9 +663,9 @@ int main(void)
     score_create(&editor.score, 0, 0, 16);
     for (int i = 0; i < SEQUENCER_VOICES; i++)
     {
-        TileValue chord = score_default(TILE_NOTE);
+        TileValue chord = test_score_default(TILE_NOTE);
         chord.pitch = 36 + i;
-        score_place_value(&editor.score, 1, i, chord);
+        test_score_place_value(&editor.score, 1, i, chord);
     }
     audio_platform_update(&editor.score, 1, 1);
     frames(6);
@@ -676,11 +678,11 @@ int main(void)
     {
         score_init(&editor.score);
         score_create(&editor.score, 0, 0, 1);
-        TileValue note = score_default(TILE_NOTE);
+        TileValue note = test_score_default(TILE_NOTE);
         note.pitch = octave * 12;
         note.length = 1280;
-        score_place_value(&editor.score, 1, 0, note);
-        score_place_value(&editor.score, 1, 1, note);
+        test_score_place_value(&editor.score, 1, 0, note);
+        test_score_place_value(&editor.score, 1, 1, note);
         audio_platform_update(&editor.score, 1, 1);
         frames(12);
         SpuSetTransferStartAddr(0x800);
@@ -707,12 +709,12 @@ int main(void)
         score_init(&editor.score);
         score_create(&editor.score, 0, 0, 1);
         score_set_division(&editor.score, 0, 1);
-        score_set_sound(&editor.score, 0,
+        test_score_set_sound(&editor.score, 0,
                         (SoundSettings){times[i], times[i], WAVE_SINE,
                                         WAVE_SINE, 0, 0, 0, 200, 0});
-        TileValue note = score_default(TILE_NOTE);
+        TileValue note = test_score_default(TILE_NOTE);
         note.length = 5;
-        score_place_value(&editor.score, 1, 0, note);
+        test_score_place_value(&editor.score, 1, 0, note);
         audio_platform_update(&editor.score, 1, 1);
         uint32_t peak = 0;
         uint32_t zero = 0;
@@ -758,7 +760,7 @@ int main(void)
             for (int k = 0; k < 64; k++, id++)
             {
                 editor.score.tiles[id] =
-                    (Tile){score_default(TILE_NOTE),
+                    (Tile){test_score_default(TILE_NOTE),
                            k == 63 ? 0 : (TileId)(id + 1), -1};
                 editor.score.tile_generation[id] = ++editor.score.generation;
             }

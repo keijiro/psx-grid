@@ -7,6 +7,8 @@
  * invoking a physical card session.
  */
 
+#include "value_api.h"
+
 #include "editor.h"
 
 #include <assert.h>
@@ -18,7 +20,7 @@ static Input input;
 
 static void frame(uint16_t held)
 {
-    editor_update(&editor, input_update(&input, 1, held));
+    test_editor_update(&editor, test_input_update(&input, 1, held));
 }
 
 static void tap(uint16_t button)

@@ -7,6 +7,8 @@
  * ownership and timer behavior under emulation.
  */
 
+#include "value_api.h"
+
 #include "audio.h"
 #include "pad.h"
 
@@ -73,14 +75,14 @@ static void make_score(Score* score, int bpm, int size, int pitch)
     score_init(score);
     score_create(score, 0, 0, 1);
     score_set_bpm(score, bpm);
-    score_set_reverb(score, (ReverbSettings){size, 100});
+    test_score_set_reverb(score, (ReverbSettings){size, 100});
     for (int i = 0; i < SEQUENCER_VOICES; i++)
     {
         if (i) score_create(score, 0, i, 1);
-        TileValue note = score_default(TILE_NOTE);
+        TileValue note = test_score_default(TILE_NOTE);
         note.pitch = pitch + i;
         note.length = 128;
-        score_place_value(score, 1, i, note);
+        test_score_place_value(score, 1, i, note);
     }
 }
 

@@ -4,8 +4,8 @@
 //! operate on that storage without allocation.
 
 // Implementation notes:
-// These layouts mirror score.h. Pointer-out exports preserve the MIPS C ABI
-// for aggregate results while C callers keep the existing interface.
+// These layouts mirror score.h. Aggregate values cross the C boundary through
+// pointers so the MIPS C ABI never has to pass or return them by value.
 
 use core::ffi::c_int;
 
@@ -271,11 +271,8 @@ pub unsafe extern "C" fn score_init(score: *mut Score) {
 /// # Safety
 /// `value` must point to a valid writable C `TileValue`.
 #[no_mangle]
-pub unsafe extern "C" fn score_default_rust(
-    kind: c_int,
-    value: *mut TileValue,
-) {
-    // SAFETY: The C shim supplies a writable output object.
+pub unsafe extern "C" fn score_default(kind: c_int, value: *mut TileValue) {
+    // SAFETY: The C caller supplies a writable output object.
     unsafe { *value = default_value(kind) };
 }
 
@@ -373,16 +370,16 @@ pub unsafe extern "C" fn score_set_bpm(score: *mut Score, bpm: c_int) -> c_int {
 /// `score` and `reverb` must point to distinct valid C objects, with the
 /// score exclusively writable.
 #[no_mangle]
-pub unsafe extern "C" fn score_set_reverb_rust(
+pub unsafe extern "C" fn score_set_reverb(
     score: *mut Score,
     reverb: *const ReverbSettings,
 ) -> c_int {
-    // SAFETY: The C shim supplies a valid immutable setting object.
+    // SAFETY: The C caller supplies a valid immutable setting object.
     let reverb = unsafe { &*reverb };
     if !(0..=2).contains(&reverb.size) || !(0..=100).contains(&reverb.amount) {
         return SCORE_INVALID;
     }
-    // SAFETY: The C shim supplies exclusive access to the score.
+    // SAFETY: The C caller supplies exclusive access to the score.
     let score = unsafe { &mut *score };
     score.reverb = ReverbSettings {
         size: reverb.size,
@@ -398,12 +395,12 @@ pub unsafe extern "C" fn score_set_reverb_rust(
 /// `score` and `sound` must point to distinct valid C objects, with the
 /// score exclusively writable.
 #[no_mangle]
-pub unsafe extern "C" fn score_set_sound_rust(
+pub unsafe extern "C" fn score_set_sound(
     score: *mut Score,
     channel: c_int,
     sound: *const SoundSettings,
 ) -> c_int {
-    // SAFETY: The C shim supplies a valid immutable sound object.
+    // SAFETY: The C caller supplies a valid immutable sound object.
     let sound = unsafe { *sound };
     if !(0..CHANNELS as c_int).contains(&channel)
         || !(0..=1).contains(&sound.reverb)
@@ -418,7 +415,7 @@ pub unsafe extern "C" fn score_set_sound_rust(
     {
         return SCORE_INVALID;
     }
-    // SAFETY: The C shim supplies exclusive access to the score.
+    // SAFETY: The C caller supplies exclusive access to the score.
     let score = unsafe { &mut *score };
     score.sounds[channel as usize] = sound;
     score.revision = score.revision.wrapping_add(1);
@@ -430,13 +427,13 @@ pub unsafe extern "C" fn score_set_sound_rust(
 /// # Safety
 /// `score` and `cell` must point to distinct valid C objects.
 #[no_mangle]
-pub unsafe extern "C" fn score_at_rust(
+pub unsafe extern "C" fn score_at(
     score: *const Score,
     x: c_int,
     y: c_int,
     cell: *mut Cell,
 ) {
-    // SAFETY: The C shim supplies distinct valid input and output objects.
+    // SAFETY: The C caller supplies distinct valid input and output objects.
     unsafe { *cell = at(&*score, x, y) };
 }
 
@@ -445,13 +442,13 @@ pub unsafe extern "C" fn score_at_rust(
 /// # Safety
 /// `score` and `cell` must point to distinct valid C objects.
 #[no_mangle]
-pub unsafe extern "C" fn score_resolve_rust(
+pub unsafe extern "C" fn score_resolve(
     score: *const Score,
     x: c_int,
     y: c_int,
     cell: *mut Cell,
 ) {
-    // SAFETY: The C shim supplies distinct valid input and output objects.
+    // SAFETY: The C caller supplies distinct valid input and output objects.
     unsafe { *cell = resolve(&*score, x, y) };
 }
 
@@ -487,14 +484,14 @@ pub(crate) fn value_valid(value: TileValue) -> bool {
 /// `score` must point to a valid exclusively writable C `Score`, and `value`
 /// must point to a distinct immutable C `TileValue`.
 #[no_mangle]
-pub unsafe extern "C" fn score_edit_rust(
+pub unsafe extern "C" fn score_edit(
     score: *mut Score,
     id: u16,
     value: *const TileValue,
 ) -> c_int {
-    // SAFETY: The C shim supplies distinct valid score and value objects.
+    // SAFETY: The C caller supplies distinct valid score and value objects.
     let score = unsafe { &mut *score };
-    // SAFETY: The C shim supplies a valid immutable value.
+    // SAFETY: The C caller supplies a valid immutable value.
     let value = unsafe { *value };
     if id == 0
         || usize::from(id) > TILE_CAPACITY

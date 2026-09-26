@@ -7,6 +7,8 @@
  * replacement timing without hardware callbacks.
  */
 
+#include "value_api.h"
+
 #include "sequencer.h"
 
 #include <assert.h>
@@ -70,13 +72,13 @@ static void lane(Score* score, int x, int y, int length, int division,
                  int channel, int pitch)
 {
     assert(!score_create(score, x, y, length));
-    int id = score_at(score, x, y).lane;
+    int id = test_score_at(score, x, y).lane;
     assert(id >= 0);
     assert(!score_set_division(score, id, division));
     assert(!score_set_channel(score, id, channel));
-    TileValue value = score_default(TILE_NOTE);
+    TileValue value = test_score_default(TILE_NOTE);
     value.pitch = pitch;
-    assert(!score_place_value(score, x + 1, y, value));
+    assert(!test_score_place_value(score, x + 1, y, value));
 }
 
 static int count(EventKind kind, AudioTime at, int pitch)
@@ -192,19 +194,19 @@ static void branch_lap_and_gate_transfer(void)
     Sequencer prepared;
     score_init(&old);
     assert(!score_create(&old, 0, 0, 1));
-    TileValue jump = score_default(TILE_JUMP);
-    assert(!score_place_value(&old, 1, 0, jump));
-    int branch = old.tiles[score_at(&old, 1, 0).tile].branch;
+    TileValue jump = test_score_default(TILE_JUMP);
+    assert(!test_score_place_value(&old, 1, 0, jump));
+    int branch = old.tiles[test_score_at(&old, 1, 0).tile].branch;
     assert(!score_resize(&old, branch, 2));
     Lane* b = &old.lanes[branch];
-    TileValue held = score_default(TILE_RELATIVE);
+    TileValue held = test_score_default(TILE_RELATIVE);
     held.lock_mask = LOCK_ATTACK;
     held.attack = 100;
-    assert(!score_place_value(&old, b->x + 1, b->y, held));
-    TileValue long_note = score_default(TILE_NOTE);
+    assert(!test_score_place_value(&old, b->x + 1, b->y, held));
+    TileValue long_note = test_score_default(TILE_NOTE);
     long_note.pitch = 60;
     long_note.length = 60;
-    assert(!score_place_value(&old, b->x + 2, b->y, long_note));
+    assert(!test_score_place_value(&old, b->x + 2, b->y, long_note));
     score_init(&incoming);
     lane(&incoming, 0, 0, 1, 16, 0, 72);
     reset_trace();
@@ -243,19 +245,19 @@ static void conditional_branch_seams(void)
         Sequencer prepared;
         score_init(&old);
         assert(!score_create(&old, 0, 0, 1));
-        TileValue gate = score_default(TILE_CYCLE);
+        TileValue gate = test_score_default(TILE_CYCLE);
         gate.period = 2;
         gate.pattern = taken ? 1 : 2;
-        assert(!score_place_value(&old, 1, 0, gate));
+        assert(!test_score_place_value(&old, 1, 0, gate));
         assert(!score_place(&old, 1, 1, TILE_JUMP));
-        TileId gate_id = score_at(&old, 1, 0).tile;
+        TileId gate_id = test_score_at(&old, 1, 0).tile;
         TileId jump_id = old.tiles[gate_id].next;
         assert(old.tiles[jump_id].value.kind == TILE_JUMP);
         int branch = old.tiles[jump_id].branch;
         assert(!score_resize(&old, branch, 2));
-        TileValue branch_note = score_default(TILE_NOTE);
+        TileValue branch_note = test_score_default(TILE_NOTE);
         branch_note.pitch = 61;
-        assert(!score_place_value(&old, old.lanes[branch].x + 2,
+        assert(!test_score_place_value(&old, old.lanes[branch].x + 2,
                                   old.lanes[branch].y, branch_note));
 
         score_init(&incoming);
@@ -328,10 +330,10 @@ static void split_slice_discovers_seam(void)
     Sequencer prepared;
     score_init(&old);
     assert(!score_create(&old, 0, 0, 1));
-    TileValue held = score_default(TILE_RELATIVE);
+    TileValue held = test_score_default(TILE_RELATIVE);
     held.lock_mask = LOCK_ATTACK;
     held.attack = 1;
-    for (int y = 0; y < 40; y++) assert(!score_place_value(&old, 1, y, held));
+    for (int y = 0; y < 40; y++) assert(!test_score_place_value(&old, 1, y, held));
     score_init(&incoming);
     lane(&incoming, 0, 0, 1, 16, 0, 90);
     reset_trace();

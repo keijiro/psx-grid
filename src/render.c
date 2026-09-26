@@ -647,7 +647,8 @@ void render_frame(const Editor* e, int connected)
         {
             int x = VIEW_X + col * CELL_SIZE;
             int y = VIEW_Y + row * CELL_SIZE;
-            Cell c = score_at(&e->score, camera_x + col, camera_y + row);
+            Cell c;
+            score_at(&e->score, camera_x + col, camera_y + row, &c);
             rect(7, x + 8, y + 8, 1, 1, UI_DOT);
             if (c.kind == CELL_EMPTY) continue;
             const Lane* l = &e->score.lanes[c.lane];
@@ -700,9 +701,10 @@ void render_frame(const Editor* e, int connected)
     }
     if (e->mode == EDIT_MOVE)
     {
-        MovePlan p =
-            score_plan_move(&e->score, e->source_x, e->source_y, e->x, e->y);
-        Cell source = score_at(&e->score, e->source_x, e->source_y);
+        MovePlan p;
+        score_plan_move(&e->score, e->source_x, e->source_y, e->x, e->y, &p);
+        Cell source;
+        score_at(&e->score, e->source_x, e->source_y, &source);
         int gray = p.result == SCORE_OK ? UI_INK : UI_RAIL;
         marker(e->source_x, e->source_y, UI_BORDER);
         for (int row = 0; row < VIEW_ROWS; row++)
@@ -711,14 +713,16 @@ void render_frame(const Editor* e, int connected)
             {
                 int x = camera_x + col;
                 int y = camera_y + row;
-                Cell c = score_at(&e->score, x - e->x + e->source_x,
-                                  y - e->y + e->source_y);
+                Cell c;
+                score_at(&e->score, x - e->x + e->source_x,
+                         y - e->y + e->source_y, &c);
                 int carried =
                     source.kind == CELL_HEAD
                         ? c.lane == source.lane
                         : c.kind == CELL_TILE && c.lane == source.lane &&
                               c.step == source.step && c.depth >= source.depth;
-                Cell dest = score_resolve(&e->score, e->x, e->y);
+                Cell dest;
+                score_resolve(&e->score, e->x, e->y, &dest);
                 if (source.kind == CELL_TILE && dest.lane == source.lane &&
                     dest.step == source.step)
                 {

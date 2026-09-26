@@ -1,8 +1,9 @@
 /*
- * editor.c - C formatting and ABI adapter for the Rust editor
+ * editor.c - C formatting for the Rust editor
  *
- * The renderer uses C formatting. Input frames cross the language boundary
- * by pointer because aggregate arguments have target-specific calling rules.
+ * Implementation notes:
+ *
+ * The renderer uses C formatting for settings and context rows.
  */
 
 #include "editor.h"
@@ -134,11 +135,4 @@ void editor_row_value(const Editor* e, int id, char* b, int size)
     default:
         break;
     }
-}
-
-extern void editor_update_rust(Editor* editor, const InputFrame* input);
-
-void editor_update(Editor* editor, InputFrame input)
-{
-    editor_update_rust(editor, &input);
 }

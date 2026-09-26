@@ -7,6 +7,8 @@
  * and capacity can be inspected without a console.
  */
 
+#include "value_api.h"
+
 #include "render.h"
 #include "ui_style.h"
 
@@ -260,7 +262,7 @@ static void assert_menu_edge(void)
  */
 static int tile_at(int x, int y)
 {
-    return score_at(&e.score, x, y).tile;
+    return test_score_at(&e.score, x, y).tile;
 }
 
 int main(void)
@@ -323,7 +325,7 @@ int main(void)
     }
     for (int i = 0; i < SCORE_TILE_CAPACITY; i++)
     {
-        TileValue v = score_default((TileKind)(1 + i % 3));
+        TileValue v = test_score_default((TileKind)(1 + i % 3));
         v.pitch = 108;
         v.length = 1280;
         v.period = 32;

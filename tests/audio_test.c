@@ -7,6 +7,8 @@
  * and live editor publication without SPU hardware.
  */
 
+#include "value_api.h"
+
 #include "audio.h"
 #include "editor.h"
 
@@ -71,12 +73,12 @@ static void base(int length)
 
 static void put(int x, int y, TileValue v)
 {
-    assert(!score_place_value(&score, x, y, v));
+    assert(!test_score_place_value(&score, x, y, v));
 }
 
 static TileValue relative(int a, int r)
 {
-    TileValue v = score_default(TILE_RELATIVE);
+    TileValue v = test_score_default(TILE_RELATIVE);
     v.lock_mask = 3;
     v.attack = a;
     v.release = r;
@@ -99,7 +101,7 @@ static void timing(void)
     {
         base(16);
         assert(!score_set_division(&score, 0, score_divisions[d]));
-        for (int i = 1; i <= 16; i++) put(i, 0, score_default(TILE_NOTE));
+        for (int i = 1; i <= 16; i++) put(i, 0, test_score_default(TILE_NOTE));
         start();
         uint32_t duration = 2 * SEQUENCER_HZ / score_divisions[d];
         for (int i = 1; i < 2048; i++)
@@ -112,7 +114,7 @@ static void timing(void)
         assert(offs[2046] == events[2047].at);
     }
     base(2);
-    TileValue v = score_default(TILE_NOTE);
+    TileValue v = test_score_default(TILE_NOTE);
     v.length = 5;
     put(1, 0, v);
     v.length = 45;
@@ -138,12 +140,12 @@ static void timing(void)
 static void locks(void)
 {
     base(2);
-    put(1, 0, score_default(TILE_NOTE));
+    put(1, 0, test_score_default(TILE_NOTE));
     put(1, 1, relative(100, -5));
-    put(1, 2, score_default(TILE_NOTE));
+    put(1, 2, test_score_default(TILE_NOTE));
     put(1, 3, relative(16000, 16000));
     put(1, 4, relative(-100, -100));
-    put(1, 5, score_default(TILE_NOTE));
+    put(1, 5, test_score_default(TILE_NOTE));
     start();
     assert(count == 3);
     assert(events[0].sound.attack == 5 && events[0].sound.release == 5);
@@ -157,7 +159,7 @@ static void locks(void)
     put(1, 0, relative(100, 200));
     assert(!score_create(&score, 0, 4, 4));
     assert(!score_set_division(&score, 1, 16));
-    for (int i = 1; i <= 4; i++) put(i, 4, score_default(TILE_NOTE));
+    for (int i = 1; i <= 4; i++) put(i, 4, test_score_default(TILE_NOTE));
     start();
     assert(count == 1 && events[0].sound.attack == 105);
     sequencer_service(&seq, SEQUENCER_HZ / 8);
@@ -170,8 +172,8 @@ static void locks(void)
     assert(events[4].sound.release == 205);
     // Lower held locks must never affect fresh notes above them.
     base(2);
-    put(1, 0, score_default(TILE_NOTE));
-    put(2, 0, score_default(TILE_NOTE));
+    put(1, 0, test_score_default(TILE_NOTE));
+    put(2, 0, test_score_default(TILE_NOTE));
     assert(!score_create(&score, 0, 4, 1));
     assert(!score_set_division(&score, 1, 8));
     put(1, 4, relative(100, 100));
@@ -181,13 +183,13 @@ static void locks(void)
     // A failed gate keeps the locks above it, never those below it.
     base(1);
     put(1, 0, relative(30, 40));
-    TileValue gate = score_default(TILE_PROBABILITY);
+    TileValue gate = test_score_default(TILE_PROBABILITY);
     gate.chance = 0;
     put(1, 1, gate);
     put(1, 2, relative(500, 500));
-    put(1, 3, score_default(TILE_NOTE));
+    put(1, 3, test_score_default(TILE_NOTE));
     assert(!score_create(&score, 0, 6, 1));
-    put(1, 6, score_default(TILE_NOTE));
+    put(1, 6, test_score_default(TILE_NOTE));
     start();
     assert(count == 1 && events[0].sound.attack == 35 &&
            seq.runners[0].held_count == 1);
@@ -195,7 +197,7 @@ static void locks(void)
     sequencer_service(&seq, 1);
     assert(seq.random == random);
     // Snapshot values and base are immutable after committed editor changes.
-    assert(!score_set_sound(
+    assert(!test_score_set_sound(
         &score, 0,
         (SoundSettings){999, 999, WAVE_SINE, WAVE_SINE, 0, 0, 0, 200, 0}));
     assert(!score_remove(&score, 1, 0));
@@ -210,11 +212,11 @@ static void locks(void)
 static void gates_branches(void)
 {
     base(1);
-    TileValue gate = score_default(TILE_CYCLE);
+    TileValue gate = test_score_default(TILE_CYCLE);
     gate.period = 3;
     gate.pattern = 5;
     put(1, 0, gate);
-    put(1, 1, score_default(TILE_NOTE));
+    put(1, 1, test_score_default(TILE_NOTE));
     start();
     for (int i = 1; i < 6; i++)
     {
@@ -224,10 +226,10 @@ static void gates_branches(void)
     for (int chance = 0; chance <= 100; chance += 50)
     {
         base(1);
-        gate = score_default(TILE_PROBABILITY);
+        gate = test_score_default(TILE_PROBABILITY);
         gate.chance = chance;
         put(1, 0, gate);
-        put(1, 1, score_default(TILE_NOTE));
+        put(1, 1, test_score_default(TILE_NOTE));
         start();
         for (int i = 1; i < 100; i++)
         {
@@ -248,23 +250,23 @@ static void gates_branches(void)
         assert(chance == 50 ? n > 20 && n < 80 : n == chance);
     }
     base(2);
-    put(1, 0, score_default(TILE_JUMP));
-    int first = score.tiles[score_at(&score, 1, 0).tile].branch;
-    assert(!score_apply_move(&score,
-                             score_plan_move(&score, score.lanes[first].x,
+    put(1, 0, test_score_default(TILE_JUMP));
+    int first = score.tiles[test_score_at(&score, 1, 0).tile].branch;
+    assert(!test_score_apply_move(&score,
+                             test_score_plan_move(&score, score.lanes[first].x,
                                              score.lanes[first].y, 20, 10)));
     // Two reached jumps: the lower destination wins, but a note below both
     // sounds.
-    put(1, 1, score_default(TILE_JUMP));
-    int second = score.tiles[score_at(&score, 1, 1).tile].branch;
-    put(1, 2, score_default(TILE_NOTE));
+    put(1, 1, test_score_default(TILE_JUMP));
+    int second = score.tiles[test_score_at(&score, 1, 1).tile].branch;
+    put(1, 2, test_score_default(TILE_NOTE));
     assert(!score_resize(&score, second, 1));
     Lane b = score.lanes[second];
-    put(b.x + 1, b.y, score_default(TILE_JUMP));
-    int child = score.tiles[score_at(&score, b.x + 1, b.y).tile].branch;
+    put(b.x + 1, b.y, test_score_default(TILE_JUMP));
+    int child = score.tiles[test_score_at(&score, b.x + 1, b.y).tile].branch;
     assert(!score_resize(&score, child, 1));
     b = score.lanes[child];
-    TileValue v = score_default(TILE_NOTE);
+    TileValue v = test_score_default(TILE_NOTE);
     v.pitch = 72;
     put(b.x + 1, b.y, v);
     start();
@@ -281,8 +283,8 @@ static void gates_branches(void)
     base(1);
     assert(!score_create(&score, 8, 0, 1));
     put(9, 0, relative(100, 100));
-    put(1, 0, score_default(TILE_NOTE));
-    assert(!score_apply_move(&score, score_plan_move(&score, 0, 0, 0, 4)));
+    put(1, 0, test_score_default(TILE_NOTE));
+    assert(!test_score_apply_move(&score, test_score_plan_move(&score, 0, 0, 0, 4)));
     start();
     assert(seq.runners[0].origin == 1 && events[0].sound.attack == 105);
 }
@@ -404,7 +406,7 @@ static void voices(void)
     base(2);
     score.sounds[0] =
         (SoundSettings){0, 500, WAVE_SINE, WAVE_SINE, 0, 0, 0, 200, 0};
-    put(1, 0, score_default(TILE_NOTE));
+    put(1, 0, test_score_default(TILE_NOTE));
     put(2, 0, relative(0, -500));
     snapshot = score;
     sequencer_start(&seq, &snapshot, sink, 0);
@@ -423,7 +425,7 @@ static void voices(void)
 static void overload(void)
 {
     base(1);
-    put(1, 0, score_default(TILE_NOTE));
+    put(1, 0, test_score_default(TILE_NOTE));
     start();
     AudioTime now = 100 * SEQUENCER_HZ / 8;
     sequencer_service(&seq, now);
@@ -441,26 +443,26 @@ static void model_editor(void)
     base(4);
     TileValue v = relative(-16000, 16000);
     put(1, 0, v);
-    TileId id = score_at(&score, 1, 0).tile;
+    TileId id = test_score_at(&score, 1, 0).tile;
     Clipboard clip = {0};
     score_copy(&score, 1, 0, &clip);
     assert(!score_paste(&score, 2, 0, &clip));
     v.attack = 42;
-    assert(!score_edit(&score, id, v));
-    assert(score.tiles[score_at(&score, 2, 0).tile].value.attack == -16000);
-    assert(!score_apply_move(&score, score_plan_move(&score, 1, 0, 3, 0)));
-    assert(score_at(&score, 3, 0).tile == id);
+    assert(!test_score_edit(&score, id, v));
+    assert(score.tiles[test_score_at(&score, 2, 0).tile].value.attack == -16000);
+    assert(!test_score_apply_move(&score, test_score_plan_move(&score, 1, 0, 3, 0)));
+    assert(test_score_at(&score, 3, 0).tile == id);
     snapshot = score;
     v.attack = 16001;
-    assert(score_edit(&score, id, v) == SCORE_INVALID &&
+    assert(test_score_edit(&score, id, v) == SCORE_INVALID &&
            !memcmp(&score, &snapshot, sizeof(score)));
     v = relative(1, 2);
     v.lock_mask = 0;
-    assert(score_edit(&score, id, v) == SCORE_INVALID);
-    assert(score_set_sound(&score, 0,
+    assert(test_score_edit(&score, id, v) == SCORE_INVALID);
+    assert(test_score_set_sound(&score, 0,
                            (SoundSettings){-1, 0, WAVE_SINE, WAVE_SINE, 0, 0, 0,
                                            200, 0}) == SCORE_INVALID);
-    assert(score_set_sound(&score, 0,
+    assert(test_score_set_sound(&score, 0,
                            (SoundSettings){0, 16001, WAVE_SINE, WAVE_SINE, 0, 0,
                                            0, 200, 0}) == SCORE_INVALID);
     editor_init(&editor);
@@ -468,19 +470,19 @@ static void model_editor(void)
     assert(!score_place(&editor.score, 1, 0, TILE_RELATIVE));
     editor.x = 1;
     editor.y = 0;
-    editor.target = score_at(&editor.score, 1, 0).tile;
+    editor.target = test_score_at(&editor.score, 1, 0).tile;
     editor.mode = EDIT_MENU;
     editor.selected = 0;
-    editor_update(&editor, (InputFrame){.connected = 1, .value_dir = 1});
+    test_editor_update(&editor, (InputFrame){.connected = 1, .value_dir = 1});
     assert(editor.score.tiles[editor.target].value.lock_mask == LOCK_ATTACK);
     editor.selected = 1;
-    editor_update(
+    test_editor_update(
         &editor,
         (InputFrame){.connected = 1, .value_dir = 1, .value_coarse = 1});
-    editor_update(&editor, (InputFrame){.connected = 1, .value_dir = 1});
+    test_editor_update(&editor, (InputFrame){.connected = 1, .value_dir = 1});
     assert(editor.score.tiles[editor.target].value.attack == 101);
     editor.selected = 0;
-    editor_update(&editor, (InputFrame){.connected = 1, .value_dir = -1});
+    test_editor_update(&editor, (InputFrame){.connected = 1, .value_dir = -1});
     assert(!editor.score.tiles[editor.target].value.lock_mask &&
            !editor.score.tiles[editor.target].value.attack);
     for (int mode = 0; mode < EDIT_MODE_COUNT; mode++)
@@ -489,34 +491,34 @@ static void model_editor(void)
         editor.gesture = 0;
         editor.value = relative(33, 44);
         snapshot = editor.score;
-        editor_update(&editor, (InputFrame){.connected = 1, .start = 1});
+        test_editor_update(&editor, (InputFrame){.connected = 1, .start = 1});
         assert(!memcmp(&editor.score, &snapshot, sizeof(snapshot)));
     }
     editor.mode = EDIT_SOUND;
     editor.selected = 4;
     editor.sound_channel = 0;
-    editor_update(
+    test_editor_update(
         &editor,
         (InputFrame){.connected = 1, .value_dir = 1, .value_coarse = 1});
     assert(editor.score.sounds[0].attack == 105);
     editor.selected = 5;
-    editor_update(
+    test_editor_update(
         &editor,
         (InputFrame){.connected = 1, .value_dir = 1, .value_coarse = 1});
-    editor_update(&editor, (InputFrame){.connected = 1, .circle = 1});
+    test_editor_update(&editor, (InputFrame){.connected = 1, .circle = 1});
     assert(editor.score.sounds[0].release == 105);
     Input input;
     input_init(&input);
-    input_update(&input, 1, 0);
-    assert(input_update(&input, 1, INPUT_START).start);
+    test_input_update(&input, 1, 0);
+    assert(test_input_update(&input, 1, INPUT_START).start);
     for (int i = 0; i < 90; i++)
     {
-        assert(!input_update(&input, 1, INPUT_START).start);
+        assert(!test_input_update(&input, 1, INPUT_START).start);
     }
-    assert(!input_update(&input, 0, 0).start);
-    assert(!input_update(&input, 1, INPUT_START).start);
-    input_update(&input, 1, 0);
-    assert(input_update(&input, 1, INPUT_START).start);
+    assert(!test_input_update(&input, 0, 0).start);
+    assert(!test_input_update(&input, 1, INPUT_START).start);
+    test_input_update(&input, 1, 0);
+    assert(test_input_update(&input, 1, INPUT_START).start);
 }
 
 /*
@@ -569,9 +571,9 @@ static void dense_and_rollback(void)
     // Splitting a stack and later replaying its held locks must preserve order.
     base(2);
     for (int k = 0; k < 63; k++) put(1, k, relative(1, 1));
-    put(1, 63, score_default(TILE_NOTE));
+    put(1, 63, test_score_default(TILE_NOTE));
     assert(!score_create(&score, 8, 0, 1));
-    put(9, 0, score_default(TILE_NOTE));
+    put(9, 0, test_score_default(TILE_NOTE));
     assert(!score_set_division(&score, 1, 32));
     snapshot = score;
     sequencer_start(&seq, &snapshot, trace, 0);
@@ -614,11 +616,11 @@ static void live_values(void)
 {
     AudioTime step = SEQUENCER_HZ / 8;
     base(2);
-    TileValue v = score_default(TILE_NOTE);
+    TileValue v = test_score_default(TILE_NOTE);
     v.length = 40;
     put(1, 0, v);
     put(2, 0, v);
-    TileValue gate = score_default(TILE_PROBABILITY);
+    TileValue gate = test_score_default(TILE_PROBABILITY);
     gate.chance = 100;
     put(1, 1, gate);
     start();
@@ -630,8 +632,8 @@ static void live_values(void)
     memcpy(saved, seq.offs, sizeof(saved));
     v.pitch = 72;
     v.length = 5;
-    assert(!score_edit(&score, score_at(&score, 2, 0).tile, v));
-    assert(!score_set_sound(
+    assert(!test_score_edit(&score, test_score_at(&score, 2, 0).tile, v));
+    assert(!test_score_set_sound(
         &score, 0,
         (SoundSettings){23, 41, WAVE_SINE, WAVE_SINE, 0, 0, 0, 200, 0}));
     assert(!score_set_division(&score, 0, 32));
@@ -661,15 +663,15 @@ static void live_holds(void)
     assert(!score_set_division(&score, 0, 4));
     put(1, 0, relative(100, 200));
     assert(!score_create(&score, 8, 4, 1));
-    put(9, 4, score_default(TILE_NOTE));
-    TileId held = score_at(&score, 1, 0).tile;
+    put(9, 4, test_score_default(TILE_NOTE));
+    TileId held = test_score_at(&score, 1, 0).tile;
     start();
     assert(events[0].sound.attack == 105);
-    assert(!score_edit(&score, held, relative(200, 300)));
+    assert(!test_score_edit(&score, held, relative(200, 300)));
     publish(1);
     sequencer_service(&seq, step);
     assert(events[1].sound.attack == 205);
-    assert(!score_apply_move(&score, score_plan_move(&score, 1, 0, 2, 0)));
+    assert(!test_score_apply_move(&score, test_score_plan_move(&score, 1, 0, 2, 0)));
     publish(step + 1);
     sequencer_service(&seq, 2 * step);
     assert(events[2].sound.attack == 205);
@@ -677,7 +679,7 @@ static void live_holds(void)
     uint32_t birth = score.tile_generation[held];
     assert(!score_remove(&score, 2, 0));
     put(2, 0, relative(900, 900));
-    assert(score_at(&score, 2, 0).tile == held &&
+    assert(test_score_at(&score, 2, 0).tile == held &&
            score.tile_generation[held] != birth);
     publish(2 * step + 1);
     sequencer_service(&seq, 3 * step);
@@ -686,7 +688,7 @@ static void live_holds(void)
     assert(events[4].sound.attack == 905);
     // Head movement changes lock traversal order without resetting runners.
     Runner before = *runner(0);
-    assert(!score_apply_move(&score, score_plan_move(&score, 0, 0, 0, 8)));
+    assert(!test_score_apply_move(&score, test_score_plan_move(&score, 0, 0, 0, 8)));
     publish(4 * step + 1);
     assert(!memcmp(&before, runner(0), sizeof(before)) &&
            seq.runners[seq.order[0]].origin == 1);
@@ -702,7 +704,7 @@ static void live_lanes(void)
 {
     AudioTime step = SEQUENCER_HZ / 8;
     base(4);
-    put(1, 0, score_default(TILE_NOTE));
+    put(1, 0, test_score_default(TILE_NOTE));
     start();
     sequencer_service(&seq, step);
     sequencer_service(&seq, 2 * step);
@@ -716,7 +718,7 @@ static void live_lanes(void)
     assert(count == 2 && events[1].at == 3 * step);
     // A new non-master waits for the current master's next full lap.
     assert(!score_create(&score, 0, 6, 1));
-    put(1, 6, score_default(TILE_NOTE));
+    put(1, 6, test_score_default(TILE_NOTE));
     publish(3 * step + 1);
     assert(runner(1)->next == UINT64_MAX);
     sequencer_service(&seq, 4 * step);
@@ -727,7 +729,7 @@ static void live_lanes(void)
     uint32_t birth = score.lane_generation[1];
     assert(!score_delete(&score, 1));
     assert(!score_create(&score, 0, 6, 1));
-    put(1, 6, score_default(TILE_NOTE));
+    put(1, 6, test_score_default(TILE_NOTE));
     assert(score.lane_generation[1] != birth);
     publish(5 * step + 1);
     assert(runner(1)->next == UINT64_MAX && !runner(1)->lap);
@@ -743,15 +745,15 @@ static void live_lanes(void)
     sequencer_service(&seq, 6 * step);
     assert(count == 5);
     assert(!score_create(&score, 0, 0, 1));
-    put(1, 0, score_default(TILE_NOTE));
+    put(1, 0, test_score_default(TILE_NOTE));
     publish(6 * step + 1);
     sequencer_service(&seq, 6 * step + 1);
     assert(count == 6 && runner(0)->lap == 1);
     // A newly inserted head above the master starts without waiting on itself.
-    assert(!score_apply_move(&score, score_plan_move(&score, 0, 0, 0, 8)));
+    assert(!test_score_apply_move(&score, test_score_plan_move(&score, 0, 0, 0, 8)));
     publish(6 * step + 2);
     assert(!score_create(&score, 0, 0, 1));
-    put(1, 0, score_default(TILE_NOTE));
+    put(1, 0, test_score_default(TILE_NOTE));
     publish(6 * step + 3);
     assert(seq.runners[seq.order[0]].origin == 1 &&
            runner(1)->next == 6 * step + 3);
@@ -766,12 +768,12 @@ static void live_final_step(void)
 {
     AudioTime step = SEQUENCER_HZ / 8;
     base(2);
-    put(1, 0, score_default(TILE_NOTE));
+    put(1, 0, test_score_default(TILE_NOTE));
     start();
     sequencer_service(&seq, step);
     assert(runner(0)->lap == 1);
     assert(!score_create(&score, 0, 4, 1));
-    put(1, 4, score_default(TILE_NOTE));
+    put(1, 4, test_score_default(TILE_NOTE));
     publish(step + 1);
     // The final step has already selected the next lap's participants.
     sequencer_service(&seq, 2 * step);
@@ -789,30 +791,30 @@ static void live_gates(void)
 {
     AudioTime step = SEQUENCER_HZ / 8;
     base(1);
-    TileValue v = score_default(TILE_CYCLE);
+    TileValue v = test_score_default(TILE_CYCLE);
     v.period = 2;
     v.pattern = 1;
     put(1, 0, v);
-    put(1, 1, score_default(TILE_NOTE));
+    put(1, 1, test_score_default(TILE_NOTE));
     start();
     assert(count == 1 && runner(0)->lap == 1);
     v.period = 3;
     v.pattern = 2;
-    assert(!score_edit(&score, score_at(&score, 1, 0).tile, v));
+    assert(!test_score_edit(&score, test_score_at(&score, 1, 0).tile, v));
     publish(1);
     sequencer_service(&seq, step);
     assert(count == 2 && runner(0)->lap == 2);
     sequencer_service(&seq, 2 * step);
     assert(count == 2 && runner(0)->lap == 3);
     base(1);
-    v = score_default(TILE_PROBABILITY);
+    v = test_score_default(TILE_PROBABILITY);
     v.chance = 0;
     put(1, 0, v);
-    put(1, 1, score_default(TILE_NOTE));
+    put(1, 1, test_score_default(TILE_NOTE));
     start();
     uint32_t random = seq.random;
     v.chance = 100;
-    assert(!score_edit(&score, score_at(&score, 1, 0).tile, v));
+    assert(!test_score_edit(&score, test_score_at(&score, 1, 0).tile, v));
     publish(1);
     assert(seq.random == random);
     sequencer_service(&seq, step);
@@ -830,8 +832,8 @@ static void live_branch(void)
 {
     AudioTime step = SEQUENCER_HZ / 8;
     base(2);
-    put(1, 0, score_default(TILE_JUMP));
-    int branch = score.tiles[score_at(&score, 1, 0).tile].branch;
+    put(1, 0, test_score_default(TILE_JUMP));
+    int branch = score.tiles[test_score_at(&score, 1, 0).tile].branch;
     Lane b = score.lanes[branch];
     put(b.x + 1, b.y, relative(100, 100));
     start();
@@ -855,14 +857,14 @@ static void live_split(void)
 {
     base(1);
     for (int i = 0; i < 63; i++) put(1, i, relative(1, 1));
-    put(1, 63, score_default(TILE_NOTE));
+    put(1, 63, test_score_default(TILE_NOTE));
     snapshot = score;
     sequencer_start(&seq, &snapshot, trace, 0);
     sequencer_service(&seq, 0);
     assert(seq.slicing && !count);
-    TileValue v = score_default(TILE_NOTE);
+    TileValue v = test_score_default(TILE_NOTE);
     v.pitch = 72;
-    assert(!score_edit(&score, score_at(&score, 1, 63).tile, v));
+    assert(!test_score_edit(&score, test_score_at(&score, 1, 63).tile, v));
     updated = score;
     Sequencer before = seq;
     assert(!sequencer_resync(&seq, &updated, 0) &&
@@ -889,10 +891,10 @@ static void channels(void)
     for (int i = 1; i < 3; i++)
     {
         assert(!score_create(&score, 0, 4 * i, 1));
-        put(1, 4 * i, score_default(TILE_NOTE));
+        put(1, 4 * i, test_score_default(TILE_NOTE));
     }
     SoundSettings second = {20, 30, WAVE_SQUARE, WAVE_NOISE, 12, 34, -5, 67, 1};
-    assert(!score_set_sound(&score, 7, second));
+    assert(!test_score_set_sound(&score, 7, second));
     assert(!score_set_channel(&score, 2, 7));
     start();
     assert(count == 2 && events[0].sound.attack == 105);
@@ -917,16 +919,16 @@ static void channels(void)
 
     base(1);
     assert(!score_set_channel(&score, 0, 7));
-    assert(!score_set_sound(&score, 7, second));
-    put(1, 0, score_default(TILE_JUMP));
-    int branch = score.tiles[score_at(&score, 1, 0).tile].branch;
+    assert(!test_score_set_sound(&score, 7, second));
+    put(1, 0, test_score_default(TILE_JUMP));
+    int branch = score.tiles[test_score_at(&score, 1, 0).tile].branch;
     Lane b = score.lanes[branch];
     assert(!score_resize(&score, branch, 1));
-    put(b.x + 1, b.y, score_default(TILE_JUMP));
-    int child = score.tiles[score_at(&score, b.x + 1, b.y).tile].branch;
+    put(b.x + 1, b.y, test_score_default(TILE_JUMP));
+    int child = score.tiles[test_score_at(&score, b.x + 1, b.y).tile].branch;
     b = score.lanes[child];
     put(b.x + 1, b.y, relative(100, 200));
-    put(b.x + 1, b.y + 1, score_default(TILE_NOTE));
+    put(b.x + 1, b.y + 1, test_score_default(TILE_NOTE));
     start();
     sequencer_service(&seq, step);
     sequencer_service(&seq, 2 * step);
@@ -937,20 +939,20 @@ static void channels(void)
     // wait until even the later runners have consumed the old bank.
     base(1);
     for (int i = 0; i < 63; i++) put(1, i, relative(1, 1));
-    put(1, 63, score_default(TILE_NOTE));
+    put(1, 63, test_score_default(TILE_NOTE));
     assert(!score_create(&score, 8, 0, 1));
-    put(9, 0, score_default(TILE_NOTE));
+    put(9, 0, test_score_default(TILE_NOTE));
     assert(!score_create(&score, 16, 0, 1));
-    put(17, 0, score_default(TILE_NOTE));
+    put(17, 0, test_score_default(TILE_NOTE));
     assert(!score_set_channel(&score, 2, 7));
-    assert(!score_set_sound(&score, 7, second));
+    assert(!test_score_set_sound(&score, 7, second));
     snapshot = score;
     sequencer_start(&seq, &snapshot, trace, 0);
     sequencer_service(&seq, 0);
     assert(seq.slicing && count == 0);
     assert(!score_set_channel(&score, 0, 7));
     second.attack = 200;
-    assert(!score_set_sound(&score, 7, second));
+    assert(!test_score_set_sound(&score, 7, second));
     updated = score;
     Sequencer before = seq;
     assert(!sequencer_resync(&seq, &updated, 0) &&
@@ -972,8 +974,8 @@ static void channels(void)
         assert(!score_set_channel(&score, i, i % SCORE_CHANNELS));
         SoundSettings sound = SOUND_DEFAULT;
         sound.attack = 10 + i % SCORE_CHANNELS;
-        assert(!score_set_sound(&score, i % SCORE_CHANNELS, sound));
-        put(1, 3 * i, score_default(TILE_NOTE));
+        assert(!test_score_set_sound(&score, i % SCORE_CHANNELS, sound));
+        put(1, 3 * i, test_score_default(TILE_NOTE));
     }
     start();
     assert(seq.count == SCORE_LANES && count == SCORE_LANES);
@@ -995,7 +997,7 @@ static void tempo_changes(void)
     for (int bpm = SCORE_MIN_BPM; bpm <= SCORE_MAX_BPM; bpm++)
     {
         base(1);
-        put(1, 0, score_default(TILE_NOTE));
+        put(1, 0, test_score_default(TILE_NOTE));
         assert(!score_set_bpm(&score, bpm));
         start();
         AudioTime duration = 240u * SEQUENCER_HZ / bpm / 16;
@@ -1005,7 +1007,7 @@ static void tempo_changes(void)
         assert(count == 2 && events[1].at == duration);
     }
     base(1);
-    put(1, 0, score_default(TILE_NOTE));
+    put(1, 0, test_score_default(TILE_NOTE));
     start();
     AudioTime old = SEQUENCER_HZ / 8;
     assert(!score_set_bpm(&score, 240));

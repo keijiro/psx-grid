@@ -7,6 +7,8 @@
  * expected envelopes and pitch registers.
  */
 
+#include "value_api.h"
+
 #include "audio.h"
 #include "audio_tables.h"
 
@@ -343,13 +345,13 @@ static void snapshots(void)
     score_init(&score);
     assert(!score_create(&score, 0, 0, 1));
     SoundSettings old = {0, 400, WAVE_SAW, WAVE_NOISE, 23, 97, -13, 777, 1};
-    assert(!score_set_sound(&score, 0, old));
-    TileValue lock = score_default(TILE_RELATIVE);
+    assert(!test_score_set_sound(&score, 0, old));
+    TileValue lock = test_score_default(TILE_RELATIVE);
     lock.lock_mask = 3;
     lock.attack = 7;
     lock.release = -19;
-    assert(!score_place_value(&score, 1, 0, lock));
-    assert(!score_place_value(&score, 1, 1, score_default(TILE_NOTE)));
+    assert(!test_score_place_value(&score, 1, 0, lock));
+    assert(!test_score_place_value(&score, 1, 1, test_score_default(TILE_NOTE)));
     NoteSink sink = reset();
     sequencer_start(&seq, &score, sink, 0);
     sequencer_service(&seq, 0);
@@ -361,7 +363,7 @@ static void snapshots(void)
     SoundSettings fresh = {0, 600, WAVE_SQUARE, WAVE_TRIANGLE, 0, 500, 24,
                            1, 0};
     updated = score;
-    assert(!score_set_sound(&updated, 7, fresh));
+    assert(!test_score_set_sound(&updated, 7, fresh));
     assert(!score_set_channel(&updated, 0, 7));
     assert(sequencer_resync(&seq, &updated, 1));
     AudioTime next = SEQUENCER_HZ / 8;

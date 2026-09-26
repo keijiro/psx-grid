@@ -7,6 +7,8 @@
  * branches and commands are exercised.
  */
 
+#include "value_api.h"
+
 #include "editor.h"
 
 #include <assert.h>
@@ -31,7 +33,7 @@ static void unchanged(ScoreResult r)
 
 static TileId id(int x, int y)
 {
-    return score_at(&s, x, y).tile;
+    return test_score_at(&s, x, y).tile;
 }
 
 static void base(void)
@@ -53,61 +55,61 @@ static void model(void)
     TileId gate = id(1, 0);
     TileId a = id(1, 1);
     TileId b = id(1, 2);
-    assert(score_at(&s, 1, 2).depth == 2 && a != b);
+    assert(test_score_at(&s, 1, 2).depth == 2 && a != b);
     TileValue v = s.tiles[a].value;
     assert(v.pitch == 48 && v.length == 20);
     v.pitch = 108;
     v.length = 1280;
-    assert(!score_edit(&s, a, v));
+    assert(!test_score_edit(&s, a, v));
     snapshot();
     v.pitch = 109;
-    unchanged(score_edit(&s, a, v));
+    unchanged(test_score_edit(&s, a, v));
     v.pitch = 0;
     v.length = 4;
-    unchanged(score_edit(&s, a, v));
+    unchanged(test_score_edit(&s, a, v));
     v.length = 5;
-    assert(!score_edit(&s, a, v));
+    assert(!test_score_edit(&s, a, v));
     v = s.tiles[gate].value;
     v.pattern = 0x80000001u;
     v.period = 32;
-    assert(!score_edit(&s, gate, v));
+    assert(!test_score_edit(&s, gate, v));
     v.period = 2;
-    assert(!score_edit(&s, gate, v));
+    assert(!test_score_edit(&s, gate, v));
     assert(s.tiles[gate].value.pattern == 0x80000001u);
     snapshot();
     v.period = 1;
-    unchanged(score_edit(&s, gate, v));
+    unchanged(test_score_edit(&s, gate, v));
     v.period = 33;
-    unchanged(score_edit(&s, gate, v));
+    unchanged(test_score_edit(&s, gate, v));
     assert(!score_place(&s, 2, 0, TILE_PROBABILITY));
     TileId prob = id(2, 0);
     v = s.tiles[prob].value;
     v.chance = 0;
-    assert(!score_edit(&s, prob, v));
+    assert(!test_score_edit(&s, prob, v));
     v.chance = 100;
-    assert(!score_edit(&s, prob, v));
+    assert(!test_score_edit(&s, prob, v));
     snapshot();
     v.chance = 101;
-    unchanged(score_edit(&s, prob, v));
+    unchanged(test_score_edit(&s, prob, v));
     v.chance = -1;
-    unchanged(score_edit(&s, prob, v));
+    unchanged(test_score_edit(&s, prob, v));
     snapshot();
     unchanged(score_place(&s, 1, 0, TILE_NOTE));
     unchanged(score_resize(&s, 0, 1));
-    MovePlan plan = score_plan_move(&s, 1, 1, 1, 2);
+    MovePlan plan = test_score_plan_move(&s, 1, 1, 1, 2);
     assert(!memcmp(&s, &before, sizeof(s)));
-    assert(!score_apply_move(&s, plan));
+    assert(!test_score_apply_move(&s, plan));
     assert(id(1, 1) == b && id(1, 2) == a);
-    assert(!score_apply_move(&s, score_plan_move(&s, 1, 2, 1, 0)));
+    assert(!test_score_apply_move(&s, test_score_plan_move(&s, 1, 2, 1, 0)));
     assert(id(1, 0) == a && id(1, 1) == gate);
     assert(!score_remove(&s, 1, 1));
     assert(id(1, 1) == b && !s.tiles[gate].value.kind);
     assert(!score_create(&s, 10, 0, 4));
-    assert(!score_apply_move(&s, score_plan_move(&s, 1, 0, 11, 0)));
+    assert(!test_score_apply_move(&s, test_score_plan_move(&s, 1, 0, 11, 0)));
     assert(!id(1, 0) && id(11, 0) == a && id(11, 1) == b);
     assert(!score_place(&s, 1, 0, TILE_NOTE));
     TileId top = id(1, 0);
-    assert(!score_apply_move(&s, score_plan_move(&s, 11, 0, 1, 0)));
+    assert(!test_score_apply_move(&s, test_score_plan_move(&s, 11, 0, 1, 0)));
     assert(id(1, 0) == a && id(1, 1) == b && id(1, 2) == top);
     Clipboard clip = {0};
     score_copy(&s, 1, 0, &clip);
@@ -116,16 +118,16 @@ static void model(void)
     assert(id(3, 0) != a);
     v = s.tiles[a].value;
     v.pitch = 70;
-    assert(!score_edit(&s, a, v));
+    assert(!test_score_edit(&s, a, v));
     assert(s.tiles[id(3, 0)].value.pitch == 0);
     assert(!score_place(&s, 5, 0, TILE_NOTE));
     assert(s.lanes[0].length == 5);
     snapshot();
-    unchanged(score_apply_move(&s, score_plan_move(&s, 0, 0, 10, 0)));
-    unchanged(score_apply_move(&s, score_plan_move(&s, 0, 0, 127, 63)));
-    assert(!score_apply_move(&s, score_plan_move(&s, 0, 0, 0, 0)));
+    unchanged(test_score_apply_move(&s, test_score_plan_move(&s, 0, 0, 10, 0)));
+    unchanged(test_score_apply_move(&s, test_score_plan_move(&s, 0, 0, 127, 63)));
+    assert(!test_score_apply_move(&s, test_score_plan_move(&s, 0, 0, 0, 0)));
     assert(!memcmp(&s, &before, sizeof(s)));
-    assert(!score_apply_move(&s, score_plan_move(&s, 0, 0, 0, 10)));
+    assert(!test_score_apply_move(&s, test_score_plan_move(&s, 0, 0, 0, 10)));
     assert(id(1, 10) == a);
     snapshot();
     unchanged(score_create(&s, 1, 11, 4));
@@ -146,16 +148,16 @@ static void model(void)
     assert(!score_place(&s, bx + 1, by, TILE_JUMP));
     int child = s.tiles[id(bx + 1, by)].branch;
     snapshot();
-    unchanged(score_apply_move(&s, score_plan_move(&s, 1, 0, bx + 2, by)));
-    unchanged(score_apply_move(
-        &s, score_plan_move(&s, 1, 0, s.lanes[child].x + 1, s.lanes[child].y)));
+    unchanged(test_score_apply_move(&s, test_score_plan_move(&s, 1, 0, bx + 2, by)));
+    unchanged(test_score_apply_move(
+        &s, test_score_plan_move(&s, 1, 0, s.lanes[child].x + 1, s.lanes[child].y)));
     Clipboard old = clip;
     score_copy(&s, 1, 0, &clip);
     assert(!memcmp(&clip, &old, sizeof(clip)));
     assert(!score_place(&s, 1, 1, TILE_NOTE));
     score_copy(&s, 1, 0, &clip);
     assert(clip.count == 1 && clip.values[0].kind == TILE_NOTE);
-    assert(!score_apply_move(&s, score_plan_move(&s, bx, by, 20, 10)));
+    assert(!test_score_apply_move(&s, test_score_plan_move(&s, bx, by, 20, 10)));
     assert(s.lanes[child].x == 0 && s.lanes[0].x == 0);
     assert(!score_delete(&s, branch));
     assert(!s.lanes[branch].active && !s.lanes[child].active &&
@@ -193,20 +195,20 @@ static void model(void)
     TileId boundary = id(24, 1);
     v = s.tiles[boundary].value;
     v.pattern = 0;
-    assert(!score_edit(&s, boundary, v));
+    assert(!test_score_edit(&s, boundary, v));
     assert(score_format_measure(&s) == SCORE_FILE_BYTES);
     snapshot();
     unchanged(score_resize(&s, 1, 5));
     snapshot();
-    unchanged(score_apply_move(&s, score_plan_move(&s, 24, 0, 75, 0)));
+    unchanged(test_score_apply_move(&s, test_score_plan_move(&s, 24, 0, 75, 0)));
     assert(s.lanes[1].length == 4 && id(24, 0));
     Score available = s;
     assert(!score_remove(&available, 24, 1));
     assert(score_format_measure(&available) == 8185);
-    MovePlan grow = score_plan_move(&available, 24, 0, 75, 0);
+    MovePlan grow = test_score_plan_move(&available, 24, 0, 75, 0);
     assert(grow.result == SCORE_OK);
-    assert(!score_apply_move(&available, grow));
-    assert(available.lanes[1].length == 5 && score_at(&available, 75, 0).tile);
+    assert(!test_score_apply_move(&available, grow));
+    assert(available.lanes[1].length == 5 && test_score_at(&available, 75, 0).tile);
     assert(score_format_measure(&available) == 8186);
     snapshot();
     unchanged(score_place(&s, 71, 0, TILE_NOTE));
@@ -271,9 +273,9 @@ static void generations(void)
     assert(birth > lane);
     TileValue value = s.tiles[tile].value;
     value.pitch = 60;
-    assert(!score_edit(&s, tile, value));
-    assert(!score_apply_move(&s, score_plan_move(&s, 1, 0, 2, 0)));
-    assert(!score_apply_move(&s, score_plan_move(&s, 0, 0, 0, 4)));
+    assert(!test_score_edit(&s, tile, value));
+    assert(!test_score_apply_move(&s, test_score_plan_move(&s, 1, 0, 2, 0)));
+    assert(!test_score_apply_move(&s, test_score_plan_move(&s, 0, 0, 0, 4)));
     assert(s.tile_generation[tile] == birth && s.lane_generation[0] == lane);
     assert(!score_remove(&s, 2, 4));
     assert(!score_place(&s, 2, 4, TILE_NOTE));
@@ -298,8 +300,8 @@ static void generations(void)
     unchanged(score_create(&s, 10, 0, 4));
     value = s.tiles[id(1, 0)].value;
     value.pitch = 72;
-    assert(!score_edit(&s, id(1, 0), value));
-    assert(!score_apply_move(&s, score_plan_move(&s, 1, 0, 2, 0)));
+    assert(!test_score_edit(&s, id(1, 0), value));
+    assert(!test_score_apply_move(&s, test_score_plan_move(&s, 1, 0, 2, 0)));
     assert(!score_remove(&s, 2, 0));
     snapshot();
     unchanged(score_place(&s, 2, 0, TILE_NOTE));
@@ -309,7 +311,7 @@ static Input input;
 
 static void frame(int connected, int held)
 {
-    editor_update(&e, input_update(&input, connected, (uint16_t)held));
+    test_editor_update(&e, test_input_update(&input, connected, (uint16_t)held));
 }
 
 static void tap(int key)
@@ -371,7 +373,7 @@ static void controls(void)
     assert(e.mode == EDIT_PICKER);
     tap(INPUT_CROSS);
     assert(e.mode == EDIT_PLANE);
-    TileId note = score_at(&e.score, e.x, e.y).tile;
+    TileId note = test_score_at(&e.score, e.x, e.y).tile;
     assert(note);
     context();
     select_action(ACTION_PITCH);
@@ -395,20 +397,20 @@ static void controls(void)
     tap(INPUT_DOWN);
     action(ACTION_PLACE);
     tap(INPUT_CROSS);
-    assert(e.score.tiles[score_at(&e.score, e.x, e.y).tile].value.pitch == 61);
+    assert(e.score.tiles[test_score_at(&e.score, e.x, e.y).tile].value.pitch == 61);
     e.y = 1;
     before = e.score;
     frame(1, INPUT_CROSS | INPUT_RIGHT);
     assert(e.mode == EDIT_MOVE && e.source_x == 2 && e.x == 3);
     assert(!memcmp(&before, &e.score, sizeof(before)));
     frame(1, 0);
-    assert(e.mode == EDIT_PLANE && score_at(&e.score, 3, 1).tile == note);
+    assert(e.mode == EDIT_PLANE && test_score_at(&e.score, 3, 1).tile == note);
     e.x = 3;
     action(ACTION_COPY);
     assert(e.clipboard.count == 2);
     e.x = 4;
     action(ACTION_PASTE);
-    assert(score_at(&e.score, 4, 1).tile != note);
+    assert(test_score_at(&e.score, 4, 1).tile != note);
     e.x = 1;
     action(ACTION_DELETE);
     assert(e.mode == EDIT_DELETE);
@@ -422,12 +424,12 @@ static void controls(void)
     action(ACTION_PLACE);
     tap(INPUT_DOWN);
     tap(INPUT_CROSS);
-    TileId gate = score_at(&e.score, e.x, e.y).tile;
+    TileId gate = test_score_at(&e.score, e.x, e.y).tile;
     assert(e.score.tiles[gate].value.kind == TILE_CYCLE);
     TileValue gate_value = e.score.tiles[gate].value;
     gate_value.period = 17;
     gate_value.pattern = 0x80000001u;
-    assert(!score_edit(&e.score, gate, gate_value));
+    assert(!test_score_edit(&e.score, gate, gate_value));
     action(ACTION_PATTERN);
     uint32_t old = e.score.tiles[gate].value.pattern;
     revision = e.score.revision;
@@ -551,7 +553,7 @@ static void sound_controls(void)
             *(int*)((char*)&invalid + cases[i].offset) =
                 boundary ? cases[i].max + 1 : cases[i].min - 1;
             snapshot();
-            unchanged(score_set_sound(&s, 0, invalid));
+            unchanged(test_score_set_sound(&s, 0, invalid));
         }
     }
 }
@@ -601,7 +603,7 @@ static void main_controls(void)
     snapshot();
     unchanged(score_set_bpm(&s, 29));
     unchanged(score_set_bpm(&s, 301));
-    unchanged(score_set_reverb(&s, (ReverbSettings){3, 30}));
+    unchanged(test_score_set_reverb(&s, (ReverbSettings){3, 30}));
 }
 
 /*
@@ -624,8 +626,8 @@ static void channels(void)
     unchanged(score_set_channel(&s, 1, 0));
     unchanged(score_set_channel(&s, 0, -1));
     unchanged(score_set_channel(&s, 0, SCORE_CHANNELS));
-    unchanged(score_set_sound(&s, -1, initial));
-    unchanged(score_set_sound(&s, SCORE_CHANNELS, initial));
+    unchanged(test_score_set_sound(&s, -1, initial));
+    unchanged(test_score_set_sound(&s, SCORE_CHANNELS, initial));
     assert(score_channel(&s, -1) == -1 &&
            score_channel(&s, SCORE_LANES) == -1 && score_channel(&s, 1) == -1);
     assert(!score_place(&s, 1, 0, TILE_JUMP));
@@ -638,14 +640,14 @@ static void channels(void)
     unchanged(score_set_channel(&s, branch, 1));
     unchanged(score_set_channel(&s, child, 1));
     assert(!score_create(&s, 40, 0, 4));
-    int other = score_at(&s, 40, 0).lane;
+    int other = test_score_at(&s, 40, 0).lane;
     assert(!score_set_channel(&s, other, 2));
-    assert(!score_apply_move(&s, score_plan_move(&s, 1, 0, 41, 0)));
+    assert(!test_score_apply_move(&s, test_score_plan_move(&s, 1, 0, 41, 0)));
     assert(score_channel(&s, branch) == 2 && score_channel(&s, child) == 2);
     SoundSettings custom = initial;
     custom.wave_a = WAVE_NOISE;
     custom.reverb = 1;
-    assert(!score_set_sound(&s, 2, custom));
+    assert(!test_score_set_sound(&s, 2, custom));
     assert(!score_set_channel(&s, 0, 2));
     assert(!memcmp(&s.sounds[score_channel(&s, 0)],
                    &s.sounds[score_channel(&s, other)], sizeof(custom)));

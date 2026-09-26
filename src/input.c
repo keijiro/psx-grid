@@ -1,27 +1,12 @@
 /*
- * input.c - Interrupt-facing sample queue and Rust value ABI adapter
+ * input.c - Interrupt-facing controller sample queue
  *
  * Implementation notes:
  *
  * The queue crosses the pad interrupt and main thread, so it remains in C.
- * The Rust frame interface writes through a pointer; the adapter retains the
- * existing C value ABI, including hidden structure-return parameters.
  */
 
 #include "input.h"
-
-_Static_assert(sizeof(Input) == 40, "Rust Input ABI changed");
-_Static_assert(sizeof(InputFrame) == 48, "Rust InputFrame ABI changed");
-
-extern void input_update_rust(Input* input, int connected, uint16_t held,
-                              InputFrame* frame);
-
-InputFrame input_update(Input* input, int connected, uint16_t held)
-{
-    InputFrame frame;
-    input_update_rust(input, connected, held, &frame);
-    return frame;
-}
 
 void input_queue_init(InputQueue* q)
 {

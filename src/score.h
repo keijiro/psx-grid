@@ -229,33 +229,35 @@ ScoreResult score_validate_import(const Score* score);
 ScoreResult score_set_bpm(Score* score, int bpm);
 /*
  * Sets a preset 0..2 and wet amount 0..100.
- * `score` must not be NULL.
+ * `score` and `reverb` must not be NULL or overlap.
  */
-ScoreResult score_set_reverb(Score* score, ReverbSettings reverb);
+ScoreResult score_set_reverb(Score* score, const ReverbSettings* reverb);
 /*
  * Sets one 0-based channel after validating all sound parameters.
- * `score` must not be NULL.
+ * `score` and `sound` must not be NULL or overlap.
  */
-ScoreResult score_set_sound(Score* score, int channel, SoundSettings sound);
+ScoreResult score_set_sound(Score* score, int channel,
+                            const SoundSettings* sound);
 /*
- * Returns the exact cell at a grid coordinate, or CELL_EMPTY.
- * `score` must not be NULL.
+ * Writes the exact cell at a grid coordinate, or CELL_EMPTY.
+ * `score` and `cell` must not be NULL or overlap.
  */
-Cell score_at(const Score* score, int x, int y);
+void score_at(const Score* score, int x, int y, Cell* cell);
 /*
  * Resolves an empty coordinate just below a stack as an insertion step.
- * `score` must not be NULL.
+ * `score` and `cell` must not be NULL or overlap.
  */
-Cell score_resolve(const Score* score, int x, int y);
+void score_resolve(const Score* score, int x, int y, Cell* cell);
 /*
- * Returns default values for a tile kind; the caller supplies a valid kind.
+ * Writes default values for a valid tile kind to `value`.
+ * `value` must not be NULL.
  */
-TileValue score_default(TileKind kind);
+void score_default(TileKind kind, TileValue* value);
 /*
  * Edits a live tile by ID; its kind must remain unchanged.
- * `score` must not be NULL.
+ * `score` and `value` must not be NULL or overlap.
  */
-ScoreResult score_edit(Score* score, TileId id, TileValue value);
+ScoreResult score_edit(Score* score, TileId id, const TileValue* value);
 /*
  * Returns the inherited channel of a live lane, or -1 if unresolved.
  * `score` must not be NULL.
@@ -308,9 +310,10 @@ ScoreResult score_delete(Score* score, int lane);
 ScoreResult score_place(Score* score, int x, int y, TileKind kind);
 /*
  * Places validated values, growing a lane at its endpoint if needed.
- * `score` must not be NULL.
+ * `score` and `value` must not be NULL or overlap.
  */
-ScoreResult score_place_value(Score* score, int x, int y, TileValue value);
+ScoreResult score_place_value(Score* score, int x, int y,
+                              const TileValue* value);
 /*
  * Removes the tile at `(x, y)` and any branch it owns.
  * `score` must not be NULL.
@@ -327,15 +330,16 @@ void score_copy(const Score* score, int x, int y, Clipboard* clipboard);
  */
 ScoreResult score_paste(Score* score, int x, int y, const Clipboard* clipboard);
 /*
- * Previews moving a lane head or tile suffix between coordinates.
- * `score` must not be NULL.
+ * Writes a preview of moving a lane head or tile suffix between coordinates.
+ * `score` and `plan` must not be NULL or overlap.
  */
-MovePlan score_plan_move(const Score* score, int sx, int sy, int x, int y);
+void score_plan_move(const Score* score, int sx, int sy, int x, int y,
+                     MovePlan* plan);
 /*
  * Rechecks and applies a plan against the current score.
- * `score` must not be NULL.
+ * `score` and `plan` must not be NULL or overlap.
  */
-ScoreResult score_apply_move(Score* score, MovePlan plan);
+ScoreResult score_apply_move(Score* score, const MovePlan* plan);
 /*
  * Returns a display label for a tile kind, or "?" if invalid.
  */
@@ -348,5 +352,12 @@ const char* score_message(ScoreResult result);
  * Returns the pitch-class name for a nonnegative semitone index.
  */
 const char* score_note_name(int pitch);
+
+// C and Rust share these fixed layouts across the pointer-only interface.
+_Static_assert(sizeof(Score) == 199524, "Rust Score ABI changed");
+_Static_assert(sizeof(TileValue) == 36, "Rust TileValue ABI changed");
+_Static_assert(sizeof(Cell) == 20, "Rust Cell ABI changed");
+_Static_assert(sizeof(Clipboard) == 2308, "Rust Clipboard ABI changed");
+_Static_assert(sizeof(MovePlan) == 20, "Rust MovePlan ABI changed");
 
 #endif // SCORE_H

@@ -5,15 +5,14 @@
 
 // Implementation notes:
 // The C score header remains the shared ABI while the model and codec run in
-// Rust. Size checks in the model and C adapters guard layout drift.
+// Rust. Size checks in the model and C headers guard layout drift.
 
 use core::ffi::c_int;
 
 use crate::score::{
     default_value, score_init, score_set_bpm, score_set_division,
-    score_set_reverb_rust, score_set_sound_rust, score_validate_import,
-    ReverbSettings, Score, SoundSettings, CHANNELS, LANES, STEPS,
-    TILE_CAPACITY,
+    score_set_reverb, score_set_sound, score_validate_import, ReverbSettings,
+    Score, SoundSettings, CHANNELS, LANES, STEPS, TILE_CAPACITY,
 };
 
 const FILE_BYTES: usize = 8192;
@@ -419,7 +418,7 @@ fn decode_sounds(data: &[u8], score: &mut Score) -> Result<(), c_int> {
             return Err(FORMAT_CORRUPT);
         }
         // SAFETY: `score` and `value` are valid, distinct C layout objects.
-        if unsafe { score_set_sound_rust(score, i as c_int, &value) } != 0 {
+        if unsafe { score_set_sound(score, i as c_int, &value) } != 0 {
             return Err(FORMAT_CORRUPT);
         }
     }
@@ -671,7 +670,7 @@ pub unsafe extern "C" fn score_format_decode(
     // SAFETY: The score and reverb arguments are distinct valid objects.
     if !zero(&global[4..8])
         || unsafe { score_set_bpm(score, get(&global[..2]) as c_int) } != 0
-        || unsafe { score_set_reverb_rust(score, &reverb) } != 0
+        || unsafe { score_set_reverb(score, &reverb) } != 0
     {
         return FORMAT_CORRUPT;
     }

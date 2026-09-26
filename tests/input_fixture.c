@@ -7,6 +7,8 @@
  * normalized events through the device polling path.
  */
 
+#include "value_api.h"
+
 #include "audio.h"
 #include "editor.h"
 #include "pad.h"
@@ -31,7 +33,7 @@ static void drain(void)
     InputSample sample;
     while (pad_read(&sample))
     {
-        InputFrame f = input_update(&input, sample.connected, sample.held);
+        InputFrame f = test_input_update(&input, sample.connected, sample.held);
         moves += f.dx != 0;
         presses += f.cross;
         releases += f.cross_released;
@@ -92,10 +94,10 @@ int main(void)
     score_create(&editor.score, 0, 0, 16);
     for (int i = 0; i < SEQUENCER_VOICES; i++)
     {
-        TileValue v = score_default(TILE_NOTE);
+        TileValue v = test_score_default(TILE_NOTE);
         v.pitch = 36 + i;
         v.length = 1280;
-        score_place_value(&editor.score, 1, i, v);
+        test_score_place_value(&editor.score, 1, i, v);
     }
     audio_platform_update(&editor.score, 1, 1);
     run(2);
@@ -117,7 +119,7 @@ int main(void)
             for (int k = 0; k < 64; k++, id++)
             {
                 editor.score.tiles[id] =
-                    (Tile){score_default(TILE_NOTE),
+                    (Tile){test_score_default(TILE_NOTE),
                            k == 63 ? 0 : (TileId)(id + 1), -1};
             }
         }

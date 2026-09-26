@@ -7,6 +7,8 @@
  * logical slot 01 to exercise BIOS-backed file operations.
  */
 
+#include "value_api.h"
+
 #include "storage.h"
 
 #include <psxapi.h>
@@ -42,7 +44,7 @@ int main(void)
     TIMER_CTRL(2) = 0x0200;
     TIMER_VALUE(2) = 0;
     score_init(&score);
-    storage_init(&storage, card_platform_backend());
+    test_storage_init(&storage, card_platform_backend());
 
     StorageResult result = storage_refresh(&storage, 1);
     report("refresh", result);

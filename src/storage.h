@@ -55,9 +55,9 @@ typedef struct
 
 /*
  * Initializes caller-owned `storage` with a complete `backend` callback table.
- * `storage` must not be NULL.
+ * `storage` and `backend` must not be NULL or overlap.
  */
-void storage_init(Storage* storage, CardBackend backend);
+void storage_init(Storage* storage, const CardBackend* backend);
 /*
  * Discovers card status and refreshes `slot` in 1..STORAGE_SLOTS. Returns a
  * StorageResult and records the same result for the slot.
@@ -81,5 +81,8 @@ StorageResult storage_load(Storage* storage, int slot);
  * Returns the UI message for a valid `result` in StorageResult.
  */
 const char* storage_message(StorageResult result);
+
+// C and Rust share this fixed directory-entry layout.
+_Static_assert(sizeof(CardFile) == 28, "Rust CardFile ABI changed");
 
 #endif // STORAGE_H

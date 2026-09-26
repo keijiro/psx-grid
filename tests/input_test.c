@@ -7,6 +7,8 @@
  * independent repeat clocks through the editor.
  */
 
+#include "value_api.h"
+
 #include "editor.h"
 #include "input.h"
 
@@ -26,11 +28,11 @@ static void drain(void)
     while (input_queue_pop(&queue, &s))
     {
         EditorMode before = editor.mode;
-        InputFrame f = input_update(&input, s.connected, s.held);
+        InputFrame f = test_input_update(&input, s.connected, s.held);
         moves += f.dx != 0;
         presses += f.cross;
         releases += f.cross_released;
-        editor_update(&editor, f);
+        test_editor_update(&editor, f);
         if (editor.mode != before) input_reset_repeat(&input);
     }
 }
@@ -43,52 +45,52 @@ static void value_repeat_and_conflicts(void)
 {
     Input i;
     input_init(&i);
-    input_update(&i, 1, 0);
-    InputFrame f = input_update(&i, 1, INPUT_RIGHT);
+    test_input_update(&i, 1, 0);
+    InputFrame f = test_input_update(&i, 1, INPUT_RIGHT);
     assert(f.value_dir == 1 && !f.value_coarse);
     for (int n = 0; n < INPUT_VALUE_DELAY - 1; n++)
     {
-        f = input_update(&i, 1, INPUT_RIGHT);
+        f = test_input_update(&i, 1, INPUT_RIGHT);
         assert(!f.value_dir);
     }
-    f = input_update(&i, 1, INPUT_RIGHT);
+    f = test_input_update(&i, 1, INPUT_RIGHT);
     assert(f.value_dir == 1 && !f.value_coarse);
 
     // Direction change and coarse/fine opposition cancel the event and reset
     // the value hold clock. Same-direction fine plus shoulder is coarse only.
-    f = input_update(&i, 1, INPUT_LEFT);
+    f = test_input_update(&i, 1, INPUT_LEFT);
     assert(f.value_dir == -1 && !f.value_coarse);
-    f = input_update(&i, 1, INPUT_R1 | INPUT_RIGHT);
+    f = test_input_update(&i, 1, INPUT_R1 | INPUT_RIGHT);
     assert(f.value_dir == 1 && f.value_coarse);
-    f = input_update(&i, 1, INPUT_L1 | INPUT_RIGHT);
+    f = test_input_update(&i, 1, INPUT_L1 | INPUT_RIGHT);
     assert(!f.value_dir);
-    f = input_update(&i, 1, INPUT_R1 | INPUT_L1);
+    f = test_input_update(&i, 1, INPUT_R1 | INPUT_L1);
     assert(!f.value_dir);
-    f = input_update(&i, 1, INPUT_L1);
+    f = test_input_update(&i, 1, INPUT_L1);
     assert(f.value_dir == -1 && f.value_coarse);
 
     // Disconnect/reconnect suppresses held shoulder input until all buttons are
     // released, while a fresh press still emits immediately.
-    f = input_update(&i, 0, INPUT_R1);
+    f = test_input_update(&i, 0, INPUT_R1);
     assert(!f.value_dir);
-    f = input_update(&i, 1, INPUT_R1);
+    f = test_input_update(&i, 1, INPUT_R1);
     assert(!f.value_dir);
-    f = input_update(&i, 1, 0);
+    f = test_input_update(&i, 1, 0);
     assert(!f.value_dir);
-    f = input_update(&i, 1, INPUT_R1);
+    f = test_input_update(&i, 1, INPUT_R1);
     assert(f.value_dir == 1 && f.value_coarse);
 
     Input coarse;
     input_init(&coarse);
-    input_update(&coarse, 1, 0);
-    f = input_update(&coarse, 1, INPUT_L1);
+    test_input_update(&coarse, 1, 0);
+    f = test_input_update(&coarse, 1, INPUT_L1);
     assert(f.value_dir == -1 && f.value_coarse);
     int last_event = 0;
     int first_interval = 0;
     int last_interval = 0;
     for (int tick = 1; tick <= 220; tick++)
     {
-        f = input_update(&coarse, 1, INPUT_L1);
+        f = test_input_update(&coarse, 1, INPUT_L1);
         if (f.value_dir)
         {
             if (last_event)
@@ -106,15 +108,15 @@ static void value_repeat_and_conflicts(void)
     // repeat delay.
     Input plane;
     input_init(&plane);
-    input_update(&plane, 1, 0);
-    f = input_update(&plane, 1, INPUT_RIGHT);
+    test_input_update(&plane, 1, 0);
+    f = test_input_update(&plane, 1, INPUT_RIGHT);
     assert(f.dx == 1);
     for (int tick = 1; tick < INPUT_DELAY; tick++)
     {
-        f = input_update(&plane, 1, INPUT_RIGHT);
+        f = test_input_update(&plane, 1, INPUT_RIGHT);
         assert(!f.dx);
     }
-    f = input_update(&plane, 1, INPUT_RIGHT);
+    f = test_input_update(&plane, 1, INPUT_RIGHT);
     assert(f.dx == 1);
 }
 
@@ -145,8 +147,8 @@ int main(void)
     // Overflow cancels the active gesture and suppresses a held reconnect.
     editor_init(&editor);
     input_init(&input);
-    input_update(&input, 1, 0);
-    editor_update(&editor, input_update(&input, 1, INPUT_CROSS));
+    test_input_update(&input, 1, 0);
+    test_editor_update(&editor, test_input_update(&input, 1, INPUT_CROSS));
     assert(editor.gesture);
     input_queue_init(&queue);
     for (int n = 0; n < INPUT_QUEUE_CAPACITY - 1; n++)

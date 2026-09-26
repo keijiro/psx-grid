@@ -114,10 +114,15 @@ void input_reset_repeat(Input* input);
  */
 void input_reset_value_repeat(Input* input);
 /*
- * Converts `held` into an editor frame using `input` history. `connected` is
- * zero on disconnection, which resets state and returns an empty frame.
- * `input` must not be NULL.
+ * Writes an editor frame from `held` using `input` history. `connected` is
+ * zero on disconnection, which resets state and writes an empty frame.
+ * `input` and `frame` must not be NULL or overlap.
  */
-InputFrame input_update(Input* input, int connected, uint16_t held);
+void input_update(Input* input, int connected, uint16_t held,
+                  InputFrame* frame);
+
+// C and Rust share these fixed layouts across the pointer-only interface.
+_Static_assert(sizeof(Input) == 40, "Rust Input ABI changed");
+_Static_assert(sizeof(InputFrame) == 48, "Rust InputFrame ABI changed");
 
 #endif // INPUT_H

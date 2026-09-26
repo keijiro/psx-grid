@@ -255,12 +255,12 @@ pub unsafe extern "C" fn input_reset_repeat(input: *mut Input) {
 /// # Safety
 /// `input` and `frame` must point to valid, distinct writable C objects.
 #[no_mangle]
-pub unsafe extern "C" fn input_update_rust(
+pub unsafe extern "C" fn input_update(
     input: *mut Input,
     connected: c_int,
     held: u16,
     frame: *mut InputFrame,
 ) {
-    // SAFETY: The C shim passes distinct caller-owned objects.
+    // SAFETY: The C caller passes distinct caller-owned objects.
     unsafe { *frame = update(&mut *input, connected, held) };
 }

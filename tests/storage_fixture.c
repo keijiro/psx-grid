@@ -7,6 +7,8 @@
  * follows the application handoff path.
  */
 
+#include "value_api.h"
+
 #include "audio.h"
 #include "editor.h"
 #include "pad.h"
@@ -180,7 +182,7 @@ static void frames(int count)
         while (pad_read(&sample))
         {
             InputFrame frame =
-                input_update(&input, sample.connected, sample.held);
+                test_input_update(&input, sample.connected, sample.held);
             resumed_cross += frame.cross;
             resumed_start += frame.start;
         }
@@ -199,13 +201,13 @@ int main(void)
     CardBackend measured = backend;
     measured.begin = measured_begin;
     measured.end = measured_end;
-    storage_init(&storage, measured);
+    test_storage_init(&storage, measured);
     score_create(&editor.score, 0, 0, 16);
     for (int i = 0; i < SEQUENCER_VOICES; i++)
     {
-        TileValue value = score_default(TILE_NOTE);
+        TileValue value = test_score_default(TILE_NOTE);
         value.pitch = 36 + i;
-        score_place_value(&editor.score, 1, i, value);
+        test_score_place_value(&editor.score, 1, i, value);
     }
 
     storage_fixture_stack_ready = 1;
@@ -228,7 +230,7 @@ int main(void)
     editor.mode = EDIT_MAIN;
     // The slot selector precedes Check, Save, and Load in the main menu.
     editor.selected = 3;
-    editor_update(&editor, (InputFrame){.connected = 1, .cross = 1});
+    test_editor_update(&editor, (InputFrame){.connected = 1, .cross = 1});
     AudioTime at = audio_platform_time();
     storage_action(1);
     StorageResult result = storage.slots[0];
@@ -248,7 +250,7 @@ int main(void)
     if (result == STORAGE_SAVED)
     {
         editor.selected = 5;
-        editor_update(&editor, (InputFrame){.connected = 1, .cross = 1});
+        test_editor_update(&editor, (InputFrame){.connected = 1, .cross = 1});
         storage_action(1);
         result = storage.slots[0];
         score_format_encode(&editor.score, expected, 1, 1);
@@ -262,7 +264,7 @@ int main(void)
     }
     editor.mode = EDIT_MAIN;
     editor.selected = 4;
-    editor_update(&editor, (InputFrame){.connected = 1, .cross = 1});
+    test_editor_update(&editor, (InputFrame){.connected = 1, .cross = 1});
     if (editor.storage_request != STORAGE_ACTION_SAVE) finish(8);
     storage_fixture_phase = 2;
     at = audio_platform_time();
@@ -282,7 +284,7 @@ int main(void)
         finish(3);
     }
     editor.selected = 5;
-    editor_update(&editor, (InputFrame){.connected = 1, .cross = 1});
+    test_editor_update(&editor, (InputFrame){.connected = 1, .cross = 1});
     if (editor.storage_request != STORAGE_ACTION_LOAD) finish(9);
     storage_fixture_phase = 3;
     at = audio_platform_time();

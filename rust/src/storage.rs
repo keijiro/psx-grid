@@ -4,8 +4,7 @@
 //! backend retains BIOS and media access while this module selects generations.
 
 // Implementation notes:
-// Backend calls use pointer and integer arguments only; the C shim preserves
-// the public by-value CardBackend initialization ABI.
+// Backend calls and initialization use pointer and integer arguments only.
 
 use core::ffi::{c_char, c_int, c_void};
 use core::ptr;
@@ -327,11 +326,11 @@ fn discover(storage: &mut Storage, slot: c_int) -> Discovery {
 /// `storage` and `backend` must point to distinct valid C objects, with
 /// `storage` exclusively writable.
 #[no_mangle]
-pub unsafe extern "C" fn storage_init_rust(
+pub unsafe extern "C" fn storage_init(
     storage: *mut Storage,
     backend: *const CardBackend,
 ) {
-    // SAFETY: The C shim provides distinct valid writable and immutable objects.
+    // SAFETY: The C caller provides distinct valid writable and immutable objects.
     unsafe { ptr::write_bytes(storage, 0, 1) };
     // SAFETY: `backend` is valid for this call after storage is initialized.
     let backend = unsafe { *backend };

@@ -161,8 +161,8 @@ void editor_row_value(const Editor* editor, int id, char* buffer, int size);
 /*
  * Applies one normalized `input` frame to `editor` and records any storage
  * request.
- * `editor` must not be NULL.
+ * `editor` and `input` must not be NULL or overlap.
  */
-void editor_update(Editor* editor, InputFrame input);
+void editor_update(Editor* editor, const InputFrame* input);
 
 #endif // EDITOR_H

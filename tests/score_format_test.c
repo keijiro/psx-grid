@@ -7,6 +7,8 @@
  * independently of the memory-card backend.
  */
 
+#include "value_api.h"
+
 #include "score_format.h"
 
 #include <assert.h>
@@ -70,7 +72,7 @@ static uint8_t* chunk(uint8_t* data, int wanted)
 
 static TileId tile(const Score* s, int x, int y)
 {
-    return score_at(s, x, y).tile;
+    return test_score_at(s, x, y).tile;
 }
 
 static void example(Score* s)
@@ -79,10 +81,10 @@ static void example(Score* s)
     assert(score_create(s, 20, 10, 3) == SCORE_OK);
     assert(score_create(s, 2, 0, 5) == SCORE_OK);
     assert(score_set_bpm(s, 173) == SCORE_OK);
-    assert(score_set_reverb(s, (ReverbSettings){2, 87}) == SCORE_OK);
+    assert(test_score_set_reverb(s, (ReverbSettings){2, 87}) == SCORE_OK);
     SoundSettings sound = {16000, 1234, WAVE_NOISE, WAVE_TRIANGLE, 500, 321,
                            -24,   2000, 1};
-    assert(score_set_sound(s, 7, sound) == SCORE_OK);
+    assert(test_score_set_sound(s, 7, sound) == SCORE_OK);
     assert(score_set_channel(s, 0, 7) == SCORE_OK);
     assert(score_set_division(s, 0, 3) == SCORE_OK);
     assert(score_set_channel(s, 1, 2) == SCORE_OK);
@@ -91,22 +93,22 @@ static void example(Score* s)
     TileValue v = s->tiles[tile(s, 21, 10)].value;
     v.pitch = 108;
     v.length = 1280;
-    assert(score_edit(s, tile(s, 21, 10), v) == SCORE_OK);
+    assert(test_score_edit(s, tile(s, 21, 10), v) == SCORE_OK);
     assert(score_place(s, 3, 0, TILE_CYCLE) == SCORE_OK);
     v = s->tiles[tile(s, 3, 0)].value;
     v.period = 32;
     v.pattern = 0xa5c30081u;
-    assert(score_edit(s, tile(s, 3, 0), v) == SCORE_OK);
+    assert(test_score_edit(s, tile(s, 3, 0), v) == SCORE_OK);
     assert(score_place(s, 4, 0, TILE_PROBABILITY) == SCORE_OK);
     v = s->tiles[tile(s, 4, 0)].value;
     v.chance = 0;
-    assert(score_edit(s, tile(s, 4, 0), v) == SCORE_OK);
+    assert(test_score_edit(s, tile(s, 4, 0), v) == SCORE_OK);
     assert(score_place(s, 5, 0, TILE_RELATIVE) == SCORE_OK);
     v = s->tiles[tile(s, 5, 0)].value;
     v.lock_mask = 3;
     v.attack = -16000;
     v.release = 16000;
-    assert(score_edit(s, tile(s, 5, 0), v) == SCORE_OK);
+    assert(test_score_edit(s, tile(s, 5, 0), v) == SCORE_OK);
     assert(score_place(s, 6, 0, TILE_JUMP) == SCORE_OK);
 }
 
@@ -386,7 +388,7 @@ static void encode_rejects_invalid(void)
     TileId extra = 1;
     while (s.tiles[extra].value.kind) extra++;
     s.tiles[tail].next = extra;
-    s.tiles[extra].value = score_default(TILE_NOTE);
+    s.tiles[extra].value = test_score_default(TILE_NOTE);
     s.tiles[extra].branch = -1;
     assert(score_format_measure(&s) == SCORE_FILE_BYTES + 5);
     memset(changed, 0xa5, sizeof(changed));

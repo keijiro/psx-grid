@@ -7,6 +7,8 @@
  * cleanup to check durable slot behavior.
  */
 
+#include "value_api.h"
+
 #include "storage.h"
 
 #include <assert.h>
@@ -245,7 +247,7 @@ static void set_newer(File* file)
 static StorageResult load(MemoryCard* c, Score* score)
 {
     Storage s;
-    storage_init(&s, backend(c));
+    test_storage_init(&s, backend(c));
     StorageResult r = storage_load(&s, 1);
     if (r == STORAGE_SAVED) *score = s.incoming;
     assert(!c->begun);
@@ -256,7 +258,7 @@ static void save(MemoryCard* c, int bpm)
 {
     Storage s;
     Score score = make_score(bpm);
-    storage_init(&s, backend(c));
+    test_storage_init(&s, backend(c));
     assert(storage_save(&s, 1, &score) == STORAGE_SAVED);
     assert(!c->begun);
 }
@@ -300,7 +302,7 @@ static void write_failures(void)
         c.fail_write = failure == 1;
         c.short_write = failure == 2;
         c.fail_close = failure == 3;
-        storage_init(&s, backend(&c));
+        test_storage_init(&s, backend(&c));
         assert(storage_save(&s, 1, &score) == STORAGE_IO);
         c.fail_create = c.fail_write = c.short_write = c.fail_close = 0;
         assert(load(&c, &recovered) == STORAGE_SAVED &&
@@ -326,7 +328,7 @@ static void readback_failures(void)
         c.reads = 0;
         if (failure == 0) c.fail_read_at = 2;
         else c.short_read_at = 2;
-        storage_init(&s, backend(&c));
+        test_storage_init(&s, backend(&c));
         assert(storage_save(&s, 1, &score) == STORAGE_IO);
         assert(c.count == 2 &&
                !strcmp(c.files[0].info.name, "BIJACQUARD0100000001"));
@@ -357,14 +359,14 @@ static void capacity_and_cleanup(void)
     }
     File unrelated[14];
     memcpy(unrelated, &c.files[1], sizeof(unrelated));
-    storage_init(&s, backend(&c));
+    test_storage_init(&s, backend(&c));
     assert(storage_save(&s, 1, &score) == STORAGE_NO_SPACE);
     assert(c.count == 15 && load(&c, &recovered) == STORAGE_SAVED &&
            recovered.bpm == 101);
     assert(!memcmp(unrelated, &c.files[1], sizeof(unrelated)));
     c.count = 1;
     c.fail_erase = 1;
-    storage_init(&s, backend(&c));
+    test_storage_init(&s, backend(&c));
     assert(storage_save(&s, 1, &score) == STORAGE_CLEANUP);
     assert(c.count == 2);
     c.fail_erase = 0;
@@ -390,11 +392,11 @@ static void corrupt_higher_and_overflow(void)
     strcpy(partial->info.name, "BIJACQUARD0100000009");
     partial->info.size = SCORE_FILE_BYTES;
     assert(load(&c, &recovered) == STORAGE_SAVED && recovered.bpm == 101);
-    storage_init(&s, backend(&c));
+    test_storage_init(&s, backend(&c));
     assert(storage_save(&s, 1, &score) == STORAGE_SAVED);
     assert(!strcmp(c.files[c.count - 1].info.name, "BIJACQUARD010000000A"));
     strcpy(c.files[c.count - 1].info.name, "BIJACQUARD01FFFFFFFF");
-    storage_init(&s, backend(&c));
+    test_storage_init(&s, backend(&c));
     assert(storage_save(&s, 1, &score) == STORAGE_GENERATION_FULL);
 }
 
@@ -416,7 +418,7 @@ static void newer_and_generation_ties(void)
     file->info.size = SCORE_FILE_BYTES;
     assert(score_format_encode(&newer, file->data, 1, 2) == FORMAT_OK);
     set_newer(file);
-    storage_init(&s, backend(&c));
+    test_storage_init(&s, backend(&c));
     assert(storage_refresh(&s, 1) == STORAGE_NEWER);
     assert(storage_load(&s, 1) == STORAGE_NEWER);
     assert(storage_save(&s, 1, &newer) == STORAGE_NEWER);
@@ -467,20 +469,20 @@ static void directory_and_result_errors(void)
     {
         MemoryCard c = {.fail_begin = 1, .failure = cases[i].card};
         Storage s;
-        storage_init(&s, backend(&c));
+        test_storage_init(&s, backend(&c));
         assert(storage_save(&s, 1, &score) == cases[i].storage);
         assert(!c.begun && !c.ends);
     }
     MemoryCard c = {.failure = CARD_CHANGED, .fail_list_at = 1};
     Storage s;
-    storage_init(&s, backend(&c));
+    test_storage_init(&s, backend(&c));
     assert(storage_refresh(&s, 1) == STORAGE_CHANGED && !c.begun &&
            c.ends == 1);
     memset(&c, 0, sizeof(c));
     c.count = 1;
     strcpy(c.files[0].info.name, "OTHER");
     c.files[0].info.size = SCORE_FILE_BYTES + 1;
-    storage_init(&s, backend(&c));
+    test_storage_init(&s, backend(&c));
     assert(storage_refresh(&s, 1) == STORAGE_CARD_DAMAGED && !c.begun &&
            c.ends == 1);
 }
@@ -509,7 +511,7 @@ static void card_change_during_operations(void)
         if (operation == 2) c.fail_close = 1;
         if (operation == 3) c.fail_erase = 1;
         int ends = c.ends;
-        storage_init(&s, backend(&c));
+        test_storage_init(&s, backend(&c));
         assert(storage_save(&s, 1, &score) == STORAGE_CHANGED);
         assert(!c.begun && c.ends == ends + 1);
         c.fail_read_at = c.fail_write = c.fail_close = c.fail_erase = 0;
@@ -529,7 +531,7 @@ static void session_failures(void)
     Score score = make_score(202);
     c.failure = CARD_CHANGED;
     c.fail_begin = 1;
-    storage_init(&s, backend(&c));
+    test_storage_init(&s, backend(&c));
     assert(storage_save(&s, 1, &score) == STORAGE_CHANGED && !c.begun &&
            !c.ends);
     c.fail_begin = 0;

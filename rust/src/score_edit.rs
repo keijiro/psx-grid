@@ -432,15 +432,15 @@ fn place_value(
 /// `score` and `value` must point to distinct valid C objects, with the
 /// score exclusively writable.
 #[no_mangle]
-pub unsafe extern "C" fn score_place_value_rust(
+pub unsafe extern "C" fn score_place_value(
     score: *mut Score,
     x: c_int,
     y: c_int,
     value: *const TileValue,
 ) -> c_int {
-    // SAFETY: The C shim supplies exclusive access to a valid score.
+    // SAFETY: The C caller supplies exclusive access to a valid score.
     let score = unsafe { &mut *score };
-    // SAFETY: The C shim supplies a distinct immutable value.
+    // SAFETY: The C caller supplies a distinct immutable value.
     place_value(score, x, y, unsafe { *value })
 }
 
@@ -603,7 +603,7 @@ fn move_staged(
 /// `score` and `plan` must point to distinct valid C objects, with `plan`
 /// exclusively writable.
 #[no_mangle]
-pub unsafe extern "C" fn score_plan_move_rust(
+pub unsafe extern "C" fn score_plan_move(
     score: *const Score,
     sx: c_int,
     sy: c_int,
@@ -613,7 +613,7 @@ pub unsafe extern "C" fn score_plan_move_rust(
 ) {
     // SAFETY: The C caller supplies a valid immutable score.
     let result = move_staged(unsafe { &*score }, sx, sy, x, y);
-    // SAFETY: The C shim supplies a distinct writable plan.
+    // SAFETY: The C caller supplies a distinct writable plan.
     unsafe {
         *plan = MovePlan {
             sx,
@@ -631,11 +631,11 @@ pub unsafe extern "C" fn score_plan_move_rust(
 /// `score` and `plan` must point to distinct valid C objects, with the
 /// score exclusively writable.
 #[no_mangle]
-pub unsafe extern "C" fn score_apply_move_rust(
+pub unsafe extern "C" fn score_apply_move(
     score: *mut Score,
     plan: *const MovePlan,
 ) -> c_int {
-    // SAFETY: The C shim supplies a valid immutable plan.
+    // SAFETY: The C caller supplies a valid immutable plan.
     let plan = unsafe { &*plan };
     // SAFETY: The C caller provides exclusive access to a distinct score.
     let score = unsafe { &mut *score };
