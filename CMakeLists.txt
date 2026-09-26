@@ -83,6 +83,7 @@ option(BIOS_CARD_FIXTURE "Build the BIOS file fixture without audio or pad" OFF)
 if(BIOS_CARD_FIXTURE)
     psn00bsdk_add_executable(card-file-fixture GPREL tests/card_file_fixture.c
         ${STORAGE_SOURCES} ${CARD_SOURCE} src/score.c)
+    link_grid_rust(card-file-fixture)
     target_include_directories(card-file-fixture PRIVATE src)
     target_compile_options(card-file-fixture PRIVATE -Wall -Wextra)
 endif()

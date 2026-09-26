@@ -559,7 +559,9 @@ static void menu_audio_checks(void)
     for (int size = 0; size < 3; size++)
     {
         score_init(&editor.score);
-        score_create(&editor.score, 0, 0, 1);
+        // The DMA scan can cross a two-second step; keep the held note from
+        // retriggering before its captured send is inspected.
+        score_create(&editor.score, 0, 0, 16);
         score_set_division(&editor.score, 0, 1);
         TileValue note = score_default(TILE_NOTE);
         note.length = 1280;

@@ -44,18 +44,18 @@ pub struct Input {
 #[repr(C)]
 #[derive(Default)]
 pub struct InputFrame {
-    connected: c_int,
-    dx: c_int,
-    dy: c_int,
-    row_dy: c_int,
-    value_dir: c_int,
-    value_coarse: c_int,
-    cross: c_int,
-    circle: c_int,
-    cross_held: c_int,
-    cross_released: c_int,
-    start: c_int,
-    select: c_int,
+    pub(crate) connected: c_int,
+    pub(crate) dx: c_int,
+    pub(crate) dy: c_int,
+    pub(crate) row_dy: c_int,
+    pub(crate) value_dir: c_int,
+    pub(crate) value_coarse: c_int,
+    pub(crate) cross: c_int,
+    pub(crate) circle: c_int,
+    pub(crate) cross_held: c_int,
+    pub(crate) cross_released: c_int,
+    pub(crate) start: c_int,
+    pub(crate) select: c_int,
 }
 
 // The C headers own these public layouts; fail the Rust build if the mirrored

@@ -226,7 +226,8 @@ int main(void)
     frames(20);
     storage_fixture_phase = 1;
     editor.mode = EDIT_MAIN;
-    editor.selected = 2;
+    // The slot selector precedes Check, Save, and Load in the main menu.
+    editor.selected = 3;
     editor_update(&editor, (InputFrame){.connected = 1, .cross = 1});
     AudioTime at = audio_platform_time();
     storage_action(1);
@@ -246,7 +247,7 @@ int main(void)
     }
     if (result == STORAGE_SAVED)
     {
-        editor.selected = 4;
+        editor.selected = 5;
         editor_update(&editor, (InputFrame){.connected = 1, .cross = 1});
         storage_action(1);
         result = storage.slots[0];
@@ -260,7 +261,7 @@ int main(void)
         }
     }
     editor.mode = EDIT_MAIN;
-    editor.selected = 3;
+    editor.selected = 4;
     editor_update(&editor, (InputFrame){.connected = 1, .cross = 1});
     if (editor.storage_request != STORAGE_ACTION_SAVE) finish(8);
     storage_fixture_phase = 2;
@@ -280,7 +281,7 @@ int main(void)
         }
         finish(3);
     }
-    editor.selected = 4;
+    editor.selected = 5;
     editor_update(&editor, (InputFrame){.connected = 1, .cross = 1});
     if (editor.storage_request != STORAGE_ACTION_LOAD) finish(9);
     storage_fixture_phase = 3;

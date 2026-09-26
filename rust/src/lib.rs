@@ -5,14 +5,31 @@
 
 #![no_std]
 
+mod editor;
 mod input;
+mod score;
+mod score_edit;
+mod score_format;
+mod storage;
 
 #[cfg(not(test))]
 use core::panic::PanicInfo;
 
+#[cfg(not(target_arch = "mips"))]
+unsafe extern "C" {
+    fn abort() -> !;
+}
+
 #[cfg(not(test))]
 #[panic_handler]
 fn panic(_info: &PanicInfo) -> ! {
+    #[cfg(not(target_arch = "mips"))]
+    {
+        // SAFETY: Host C fixtures link libc, and abort makes a failed
+        // invariant terminate the test instead of spinning forever.
+        unsafe { abort() }
+    }
+    #[cfg(target_arch = "mips")]
     loop {}
 }
 

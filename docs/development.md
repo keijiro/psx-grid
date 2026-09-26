@@ -40,9 +40,15 @@ to a gamepad or keyboard. See [usage.md](usage.md) for the editing walkthrough.
 
 ## Structure and Validation
 
-- `src/score.*`: SDK-independent model and transactional edit admission.
-- `src/score_format.*`: Portable v1 encoding, staging decode, and shared sizing.
-- `src/storage.*`: Numbered BIOS files, discovery and recovery.
+- `rust/src/score.rs`, `rust/src/score_edit.rs`: SDK-independent model,
+  validation, and transactional edits in fixed caller-owned storage.
+- `src/score.c`, `src/score.h`: Shared C layout and aggregate-value ABI adapters.
+- `rust/src/score_format.rs`: Portable v1 codec, shared sizing, and generation
+  stamping in the `no_std` static library.
+- `src/score_format.c`, `src/score_format.h`: C ABI layout guards and declarations.
+- `rust/src/storage.rs`: Numbered card files, discovery, and recovery through
+  the injected card backend.
+- `src/storage.c`, `src/storage.h`: Shared C layout and backend initialization ABI.
 - `src/card.h`, `src/card_bios.c`: File-level card interface and BIOS backend.
 - `src/sequencer.*`: SDK-independent runners, exact absolute deadlines,
   live runner reconciliation, ordered held locks, generation-tagged gate-offs,
@@ -61,8 +67,10 @@ to a gamepad or keyboard. See [usage.md](usage.md) for the editing walkthrough.
   disconnection, and reconnection in a `no_std` static library.
 - `src/input.c`, `src/input.h`: C ABI adapter and interrupt-facing sample queue.
 - `src/pad.*`: Port 1 asynchronous SIO polling and completed-report publication.
-- `src/editor.*`: Menus, inline property edits, clipboard, deletion confirmation,
-  and press/hold/release movement transitions.
+- `rust/src/editor.rs`: Menus, inline property edits, clipboard, deletion
+  confirmation, and press/hold/release movement transitions.
+- `src/editor.c`, `src/editor.h`: Shared editor layout, display formatting,
+  and aggregate input ABI adapter.
 - `src/render.*`: 320 x 240 NTSC output, double buffering, scrolling, and
   render-packet management.
 - [`assets/ui/`](../assets/ui/README.md), `scripts/generate-assets.py`: editable
@@ -75,6 +83,11 @@ to a gamepad or keyboard. See [usage.md](usage.md) for the editing walkthrough.
 The Rust crate targets `mipsel-sony-psx` and builds `core` from pinned
 `rust-src` with `noabicalls` to match the SDK's fixed GP. CMake links its
 static library into the game and fixtures.
+The editor, model, file codec, storage coordinator, and input history now run
+in Rust. C retains SDK and hardware access, display formatting, and small
+aggregate-value ABI adapters. Sequencer and voice synthesis still run in the
+timer callback as optimized C; moving either requires checking the 1 ms
+dispatch deadline and interrupt stack use on the emulator again.
 `scripts/elf2x-rust.py` omits Rust's GNU_STACK metadata from the temporary ELF
 passed to the SDK converter. The linked ELF itself is unchanged. Host tests
 link the same Rust sources as a native static library.
@@ -101,7 +114,7 @@ current editing rules and scope.
 
 The development environment was adapted from the sibling `../psx-test`
 project. The model and editor use Jacquard's integer-grid and cell-role
-concepts in a small SDK-independent C implementation, rather than a direct
+concepts in a small SDK-independent Rust/C implementation, rather than a direct
 port of its C# and Unity UI. The original reference checkout is
 `~/Projects/jacquard/main`; relevant files are `Assets/Core/Model/Lane.cs`,
 `Assets/Core/Model/Score.cs`, `Assets/Jacquard/App/ScoreEditor.cs`, and
