@@ -9,8 +9,8 @@
 
 #include "editor.h"
 
-#include <string.h>
 #include <stdio.h>
+#include <string.h>
 
 static int clamp(int x, int min, int max)
 {
@@ -80,10 +80,14 @@ int editor_menu(const Editor* e, EditorAction items[EDITOR_MENU_ITEMS])
 
 const char* editor_action_label(EditorAction a)
 {
-    static const char* labels[] = {"NEW LANE",      "CREATE TILE",    "DELETE TILE",   "LENGTH",        "DELETE LANE",
-                                   "COPY STACK",    "PASTE STACK",    "PITCH",         "NOTE LENGTH",   "PERIOD",
-                                   "PATTERN",       "CHANCE",         "DIVISION",      "SOUND",         "CHANNEL",
-                                   "ATTACK ENABLE", "RELEASE ENABLE", "ATTACK OFFSET", "RELEASE OFFSET"};
+    static const char* labels[] =
+    {
+        "NEW LANE",       "CREATE TILE",   "DELETE TILE",   "LENGTH",
+        "DELETE LANE",    "COPY STACK",    "PASTE STACK",   "PITCH",
+        "NOTE LENGTH",    "PERIOD",        "PATTERN",       "CHANCE",
+        "DIVISION",       "SOUND",         "CHANNEL",       "ATTACK ENABLE",
+        "RELEASE ENABLE", "ATTACK OFFSET", "RELEASE OFFSET"
+    };
     return labels[a];
 }
 
@@ -93,26 +97,27 @@ const char* editor_action_label(EditorAction a)
  */
 enum
 {
-    ROW_BPM = 100,
-    ROW_REVERB,
-    ROW_SLOT,
-    ROW_CHECK,
-    ROW_SAVE,
-    ROW_LOAD,
-    ROW_SIZE,
-    ROW_AMOUNT,
-    ROW_WAVE1 = 200,
-    ROW_WAVE2,
-    ROW_AMP_ATTACK,
-    ROW_AMP_RELEASE,
-    ROW_MIX_ATTACK,
-    ROW_MIX_RELEASE,
-    ROW_SWEEP,
-    ROW_DECAY,
-    ROW_SEND
+    ROW_BPM = 100,                  // Global rows begin at 100.
+    ROW_REVERB,                     // Opens the reverb settings.
+    ROW_SLOT,                       // Selects a card slot.
+    ROW_CHECK,                      // Refreshes card status.
+    ROW_SAVE,                       // Requests a score save.
+    ROW_LOAD,                       // Requests a score load.
+    ROW_SIZE,                       // Adjusts reverb room size.
+    ROW_AMOUNT,                     // Adjusts reverb wet level.
+    ROW_WAVE1 = 200,                // Sound rows begin at 200.
+    ROW_WAVE2,                      // Selects the second wave.
+    ROW_AMP_ATTACK,                 // Adjusts amplitude attack.
+    ROW_AMP_RELEASE,                // Adjusts amplitude release.
+    ROW_MIX_ATTACK,                 // Adjusts wave-mix attack.
+    ROW_MIX_RELEASE,                // Adjusts wave-mix release.
+    ROW_SWEEP,                      // Adjusts pitch sweep depth.
+    ROW_DECAY,                      // Adjusts sweep duration.
+    ROW_SEND                        // Adjusts reverb send.
 };
 
-static EditorRow row(EditorRowKind kind, int id, const char* label, int min, int max, int fine, int coarse)
+static EditorRow row(EditorRowKind kind, int id, const char* label, int min,
+                     int max, int fine, int coarse)
 {
     return (EditorRow){kind, id, min, max, fine, coarse, label};
 }
@@ -122,7 +127,8 @@ int editor_rows(const Editor* e, EditorRow rows[EDITOR_ROWS])
     int n = 0;
     if (e->mode == EDIT_MAIN)
     {
-        rows[n++] = row(ROW_VALUE, ROW_BPM, "BPM", SCORE_MIN_BPM, SCORE_MAX_BPM, 1, 10);
+        rows[n++] =
+            row(ROW_VALUE, ROW_BPM, "BPM", SCORE_MIN_BPM, SCORE_MAX_BPM, 1, 10);
         rows[n++] = row(ROW_SUBMENU, ROW_REVERB, "REVERB", 0, 0, 0, 0);
         rows[n++] = row(ROW_VALUE, ROW_SLOT, "SLOT", 1, STORAGE_SLOTS, 1, 1);
         rows[n++] = row(ROW_ACTION, ROW_CHECK, "CHECK CARD", 0, 0, 0, 0);
@@ -137,17 +143,25 @@ int editor_rows(const Editor* e, EditorRow rows[EDITOR_ROWS])
     else if (e->mode == EDIT_SOUND)
     {
         rows[n++] = row(ROW_HEADING, 0, "WAVEFORM", 0, 0, 0, 0);
-        rows[n++] = row(ROW_VALUE, ROW_WAVE1, "WAVE 1", 0, WAVE_COUNT - 1, 1, 1);
-        rows[n++] = row(ROW_VALUE, ROW_WAVE2, "WAVE 2", 0, WAVE_COUNT - 1, 1, 1);
+        rows[n++] =
+            row(ROW_VALUE, ROW_WAVE1, "WAVE 1", 0, WAVE_COUNT - 1, 1, 1);
+        rows[n++] =
+            row(ROW_VALUE, ROW_WAVE2, "WAVE 2", 0, WAVE_COUNT - 1, 1, 1);
         rows[n++] = row(ROW_HEADING, 0, "AMP", 0, 0, 0, 0);
-        rows[n++] = row(ROW_VALUE, ROW_AMP_ATTACK, "ATTACK", 0, SOUND_MAX_MS, 1, 100);
-        rows[n++] = row(ROW_VALUE, ROW_AMP_RELEASE, "RELEASE", 0, SOUND_MAX_MS, 1, 100);
+        rows[n++] =
+            row(ROW_VALUE, ROW_AMP_ATTACK, "ATTACK", 0, SOUND_MAX_MS, 1, 100);
+        rows[n++] =
+            row(ROW_VALUE, ROW_AMP_RELEASE, "RELEASE", 0, SOUND_MAX_MS, 1, 100);
         rows[n++] = row(ROW_HEADING, 0, "MIX", 0, 0, 0, 0);
-        rows[n++] = row(ROW_VALUE, ROW_MIX_ATTACK, "ATTACK", 0, SOUND_MAX_MIX_MS, 1, 100);
-        rows[n++] = row(ROW_VALUE, ROW_MIX_RELEASE, "RELEASE", 0, SOUND_MAX_MIX_MS, 1, 100);
+        rows[n++] = row(ROW_VALUE, ROW_MIX_ATTACK, "ATTACK", 0,
+                        SOUND_MAX_MIX_MS, 1, 100);
+        rows[n++] = row(ROW_VALUE, ROW_MIX_RELEASE, "RELEASE", 0,
+                        SOUND_MAX_MIX_MS, 1, 100);
         rows[n++] = row(ROW_HEADING, 0, "PITCH", 0, 0, 0, 0);
-        rows[n++] = row(ROW_VALUE, ROW_SWEEP, "SWEEP", -SOUND_MAX_SWEEP, SOUND_MAX_SWEEP, 1, 12);
-        rows[n++] = row(ROW_VALUE, ROW_DECAY, "DECAY", 0, SOUND_MAX_DECAY_MS, 1, 100);
+        rows[n++] = row(ROW_VALUE, ROW_SWEEP, "SWEEP", -SOUND_MAX_SWEEP,
+                        SOUND_MAX_SWEEP, 1, 12);
+        rows[n++] =
+            row(ROW_VALUE, ROW_DECAY, "DECAY", 0, SOUND_MAX_DECAY_MS, 1, 100);
         rows[n++] = row(ROW_VALUE, ROW_SEND, "REVERB", 0, 1, 1, 1);
     }
     else if (e->mode == EDIT_MENU)
@@ -158,13 +172,23 @@ int editor_rows(const Editor* e, EditorRow rows[EDITOR_ROWS])
         {
             EditorAction a = actions[i];
             EditorRowKind kind = ROW_ACTION;
-            int min = 0, max = 0, fine = 0, coarse = 0;
-            if (a == ACTION_SOUND || a == ACTION_PLACE || a == ACTION_PATTERN) kind = ROW_SUBMENU;
-            else if (a == ACTION_LENGTH || a == ACTION_DIVISION || a == ACTION_CHANNEL || a == ACTION_PITCH ||
-                     a == ACTION_DURATION || a == ACTION_PERIOD || a == ACTION_CHANCE ||
-                     a == ACTION_LOCK_ATTACK_ENABLE || a == ACTION_LOCK_RELEASE_ENABLE || a == ACTION_LOCK_ATTACK ||
-                     a == ACTION_LOCK_RELEASE)
+            int min = 0;
+            int max = 0;
+            int fine = 0;
+            int coarse = 0;
+            if (a == ACTION_SOUND || a == ACTION_PLACE || a == ACTION_PATTERN)
+            {
+                kind = ROW_SUBMENU;
+            }
+            else if (a == ACTION_LENGTH || a == ACTION_DIVISION ||
+                     a == ACTION_CHANNEL || a == ACTION_PITCH ||
+                     a == ACTION_DURATION || a == ACTION_PERIOD ||
+                     a == ACTION_CHANCE || a == ACTION_LOCK_ATTACK_ENABLE ||
+                     a == ACTION_LOCK_RELEASE_ENABLE ||
+                     a == ACTION_LOCK_ATTACK || a == ACTION_LOCK_RELEASE)
+            {
                 kind = ROW_VALUE;
+            }
             switch (a)
             {
             case ACTION_LENGTH:
@@ -221,7 +245,8 @@ int editor_rows(const Editor* e, EditorRow rows[EDITOR_ROWS])
             default:
                 break;
             }
-            rows[n++] = row(kind, a, editor_action_label(a), min, max, fine, coarse);
+            rows[n++] =
+                row(kind, a, editor_action_label(a), min, max, fine, coarse);
         }
     }
     return n;
@@ -344,7 +369,8 @@ static void enter_context(Editor* e)
  * Skips headings during navigation without allowing the selection to escape
  * the current menu.
  */
-static int selected_row(const EditorRow* rows, int count, int selected, int direction)
+static int selected_row(const EditorRow* rows, int count, int selected,
+                        int direction)
 {
     int next = selected;
     for (;;)
@@ -357,105 +383,136 @@ static int selected_row(const EditorRow* rows, int count, int selected, int dire
 }
 
 /*
- * Routes a bounded row adjustment through score validators; a busy load
- * permits slot selection but blocks score edits.
+ * Only tile fields need a target value; lane and global rows may have no
+ * target.
  */
-static void adjust(Editor* e, EditorRow r, int direction, int coarse)
+static int tile_value_row(int id)
 {
-    if (r.kind != ROW_VALUE || !direction) return;
-    int step = coarse ? r.coarse : r.fine;
-    int current = 0;
+    switch (id)
+    {
+    case ACTION_PITCH:
+    case ACTION_DURATION:
+    case ACTION_PERIOD:
+    case ACTION_CHANCE:
+    case ACTION_LOCK_ATTACK_ENABLE:
+    case ACTION_LOCK_RELEASE_ENABLE:
+    case ACTION_LOCK_ATTACK:
+    case ACTION_LOCK_RELEASE:
+        return 1;
+    default:
+        return 0;
+    }
+}
+
+/*
+ * Reads the selected field without changing score or editor state.
+ */
+static int current_value(const Editor* e, int id, int* current)
+{
+    *current = 0;
     TileValue v = {0};
     SoundSettings sound = {0};
     ReverbSettings reverb = {0};
-    if (r.id >= ROW_WAVE1) sound = e->score.sounds[e->sound_channel];
-    if (r.id == ROW_SIZE || r.id == ROW_AMOUNT) reverb = e->score.reverb;
-    if (r.id < ACTION_LOCK_RELEASE + 1) v = e->score.tiles[e->target].value;
-    switch (r.id)
+    if (id >= ROW_WAVE1) sound = e->score.sounds[e->sound_channel];
+    if (id == ROW_SIZE || id == ROW_AMOUNT) reverb = e->score.reverb;
+    if (tile_value_row(id)) v = e->score.tiles[e->target].value;
+    switch (id)
     {
     case ROW_BPM:
-        current = e->score.bpm;
+        *current = e->score.bpm;
         break;
     case ROW_SLOT:
-        current = e->storage_slot;
+        *current = e->storage_slot;
         break;
     case ROW_SIZE:
-        current = reverb.size;
+        *current = reverb.size;
         break;
     case ROW_AMOUNT:
-        current = reverb.amount;
+        *current = reverb.amount;
         break;
     case ROW_WAVE1:
-        current = sound.wave_a;
+        *current = sound.wave_a;
         break;
     case ROW_WAVE2:
-        current = sound.wave_b;
+        *current = sound.wave_b;
         break;
     case ROW_AMP_ATTACK:
-        current = sound.attack;
+        *current = sound.attack;
         break;
     case ROW_AMP_RELEASE:
-        current = sound.release;
+        *current = sound.release;
         break;
     case ROW_MIX_ATTACK:
-        current = sound.mix_attack;
+        *current = sound.mix_attack;
         break;
     case ROW_MIX_RELEASE:
-        current = sound.mix_release;
+        *current = sound.mix_release;
         break;
     case ROW_SWEEP:
-        current = sound.sweep;
+        *current = sound.sweep;
         break;
     case ROW_DECAY:
-        current = sound.decay;
+        *current = sound.decay;
         break;
     case ROW_SEND:
-        current = sound.reverb;
+        *current = sound.reverb;
         break;
     case ACTION_LENGTH:
-        current = e->score.lanes[e->lane].length;
+        *current = e->score.lanes[e->lane].length;
         break;
     case ACTION_DIVISION:
-        while (current < SCORE_DIVISIONS - 1 && score_divisions[current] != score_division(&e->score, e->lane))
+        while (*current < SCORE_DIVISIONS - 1 &&
+               score_divisions[*current] != score_division(&e->score, e->lane))
         {
-            current++;
+            (*current)++;
         }
         break;
     case ACTION_CHANNEL:
-        current = score_channel(&e->score, e->lane);
+        *current = score_channel(&e->score, e->lane);
         break;
     case ACTION_PITCH:
-        current = v.pitch;
+        *current = v.pitch;
         break;
     case ACTION_DURATION:
-        current = v.length;
+        *current = v.length;
         break;
     case ACTION_PERIOD:
-        current = v.period;
+        *current = v.period;
         break;
     case ACTION_CHANCE:
-        current = v.chance;
+        *current = v.chance;
         break;
     case ACTION_LOCK_ATTACK_ENABLE:
-        current = !!(v.lock_mask & LOCK_ATTACK);
+        *current = !!(v.lock_mask & LOCK_ATTACK);
         break;
     case ACTION_LOCK_RELEASE_ENABLE:
-        current = !!(v.lock_mask & LOCK_RELEASE);
+        *current = !!(v.lock_mask & LOCK_RELEASE);
         break;
     case ACTION_LOCK_ATTACK:
-        current = v.attack;
+        *current = v.attack;
         break;
     case ACTION_LOCK_RELEASE:
-        current = v.release;
+        *current = v.release;
         break;
     default:
-        return;
+        return 0;
     }
-    int candidate = clamp(current + direction * step, r.min, r.max);
-    if (candidate == current) return;
-    if (e->load_busy && r.id != ROW_SLOT) return;
+    return 1;
+}
+
+/*
+ * Routes a candidate through the validator for its owning model field.
+ */
+static void apply_value(Editor* e, int id, int candidate)
+{
+    TileValue v = {0};
+    SoundSettings sound = {0};
+    ReverbSettings reverb = {0};
+    if (id >= ROW_WAVE1) sound = e->score.sounds[e->sound_channel];
+    if (id == ROW_SIZE || id == ROW_AMOUNT) reverb = e->score.reverb;
+    if (tile_value_row(id)) v = e->score.tiles[e->target].value;
     ScoreResult result = SCORE_OK;
-    switch (r.id)
+    switch (id)
     {
     case ROW_BPM:
         result = score_set_bpm(&e->score, candidate);
@@ -503,7 +560,8 @@ static void adjust(Editor* e, EditorRow r, int direction, int coarse)
         result = score_resize(&e->score, e->lane, candidate);
         break;
     case ACTION_DIVISION:
-        result = score_set_division(&e->score, e->lane, score_divisions[candidate]);
+        result =
+            score_set_division(&e->score, e->lane, score_divisions[candidate]);
         break;
     case ACTION_CHANNEL:
         result = score_set_channel(&e->score, e->lane, candidate);
@@ -521,7 +579,10 @@ static void adjust(Editor* e, EditorRow r, int direction, int coarse)
         v.chance = candidate;
         break;
     case ACTION_LOCK_ATTACK_ENABLE:
-        if (candidate) v.lock_mask |= LOCK_ATTACK;
+        if (candidate)
+        {
+            v.lock_mask |= LOCK_ATTACK;
+        }
         else
         {
             v.lock_mask &= ~LOCK_ATTACK;
@@ -529,7 +590,10 @@ static void adjust(Editor* e, EditorRow r, int direction, int coarse)
         }
         break;
     case ACTION_LOCK_RELEASE_ENABLE:
-        if (candidate) v.lock_mask |= LOCK_RELEASE;
+        if (candidate)
+        {
+            v.lock_mask |= LOCK_RELEASE;
+        }
         else
         {
             v.lock_mask &= ~LOCK_RELEASE;
@@ -545,15 +609,29 @@ static void adjust(Editor* e, EditorRow r, int direction, int coarse)
         v.release = candidate;
         break;
     }
-    if (r.id >= ROW_WAVE1) result = score_set_sound(&e->score, e->sound_channel, sound);
-    if (r.id == ACTION_PITCH || r.id == ACTION_DURATION || r.id == ACTION_PERIOD || r.id == ACTION_CHANCE ||
-        r.id == ACTION_LOCK_ATTACK_ENABLE || r.id == ACTION_LOCK_RELEASE_ENABLE || r.id == ACTION_LOCK_ATTACK ||
-        r.id == ACTION_LOCK_RELEASE)
+    if (id >= ROW_WAVE1)
+    {
+        result = score_set_sound(&e->score, e->sound_channel, sound);
+    }
+    if (tile_value_row(id))
     {
         result = score_edit(&e->score, e->target, v);
         if (!result && v.kind == TILE_NOTE) e->last_note = v;
     }
     e->message = score_message(result);
+}
+
+// A busy load permits slot selection but blocks score edits.
+static void adjust(Editor* e, EditorRow r, int direction, int coarse)
+{
+    if (r.kind != ROW_VALUE || !direction) return;
+    int current;
+    if (!current_value(e, r.id, &current)) return;
+    int step = coarse ? r.coarse : r.fine;
+    int candidate = clamp(current + direction * step, r.min, r.max);
+    if (candidate == current) return;
+    if (e->load_busy && r.id != ROW_SLOT) return;
+    apply_value(e, r.id, candidate);
 }
 
 /*
@@ -600,7 +678,10 @@ static void activate(Editor* e, EditorRow r)
             e->parent_selected = e->selected;
             e->mode = EDIT_DELETE;
         }
-        else finish(e, score_remove(&e->score, e->x, e->y));
+        else
+        {
+            finish(e, score_remove(&e->score, e->x, e->y));
+        }
         break;
     case ACTION_DELETE:
         e->parent_selected = e->selected;
@@ -620,6 +701,116 @@ static void activate(Editor* e, EditorRow r)
         break;
     default:
         break;
+    }
+}
+
+/*
+ * Keeps a drag gesture tied to its source cell until release or cancel.
+ */
+static void update_plane(Editor* e, InputFrame f)
+{
+    if (f.cross && e->mode == EDIT_PLANE && !e->load_busy)
+    {
+        e->gesture = 1;
+        e->directed = 0;
+        e->source_x = e->x;
+        e->source_y = e->y;
+    }
+    if (f.circle && e->gesture)
+    {
+        cancel_move(e);
+        return;
+    }
+    if (e->gesture && (f.dx || f.dy))
+    {
+        e->directed = 1;
+        Cell c = score_at(&e->score, e->source_x, e->source_y);
+        if (c.kind == CELL_TILE || c.kind == CELL_HEAD) e->mode = EDIT_MOVE;
+    }
+    e->x = clamp(e->x + f.dx, 0, SCORE_WIDTH - 1);
+    e->y = clamp(e->y + f.dy, 0, SCORE_HEIGHT - 1);
+    if (f.dx || f.dy) e->message = "";
+    if (f.cross_released && e->gesture)
+    {
+        e->gesture = 0;
+        if (e->mode == EDIT_MOVE)
+        {
+            ScoreResult r = score_apply_move(
+                &e->score, score_plan_move(&e->score, e->source_x, e->source_y,
+                                           e->x, e->y));
+            if (r)
+            {
+                e->x = e->source_x;
+                e->y = e->source_y;
+            }
+            e->mode = EDIT_PLANE;
+            e->message = score_message(r);
+        }
+        else if (!e->directed) enter_context(e);
+    }
+}
+
+/*
+ * Places the chosen tile and remembers successful note choices.
+ */
+static void update_picker(Editor* e, InputFrame f)
+{
+    e->tile_candidate =
+        (TileKind)clamp(e->tile_candidate + f.row_dy, 1, TILE_KIND_COUNT - 1);
+    if (f.cross && !e->load_busy)
+    {
+        TileValue v = e->tile_candidate == TILE_NOTE
+                          ? e->last_note
+                          : score_default(e->tile_candidate);
+        ScoreResult r = score_place_value(&e->score, e->x, e->y, v);
+        if (!r)
+        {
+            e->last_tile = e->tile_candidate;
+            if (v.kind == TILE_NOTE) e->last_note = v;
+        }
+        finish(e, r);
+    }
+}
+
+// Pattern bit edits stay in the score validator before reaching the view state.
+static void update_pattern(Editor* e, InputFrame f)
+{
+    int p = e->pattern_cursor;
+    int period = e->score.tiles[e->target].value.period;
+    p = clamp(p + f.dx + f.dy * 8, 0, period - 1);
+    e->pattern_cursor = p;
+    if (f.cross && !e->load_busy)
+    {
+        TileValue v = e->score.tiles[e->target].value;
+        v.pattern ^= (uint32_t)1 << p;
+        ScoreResult r = score_edit(&e->score, e->target, v);
+        if (!r) e->value = v;
+        e->message = score_message(r);
+    }
+}
+
+/*
+ * A row move never also changes a value in the same input frame.
+ */
+static void update_rows(Editor* e, InputFrame f)
+{
+    EditorRow rows[EDITOR_ROWS];
+    int count = editor_rows(e, rows);
+    if (!count) return;
+    if (e->selected < 0 || e->selected >= count ||
+        rows[e->selected].kind == ROW_HEADING)
+    {
+        e->selected = selected_row(rows, count, 0, 1);
+    }
+    if (f.row_dy)
+    {
+        e->selected = selected_row(rows, count, e->selected, f.row_dy);
+        return;
+    }
+    if (f.value_dir) adjust(e, rows[e->selected], f.value_dir, f.value_coarse);
+    if (f.cross && rows[e->selected].kind != ROW_VALUE)
+    {
+        activate(e, rows[e->selected]);
     }
 }
 
@@ -646,44 +837,7 @@ static void update(Editor* e, InputFrame f)
     }
     if (e->mode == EDIT_PLANE || e->mode == EDIT_MOVE)
     {
-        if (f.cross && e->mode == EDIT_PLANE && !e->load_busy)
-        {
-            e->gesture = 1;
-            e->directed = 0;
-            e->source_x = e->x;
-            e->source_y = e->y;
-        }
-        if (f.circle && e->gesture)
-        {
-            cancel_move(e);
-            return;
-        }
-        if (e->gesture && (f.dx || f.dy))
-        {
-            e->directed = 1;
-            Cell c = score_at(&e->score, e->source_x, e->source_y);
-            if (c.kind == CELL_TILE || c.kind == CELL_HEAD) e->mode = EDIT_MOVE;
-        }
-        e->x = clamp(e->x + f.dx, 0, SCORE_WIDTH - 1);
-        e->y = clamp(e->y + f.dy, 0, SCORE_HEIGHT - 1);
-        if (f.dx || f.dy) e->message = "";
-        if (f.cross_released && e->gesture)
-        {
-            e->gesture = 0;
-            if (e->mode == EDIT_MOVE)
-            {
-                ScoreResult r =
-                    score_apply_move(&e->score, score_plan_move(&e->score, e->source_x, e->source_y, e->x, e->y));
-                if (r)
-                {
-                    e->x = e->source_x;
-                    e->y = e->source_y;
-                }
-                e->mode = EDIT_PLANE;
-                e->message = score_message(r);
-            }
-            else if (!e->directed) enter_context(e);
-        }
+        update_plane(e, f);
         return;
     }
     e->gesture = 0;
@@ -705,57 +859,24 @@ static void update(Editor* e, InputFrame f)
     }
     if (e->mode == EDIT_PICKER)
     {
-        e->tile_candidate = (TileKind)clamp(e->tile_candidate + f.row_dy, 1, TILE_KIND_COUNT - 1);
-        if (f.cross && !e->load_busy)
-        {
-            TileValue v = e->tile_candidate == TILE_NOTE ? e->last_note : score_default(e->tile_candidate);
-            ScoreResult r = score_place_value(&e->score, e->x, e->y, v);
-            if (!r)
-            {
-                e->last_tile = e->tile_candidate;
-                if (v.kind == TILE_NOTE) e->last_note = v;
-            }
-            finish(e, r);
-        }
+        update_picker(e, f);
         return;
     }
     if (e->mode == EDIT_DELETE)
     {
         if (f.cross && !e->load_busy)
         {
-            finish(e, e->target ? score_remove(&e->score, e->x, e->y) : score_delete(&e->score, e->lane));
+            finish(e, e->target ? score_remove(&e->score, e->x, e->y)
+                                : score_delete(&e->score, e->lane));
         }
         return;
     }
     if (e->mode == EDIT_PATTERN)
     {
-        int p = e->pattern_cursor, period = e->score.tiles[e->target].value.period;
-        p = clamp(p + f.dx + f.dy * 8, 0, period - 1);
-        e->pattern_cursor = p;
-        if (f.cross && !e->load_busy)
-        {
-            TileValue v = e->score.tiles[e->target].value;
-            v.pattern ^= (uint32_t)1 << p;
-            ScoreResult r = score_edit(&e->score, e->target, v);
-            if (!r) e->value = v;
-            e->message = score_message(r);
-        }
+        update_pattern(e, f);
         return;
     }
-    EditorRow rows[EDITOR_ROWS];
-    int count = editor_rows(e, rows);
-    if (!count) return;
-    if (e->selected < 0 || e->selected >= count || rows[e->selected].kind == ROW_HEADING)
-    {
-        e->selected = selected_row(rows, count, 0, 1);
-    }
-    if (f.row_dy)
-    {
-        e->selected = selected_row(rows, count, e->selected, f.row_dy);
-        return; // A row move never also changes a value.
-    }
-    if (f.value_dir) adjust(e, rows[e->selected], f.value_dir, f.value_coarse);
-    if (f.cross && rows[e->selected].kind != ROW_VALUE) activate(e, rows[e->selected]);
+    update_rows(e, f);
 }
 
 void editor_refresh_capacity(Editor* e)

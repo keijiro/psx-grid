@@ -16,9 +16,12 @@
 #include <string.h>
 
 static Audio audio;
-static int gains[SEQUENCER_VOICES][2], pitches[SEQUENCER_VOICES], banks[SEQUENCER_VOICES];
+static int gains[SEQUENCER_VOICES][2];
+static int pitches[SEQUENCER_VOICES];
+static int banks[SEQUENCER_VOICES];
 static SoundSettings captured[SEQUENCER_VOICES];
-static uint32_t started, stopped;
+static uint32_t started;
+static uint32_t stopped;
 
 static void start(void* ctx, int slot, int bank, SoundSettings sound)
 {
@@ -59,8 +62,12 @@ static NoteSink reset(void)
 
 static double ideal_register(int bank, double note)
 {
-    const int lengths[] = {2688, 1344, 672, 336, 168, 84, 84, 84, 84, 84};
-    return 440 * exp2((note - 57) / 12) * lengths[bank] / (1 << (bank > 5 ? bank - 5 : 0)) / 44100 * 4096;
+    const int lengths[] =
+    {
+        2688, 1344, 672, 336, 168, 84, 84, 84, 84, 84
+    };
+    return 440 * exp2((note - 57) / 12) * lengths[bank] /
+           (1 << (bank > 5 ? bank - 5 : 0)) / 44100 * 4096;
 }
 
 /*
@@ -69,11 +76,16 @@ static double ideal_register(int bank, double note)
  */
 static void sweeps(void)
 {
-    const int decays[] = {0, 1, 7, 200, 2000};
-    double worst = 0, quantization = 0, approximation = 0;
+    const int decays[] =
+    {
+        0, 1, 7, 200, 2000
+    };
+    double worst = 0;
+    double quantization = 0;
+    double approximation = 0;
     unsigned samples = 0;
-    // Exercise production arithmetic at nonuniform and dense onset times.
-    // A large absolute origin also detects accidental 32-bit elapsed clocks.
+    // Exercise production arithmetic at nonuniform and dense onset times. A
+    // large absolute origin also detects accidental 32-bit elapsed clocks.
     AudioTime origin = UINT64_C(0x100000000) + 17;
     for (int note = 0; note <= 108; note++)
     {
@@ -82,29 +94,40 @@ static void sweeps(void)
             for (unsigned d = 0; d < sizeof(decays) / sizeof(*decays); d++)
             {
                 NoteSink sink = reset();
-                SoundSettings sound = {0, 16000, WAVE_SAW, WAVE_TRIANGLE, 120, 280, depth, decays[d], 0};
+                SoundSettings sound = {0,   16000, WAVE_SAW, WAVE_TRIANGLE,
+                                       120, 280,   depth,    decays[d],
+                                       0};
                 sink.on(sink.context, origin, note, sound);
                 AudioTime duration = audio_ms(decays[d]);
                 int previous = 0;
                 for (int i = 0; i <= 513; i++)
                 {
-                    AudioTime elapsed = i == 513 ? duration + 1 : duration * (unsigned)i / 512;
+                    AudioTime elapsed =
+                        i == 513 ? duration + 1 : duration * (unsigned)i / 512;
                     sink.advance(sink.context, origin + elapsed);
-                    double snap = duration && elapsed < duration
-                                      ? (exp(-8 * (double)elapsed / duration) - exp(-8)) / (1 - exp(-8))
-                                      : 0;
+                    double snap =
+                        duration && elapsed < duration
+                            ? (exp(-8 * (double)elapsed / duration) - exp(-8)) /
+                                  (1 - exp(-8))
+                            : 0;
                     double n = fmax(0, fmin(108, note + depth * snap));
                     double ideal = ideal_register(banks[0], n);
                     double error = fabs(1200 * log2(pitches[0] / ideal));
                     double rounded = fabs(1200 * log2(round(ideal) / ideal));
-                    // Inspect the generated fixed-point path before its final SPU
-                    // register rounding, separately from the production output above.
-                    double continuous = audio_pitch[banks[0] * 109 + note] / 256.0;
+                    // Inspect the generated fixed-point path before its final
+                    // SPU register rounding, separately from the production
+                    // output above.
+                    double continuous =
+                        audio_pitch[banks[0] * 109 + note] / 256.0;
                     if (depth && duration && elapsed < duration)
                     {
                         uint32_t x = (uint32_t)(elapsed * 65536 / duration);
-                        unsigned index = x >> 6, fraction = x & 63;
-                        int snap_q16 = audio_snap[index] - (audio_snap[index] - audio_snap[index + 1]) * fraction / 64;
+                        unsigned index = x >> 6;
+                        unsigned fraction = x & 63;
+                        int snap_q16 =
+                            audio_snap[index] -
+                            (audio_snap[index] - audio_snap[index + 1]) *
+                                fraction / 64;
                         int position = note * 65536 + depth * snap_q16;
                         if (position < 0) position = 0;
                         if (position > 108 * 65536) position = 108 * 65536;
@@ -113,7 +136,8 @@ static void sweeps(void)
                         uint32_t value = table[index];
                         if (index < 108)
                         {
-                            value += (table[index + 1] - value) * (((unsigned)position & 65535) >> 4) / 4096;
+                            value += (table[index + 1] - value) *
+                                     (((unsigned)position & 65535) >> 4) / 4096;
                         }
                         continuous = value / 256.0;
                     }
@@ -125,15 +149,20 @@ static void sweeps(void)
                     assert(error < 2);
                     if (i && depth > 0) assert(pitches[0] <= previous);
                     if (i && depth < 0) assert(pitches[0] >= previous);
-                    if (elapsed >= duration) assert(pitches[0] == audio.voices[0].base_pitch);
+                    if (elapsed >= duration)
+                    {
+                        assert(pitches[0] == audio.voices[0].base_pitch);
+                    }
                     previous = pitches[0];
                     samples++;
                 }
             }
         }
     }
-    printf("PASS: %u sweep samples, all 109 notes/49 depths, decays 0/1/7/200/2000 ms; max total %.6f "
-           "cents, ideal register quantization %.6f cents, pre-register approximation %.6f cents\n",
+    printf("PASS: %u sweep samples, all 109 notes/49 depths, decays "
+           "0/1/7/200/2000 ms; max total %.6f "
+           "cents, ideal register quantization %.6f cents, pre-register "
+           "approximation %.6f cents\n",
            samples, worst, quantization, approximation);
 }
 
@@ -142,7 +171,10 @@ static void sweeps(void)
  */
 static void envelopes(void)
 {
-    const int times[] = {0, 1, 120, 500};
+    const int times[] =
+    {
+        0, 1, 120, 500
+    };
     for (int wave = 0; wave < 5; wave++)
     {
         for (int a = 0; a < 4; a++)
@@ -150,22 +182,29 @@ static void envelopes(void)
             for (int r = 0; r < 4; r++)
             {
                 NoteSink sink = reset();
-                SoundSettings sound = {0, 16000, wave, wave, times[a], times[r], 24, 2000, 0};
+                SoundSettings sound = {0,        16000, wave, wave, times[a],
+                                       times[r], 24,    2000, 0};
                 uint32_t token = sink.on(sink.context, 0, 48, sound);
-                AudioTime attack = audio_ms(times[a]), release = audio_ms(times[r]);
+                AudioTime attack = audio_ms(times[a]);
+                AudioTime release = audio_ms(times[r]);
                 for (int ms = 0; ms <= 1001; ms++)
                 {
                     AudioTime t = audio_ms(ms);
                     if (ms == 3) sink.off(sink.context, t, token);
                     sink.advance(sink.context, t);
-                    int mix = attack && t < attack              ? t * AUDIO_LEVEL / attack
-                              : release && t < attack + release ? (attack + release - t) * AUDIO_LEVEL / release
-                                                                : 0;
+                    int mix =
+                        attack && t < attack ? t * AUDIO_LEVEL / attack
+                        : release && t < attack + release
+                            ? (attack + release - t) * AUDIO_LEVEL / release
+                            : 0;
                     assert(gains[0][0] + gains[0][1] == audio.voices[0].level);
                     int expected = audio.voices[0].level * mix / AUDIO_LEVEL;
-                    // Shifted control ticks can differ from the unquantized ramp by one gain step.
-                    assert(gains[0][1] >= expected - 1 && gains[0][1] <= expected + 1);
-                    assert(captured[0].wave_a == wave && captured[0].wave_b == wave);
+                    // Shifted control ticks can differ from the unquantized
+                    // ramp by one gain step.
+                    assert(gains[0][1] >= expected - 1 &&
+                           gains[0][1] <= expected + 1);
+                    assert(captured[0].wave_a == wave &&
+                           captured[0].wave_b == wave);
                 }
                 sink.advance(sink.context, audio_ms(16003));
                 assert(!audio.voices[0].active && !gains[0][0] && !gains[0][1]);
@@ -176,10 +215,12 @@ static void envelopes(void)
     for (int gate = 1; gate <= 1001; gate += 1000)
     {
         NoteSink sink = reset();
-        SoundSettings sound = {100, 500, WAVE_NOISE, WAVE_SQUARE, 120, 280, -24, 2000, 0};
+        SoundSettings sound = {100, 500,  WAVE_NOISE, WAVE_SQUARE, 120, 280,
+                               -24, 2000, 0};
         uint32_t token = sink.on(sink.context, 0, 48, sound);
         sink.advance(sink.context, audio_ms(gate));
-        int before = pitches[0], level = audio.voices[0].level;
+        int before = pitches[0];
+        int level = audio.voices[0].level;
         sink.off(sink.context, audio_ms(gate), token);
         sink.advance(sink.context, audio_ms(gate));
         assert(pitches[0] == before && audio.voices[0].level == level);
@@ -194,7 +235,8 @@ static void envelopes(void)
     sink.off(sink.context, 0, token);
     sink.advance(sink.context, 0);
     assert(!started && stopped == 1 && !gains[0][0] && !gains[0][1]);
-    puts("PASS: all mix zero-time combinations, equal waves, long tails, short/long gates and "
+    puts("PASS: all mix zero-time combinations, equal waves, long tails, "
+         "short/long gates and "
          "late-start rejection");
 }
 
@@ -234,7 +276,9 @@ static void transients(void)
         assert(!audio.voices[0].waiting && audio.voices[0].start == origin);
         assert(gains[0][1] == AUDIO_LEVEL && pitches[0] == initial);
         sink.advance(sink.context, onset + audio_ms(1) / 2);
-        assert(gains[0][1] >= AUDIO_LEVEL / 2 - 1 && gains[0][1] <= (AUDIO_LEVEL + 1) / 2 + 1 && pitches[0] < initial);
+        assert(gains[0][1] >= AUDIO_LEVEL / 2 - 1 &&
+               gains[0][1] <= (AUDIO_LEVEL + 1) / 2 + 1 &&
+               pitches[0] < initial);
         sink.advance(sink.context, onset + audio_ms(1));
         assert(!gains[0][1] && pitches[0] == audio.voices[0].base_pitch);
         sink.off(sink.context, onset + audio_ms(2), token);
@@ -245,7 +289,10 @@ static void transients(void)
     audio.driver.ready = ready;
     ready_mask = 0;
     uint32_t tokens[SEQUENCER_VOICES];
-    for (int i = 0; i < SEQUENCER_VOICES; i++) tokens[i] = sink.on(sink.context, origin, 48, sound);
+    for (int i = 0; i < SEQUENCER_VOICES; i++)
+    {
+        tokens[i] = sink.on(sink.context, origin, 48, sound);
+    }
     sink.advance(sink.context, origin);
     ready_mask = 2;
     sink.advance(sink.context, origin + audio_ms(3));
@@ -279,7 +326,8 @@ static void transients(void)
     sink.stop(sink.context, origin + audio_ms(17));
     sink.advance(sink.context, origin + audio_ms(22));
     assert(audio.idle_mask == AUDIO_IDLE_MASK && !gains[0][1]);
-    puts("PASS: delayed transient onset, independent pairs, stolen voices, stale gates and stop "
+    puts("PASS: delayed transient onset, independent pairs, stolen voices, "
+         "stale gates and stop "
          "while pending");
 }
 
@@ -289,7 +337,8 @@ static void transients(void)
  */
 static void snapshots(void)
 {
-    static Score score, updated;
+    static Score score;
+    static Score updated;
     static Sequencer seq;
     score_init(&score);
     assert(!score_create(&score, 0, 0, 1));
@@ -309,7 +358,8 @@ static void snapshots(void)
     resolved.release = 381;
     assert(!memcmp(&audio.voices[0].sound, &resolved, sizeof(resolved)));
     assert(audio_reverb_mask(&audio) == 3);
-    SoundSettings fresh = {0, 600, WAVE_SQUARE, WAVE_TRIANGLE, 0, 500, 24, 1, 0};
+    SoundSettings fresh = {0, 600, WAVE_SQUARE, WAVE_TRIANGLE, 0, 500, 24,
+                           1, 0};
     updated = score;
     assert(!score_set_sound(&updated, 7, fresh));
     assert(!score_set_channel(&updated, 0, 7));
@@ -324,8 +374,10 @@ static void snapshots(void)
     assert(!memcmp(&captured[1], &fresh, sizeof(fresh)));
     sink.stop(sink.context, next);
     sink.advance(sink.context, next + audio_ms(5));
-    assert(audio.idle_mask == AUDIO_IDLE_MASK && stopped == 3 && !audio_reverb_mask(&audio));
-    puts("PASS: amplitude locks preserve synthesis fields; sounding notes retain complete settings "
+    assert(audio.idle_mask == AUDIO_IDLE_MASK && stopped == 3 &&
+           !audio_reverb_mask(&audio));
+    puts("PASS: amplitude locks preserve synthesis fields; sounding notes "
+         "retain complete settings "
          "snapshots");
 }
 

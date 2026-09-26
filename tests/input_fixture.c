@@ -9,16 +9,22 @@
 
 #include "audio.h"
 #include "editor.h"
-#include "render.h"
 #include "pad.h"
+#include "render.h"
 
 #include <psxgpu.h>
 #include <stdio.h>
 
-volatile unsigned input_fixture_phase, input_fixture_expected;
+volatile unsigned input_fixture_phase;
+volatile unsigned input_fixture_expected;
 static Editor editor;
 static Input input;
-static unsigned moves, presses, releases, starts, selects, disconnected;
+static unsigned moves;
+static unsigned presses;
+static unsigned releases;
+static unsigned starts;
+static unsigned selects;
+static unsigned disconnected;
 
 static void drain(void)
 {
@@ -42,7 +48,10 @@ static void drain(void)
 static void run(unsigned phase)
 {
     moves = presses = releases = starts = selects = disconnected = 0;
-    unsigned polls = pad_polls, reports = pad_reports, timeouts = pad_timeouts, overflows = pad_overflows;
+    unsigned polls = pad_polls;
+    unsigned reports = pad_reports;
+    unsigned timeouts = pad_timeouts;
+    unsigned overflows = pad_overflows;
     input_fixture_expected = 0;
     input_fixture_phase = phase;
     for (int i = 0; i < (phase == 5 ? 120 : 480); i++)
@@ -56,10 +65,13 @@ static void run(unsigned phase)
     drain();
     char line[256];
     snprintf(line, sizeof(line),
-             "INPUT phase=%u id=%u polls=%u reports=%u timeouts=%u overflows=%u expected=%u "
-             "moves=%u presses=%u releases=%u starts=%u selects=%u disconnected=%u\n",
-             phase, pad_id, pad_polls - polls, pad_reports - reports, pad_timeouts - timeouts,
-             pad_overflows - overflows, input_fixture_expected, moves, presses, releases, starts, selects,
+             "INPUT phase=%u id=%u polls=%u reports=%u timeouts=%u "
+             "overflows=%u expected=%u "
+             "moves=%u presses=%u releases=%u starts=%u selects=%u "
+             "disconnected=%u\n",
+             phase, pad_id, pad_polls - polls, pad_reports - reports,
+             pad_timeouts - timeouts, pad_overflows - overflows,
+             input_fixture_expected, moves, presses, releases, starts, selects,
              disconnected);
     *(const char* volatile*)0x1f802084 = line;
 }
@@ -91,18 +103,22 @@ int main(void)
     run(4);
     audio_platform_update(&editor.score, 0, 0);
     score_init(&editor.score);
-    // Deliberate input/audio overload fixture, outside the saveable score limit.
+    // Deliberate input/audio overload fixture, outside the saveable score
+    // limit.
     TileId id = 1;
     for (int i = 0; i < 16; i++)
     {
         Lane* lane = &editor.score.lanes[i];
-        *lane = (Lane){.active = 1, .x = i * 6, .y = 0, .length = 4, .division = 64};
+        *lane = (Lane){
+            .active = 1, .x = i * 6, .y = 0, .length = 4, .division = 64};
         for (int j = 0; j < 4; j++)
         {
             lane->tiles[j] = id;
             for (int k = 0; k < 64; k++, id++)
             {
-                editor.score.tiles[id] = (Tile){score_default(TILE_NOTE), k == 63 ? 0 : (TileId)(id + 1), -1};
+                editor.score.tiles[id] =
+                    (Tile){score_default(TILE_NOTE),
+                           k == 63 ? 0 : (TileId)(id + 1), -1};
             }
         }
     }

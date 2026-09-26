@@ -16,11 +16,12 @@
 
 enum
 {
-    ENVELOPE = 512,
-    HEADER = 32,
-    CHUNK = 12
+    ENVELOPE = 512,                 // The card metadata wrapper size.
+    HEADER = 32,                    // The fixed payload header size.
+    CHUNK = 12                      // The chunk header size.
 };
-static uint8_t block[SCORE_FILE_BYTES], changed[SCORE_FILE_BYTES];
+static uint8_t block[SCORE_FILE_BYTES];
+static uint8_t changed[SCORE_FILE_BYTES];
 
 static uint32_t get(const uint8_t* p, int n)
 {
@@ -40,7 +41,10 @@ static uint32_t checksum(const uint8_t* p, size_t n)
     for (size_t i = 0; i < n; i++)
     {
         crc ^= i >= 20 && i < 24 ? 0 : p[i];
-        for (int b = 0; b < 8; b++) crc = (crc >> 1) ^ (0xedb88320u & -(crc & 1));
+        for (int b = 0; b < 8; b++)
+        {
+            crc = (crc >> 1) ^ (0xedb88320u & -(crc & 1));
+        }
     }
     return ~crc;
 }
@@ -76,7 +80,8 @@ static void example(Score* s)
     assert(score_create(s, 2, 0, 5) == SCORE_OK);
     assert(score_set_bpm(s, 173) == SCORE_OK);
     assert(score_set_reverb(s, (ReverbSettings){2, 87}) == SCORE_OK);
-    SoundSettings sound = {16000, 1234, WAVE_NOISE, WAVE_TRIANGLE, 500, 321, -24, 2000, 1};
+    SoundSettings sound = {16000, 1234, WAVE_NOISE, WAVE_TRIANGLE, 500, 321,
+                           -24,   2000, 1};
     assert(score_set_sound(s, 7, sound) == SCORE_OK);
     assert(score_set_channel(s, 0, 7) == SCORE_OK);
     assert(score_set_division(s, 0, 3) == SCORE_OK);
@@ -107,28 +112,36 @@ static void example(Score* s)
 
 static void equivalent(const Score* a, const Score* b)
 {
-    uint8_t x[SCORE_FILE_BYTES], y[SCORE_FILE_BYTES];
+    uint8_t x[SCORE_FILE_BYTES];
+    uint8_t y[SCORE_FILE_BYTES];
     assert(score_format_encode(a, x, 15, 0x89abcdefu) == FORMAT_OK);
     assert(score_format_encode(b, y, 15, 0x89abcdefu) == FORMAT_OK);
     assert(!memcmp(x, y, sizeof(x)));
 }
 
-static FormatResult decode_publish(const uint8_t* data, size_t size, Score* published, int* slot, uint32_t* generation)
+static FormatResult decode_publish(const uint8_t* data, size_t size,
+                                   Score* published, int* slot,
+                                   uint32_t* generation)
 {
     static Score staging;
-    FormatResult result = score_format_decode(data, size, &staging, slot, generation);
+    FormatResult result =
+        score_format_decode(data, size, &staging, slot, generation);
     if (result == FORMAT_OK) *published = staging;
     return result;
 }
 
 static void rejected(FormatResult expected, size_t size)
 {
-    Score published, before;
+    Score published;
+    Score before;
     memset(&published, 0xa5, sizeof(published));
     before = published;
-    int slot = 91, before_slot = slot;
-    uint32_t generation = 0x12345678u, before_generation = generation;
-    assert(decode_publish(changed, size, &published, &slot, &generation) == expected);
+    int slot = 91;
+    int before_slot = slot;
+    uint32_t generation = 0x12345678u;
+    uint32_t before_generation = generation;
+    assert(decode_publish(changed, size, &published, &slot, &generation) ==
+           expected);
     assert(!memcmp(&published, &before, sizeof(published)));
     assert(slot == before_slot && generation == before_generation);
 }
@@ -146,11 +159,13 @@ static void mutate(size_t offset, uint8_t value, FormatResult expected)
  */
 static void golden(int write_fixture)
 {
-    Score source, decoded;
+    Score source;
+    Score decoded;
     example(&source);
     assert(score_format_measure(&source) == 801);
     assert(score_format_encode(&source, block, 15, 0x89abcdefu) == FORMAT_OK);
-    assert(get(block + ENVELOPE + 12, 4) + ENVELOPE + HEADER == score_format_measure(&source));
+    assert(get(block + ENVELOPE + 12, 4) + ENVELOPE + HEADER ==
+           score_format_measure(&source));
     if (write_fixture)
     {
         FILE* f = fopen("tests/fixtures/score-v1.bin", "wb");
@@ -166,11 +181,13 @@ static void golden(int write_fixture)
     assert(!memcmp(block, changed, sizeof(block)));
     int slot = 0;
     uint32_t generation = 0;
-    assert(score_format_decode(changed, sizeof(changed), &decoded, &slot, &generation) == FORMAT_OK);
+    assert(score_format_decode(changed, sizeof(changed), &decoded, &slot,
+                               &generation) == FORMAT_OK);
     assert(slot == 15 && generation == 0x89abcdefu);
     equivalent(&source, &decoded);
     score_format_set_generation(changed, 7);
-    assert(score_format_decode(changed, sizeof(changed), &decoded, &slot, &generation) == FORMAT_OK);
+    assert(score_format_decode(changed, sizeof(changed), &decoded, &slot,
+                               &generation) == FORMAT_OK);
     assert(generation == 7);
     equivalent(&source, &decoded);
 }
@@ -181,11 +198,13 @@ static void golden(int write_fixture)
  */
 static void compatibility(void)
 {
-    Score expected, decoded;
+    Score expected;
+    Score decoded;
     example(&expected);
     memcpy(changed, block, sizeof(changed));
     uint8_t* h = changed + ENVELOPE;
-    size_t bytes = get(h + 12, 4), at = HEADER + bytes;
+    size_t bytes = get(h + 12, 4);
+    size_t at = HEADER + bytes;
     put(h + at, 99, 2);
     put(h + at + 2, 1, 2);
     put(h + at + 4, 0, 4);
@@ -195,7 +214,8 @@ static void compatibility(void)
     h[at + 14] = 3;
     put(h + 12, bytes + 15, 4);
     repair_crc(changed);
-    assert(score_format_decode(changed, sizeof(changed), &decoded, NULL, NULL) == FORMAT_OK);
+    assert(score_format_decode(changed, sizeof(changed), &decoded, NULL,
+                               NULL) == FORMAT_OK);
     equivalent(&expected, &decoded);
 
     memcpy(changed, block, sizeof(changed));
@@ -354,7 +374,10 @@ static void encode_rejects_invalid(void)
     score_init(&s);
     assert(score_create(&s, 0, 0, 64) == SCORE_OK);
     assert(score_create(&s, 70, 0, 4) == SCORE_OK);
-    for (int n = 0; n < 1474; n++) assert(score_place(&s, n / 64 + 1, n % 64, TILE_NOTE) == SCORE_OK);
+    for (int n = 0; n < 1474; n++)
+    {
+        assert(score_place(&s, n / 64 + 1, n % 64, TILE_NOTE) == SCORE_OK);
+    }
     assert(score_remove(&s, 24, 1) == SCORE_OK);
     assert(score_place(&s, 24, 1, TILE_CYCLE) == SCORE_OK);
     assert(score_format_measure(&s) == SCORE_FILE_BYTES);
@@ -377,6 +400,7 @@ int main(int argc, char** argv)
     compatibility();
     invalid_inputs();
     encode_rejects_invalid();
-    puts("PASS: deterministic v1 fixture, round trip, compatibility, staged rejection and "
+    puts("PASS: deterministic v1 fixture, round trip, compatibility, staged "
+         "rejection and "
          "validation");
 }

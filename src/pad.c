@@ -20,14 +20,15 @@
  */
 static InputQueue queue;
 static volatile int phase;
-static int received, length;
+static int received;
+static int length;
 static volatile int ownership;
 
 enum
 {
-    PAD_OWNS,
-    PAD_DRAINING,
-    CARD_OWNS
+    PAD_OWNS,                       // Pad polling owns the serial port.
+    PAD_DRAINING,                   // Polling is yielding the serial port.
+    CARD_OWNS                       // The BIOS card session owns the port.
 };
 
 /*
@@ -35,14 +36,19 @@ enum
  * card ownership discards that transaction before polling resumes.
  */
 static uint8_t reply[9];
-static uint16_t started, ready_at;
-volatile unsigned pad_polls, pad_reports, pad_timeouts, pad_overflows, pad_id;
+static uint16_t started;
+static uint16_t ready_at;
+volatile unsigned pad_polls;
+volatile unsigned pad_reports;
+volatile unsigned pad_timeouts;
+volatile unsigned pad_overflows;
+volatile unsigned pad_id;
 
 enum
 {
-    IDLE,
-    READY,
-    RECEIVING
+    IDLE,                           // No pad transaction is active.
+    READY,                          // A pad transfer can begin.
+    RECEIVING                       // A pad reply is in progress.
 };
 
 // Timer 2 runs at CLK/8. Leave at least 30 us after selection and each ACK,
@@ -102,7 +108,10 @@ static void receive(void)
         // Digital, analog joystick and DualShock reports. Consume the whole
         // report even though the editor uses only its digital button bits.
         if (reply[1] == 0x41) length = 5;
-        else if (reply[1] == 0x53 || reply[1] == 0x73) length = 9;
+        else if (reply[1] == 0x53 || reply[1] == 0x73)
+        {
+            length = 9;
+        }
         else
         {
             publish(0);
@@ -159,8 +168,8 @@ void pad_service(void)
         return;
     }
     if (phase != READY || (uint16_t)(now - ready_at) < SETTLE_TICKS) return;
-    // Intermediate bytes advance on ACK. The final byte has no ACK, so use
-    // the one-byte RX interrupt for it. Neither ISR waits for the controller.
+    // Intermediate bytes advance on ACK. The final byte has no ACK, so use the
+    // one-byte RX interrupt for it. Neither ISR waits for the controller.
     SIO_CTRL(0) = received == length - 1 ? 0x0803 : 0x1003;
     phase = RECEIVING;
     SIO_DATA(0) = received == 0 ? 0x01 : received == 1 ? 0x42 : 0;

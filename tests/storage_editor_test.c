@@ -213,7 +213,8 @@ static void adoption_and_capacity(void)
     assert(editor.x == 50 && editor.y == 40);
     assert(editor.mode == EDIT_MAIN && editor.selected == 4 && !editor.target);
     assert(!strcmp(editor.message, "LOADED"));
-    assert(editor.free_bytes == SCORE_FILE_BYTES - (int)score_format_measure(&incoming));
+    assert(editor.free_bytes ==
+           SCORE_FILE_BYTES - (int)score_format_measure(&incoming));
 }
 
 /*
@@ -226,7 +227,7 @@ static void resume_requires_all_buttons_up(void)
     editor.mode = EDIT_MAIN;
     editor.selected = 4;
 
-    /* storage_action resets Input after the intentional pad polling pause. */
+    // storage_action resets Input after the intentional pad polling pause.
     input_init(&input);
     frame(INPUT_CROSS | INPUT_START | INPUT_DOWN);
     assert(editor.selected == 4);
@@ -249,5 +250,6 @@ int main(void)
     inline_value_controls();
     adoption_and_capacity();
     resume_requires_all_buttons_up();
-    puts("PASS: storage editor menu, requests, load lock, adoption and input resume");
+    puts("PASS: storage editor menu, requests, load lock, adoption and input "
+         "resume");
 }

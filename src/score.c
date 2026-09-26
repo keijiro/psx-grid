@@ -8,11 +8,15 @@
  */
 
 #include "score.h"
-#include "score_format.h"
 
 #include <string.h>
 
-const int score_divisions[] = {1, 2, 3, 4, 6, 8, 12, 16, 24, 32, 48, 64};
+#include "score_format.h"
+
+const int score_divisions[] =
+{
+    1, 2, 3, 4, 6, 8, 12, 16, 24, 32, 48, 64
+};
 /*
  * A single scratch score makes multi-object edits atomic without heap
  * allocation or large console-stack frames. Model calls are synchronous and
@@ -42,7 +46,11 @@ TileValue score_default(TileKind k)
 
 const char* score_note_name(int p)
 {
-    static const char* n[] = {"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"};
+    static const char* n[] =
+    {
+        "C",  "C#", "D",  "D#", "E",  "F",
+        "F#", "G",  "G#", "A",  "A#", "B"
+    };
     return n[p % 12];
 }
 
@@ -53,17 +61,28 @@ const char* score_note_name(int p)
 static int value_valid(TileValue v)
 {
     if (v.kind <= TILE_NONE || v.kind >= TILE_KIND_COUNT) return 0;
-    if (v.pitch < 0 || v.pitch > 108 || v.length < 5 || v.length > 1280) return 0;
-    if (v.period < 2 || v.period > 32 || v.chance < 0 || v.chance > 100) return 0;
+    if (v.pitch < 0 || v.pitch > 108 || v.length < 5 || v.length > 1280)
+    {
+        return 0;
+    }
+    if (v.period < 2 || v.period > 32 || v.chance < 0 || v.chance > 100)
+    {
+        return 0;
+    }
     if (v.lock_mask < 0 || v.lock_mask > 3) return 0;
     if (v.attack < -SOUND_MAX_MS || v.attack > SOUND_MAX_MS) return 0;
     if (v.release < -SOUND_MAX_MS || v.release > SOUND_MAX_MS) return 0;
-    return ((v.lock_mask & LOCK_ATTACK) || !v.attack) && ((v.lock_mask & LOCK_RELEASE) || !v.release);
+    return ((v.lock_mask & LOCK_ATTACK) || !v.attack) &&
+           ((v.lock_mask & LOCK_RELEASE) || !v.release);
 }
 
 ScoreResult score_edit(Score* s, TileId id, TileValue v)
 {
-    if (!id || id > SCORE_TILE_CAPACITY || s->tiles[id].value.kind != v.kind || !value_valid(v)) return SCORE_INVALID;
+    if (!id || id > SCORE_TILE_CAPACITY || s->tiles[id].value.kind != v.kind ||
+        !value_valid(v))
+    {
+        return SCORE_INVALID;
+    }
     s->tiles[id].value = v;
     s->revision++;
     return SCORE_OK;
@@ -113,7 +132,11 @@ int score_channel(const Score* s, int i)
 
 ScoreResult score_set_channel(Score* s, int i, int channel)
 {
-    if (!valid(s, i) || s->lanes[i].source || channel < 0 || channel >= SCORE_CHANNELS) return SCORE_INVALID;
+    if (!valid(s, i) || s->lanes[i].source || channel < 0 ||
+        channel >= SCORE_CHANNELS)
+    {
+        return SCORE_INVALID;
+    }
     s->lanes[i].channel = channel;
     s->revision++;
     return SCORE_OK;
@@ -140,8 +163,12 @@ Cell score_at(const Score* s, int x, int y)
     for (int i = 0; i < SCORE_LANES; i++)
     {
         const Lane* l = &s->lanes[i];
-        if (!l->active || x < l->x || x > l->x + l->length + 1 || y < l->y) continue;
-        int step = x - l->x - 1, depth = y - l->y;
+        if (!l->active || x < l->x || x > l->x + l->length + 1 || y < l->y)
+        {
+            continue;
+        }
+        int step = x - l->x - 1;
+        int depth = y - l->y;
         if (!depth && (step == -1 || step == l->length))
         {
             return (Cell){step == -1 ? CELL_HEAD : CELL_END, i, step, 0, 0};
@@ -149,7 +176,10 @@ Cell score_at(const Score* s, int x, int y)
         if (step < 0 || step >= l->length) continue;
         TileId t = l->tiles[step];
         for (int d = 0; t && d < depth; d++) t = s->tiles[t].next;
-        if (t || !depth) return (Cell){t ? CELL_TILE : CELL_STEP, i, step, depth, t};
+        if (t || !depth)
+        {
+            return (Cell){t ? CELL_TILE : CELL_STEP, i, step, depth, t};
+        }
     }
     return c;
 }
@@ -174,7 +204,10 @@ Cell score_resolve(const Score* s, int x, int y)
 
 static ScoreResult mark(int x, int y)
 {
-    if (x < 0 || x >= SCORE_WIDTH || y < 0 || y >= SCORE_HEIGHT) return SCORE_BOUNDS;
+    if (x < 0 || x >= SCORE_WIDTH || y < 0 || y >= SCORE_HEIGHT)
+    {
+        return SCORE_BOUNDS;
+    }
     if (occupied[y][x]) return SCORE_COLLISION;
     occupied[y][x] = 1;
     return SCORE_OK;
@@ -233,21 +266,29 @@ static ScoreResult admission(const Score* s)
 
 ScoreResult score_validate_import(const Score* s)
 {
-    uint8_t seen[SCORE_TILE_CAPACITY + 1] = {0};
+    uint8_t seen[SCORE_TILE_CAPACITY + 1] =
+    {
+        0
+    };
     // Establish finite, uniquely owned links before the geometry validator or
-    // ancestry lookup can traverse untrusted input. The codec builds links,
-    // but this boundary also protects future importers from pool corruption.
+    // ancestry lookup can traverse untrusted input. The codec builds links, but
+    // this boundary also protects future importers from pool corruption.
     for (int i = 0; i < SCORE_LANES; i++)
     {
         if (s->lanes[i].active)
         {
             const Lane* l = &s->lanes[i];
-            if (l->length < 1 || l->length > SCORE_STEPS || l->x < 0 || l->x >= SCORE_WIDTH || l->y < 0 ||
-                l->y >= SCORE_HEIGHT)
+            if (l->length < 1 || l->length > SCORE_STEPS || l->x < 0 ||
+                l->x >= SCORE_WIDTH || l->y < 0 || l->y >= SCORE_HEIGHT)
+            {
                 return SCORE_INVALID;
+            }
             if (l->source > SCORE_TILE_CAPACITY ||
-                (l->source ? l->channel != -1 : l->channel < 0 || l->channel >= SCORE_CHANNELS))
+                (l->source ? l->channel != -1
+                           : l->channel < 0 || l->channel >= SCORE_CHANNELS))
+            {
                 return SCORE_INVALID;
+            }
             int division = 0;
             for (int d = 0; d < SCORE_DIVISIONS; d++)
             {
@@ -260,11 +301,17 @@ ScoreResult score_validate_import(const Score* s)
                 int depth = 0;
                 for (TileId t = l->tiles[j]; t;)
                 {
-                    if (t > SCORE_TILE_CAPACITY || seen[t] || ++depth > SCORE_HEIGHT - l->y) return SCORE_INVALID;
+                    if (t > SCORE_TILE_CAPACITY || seen[t] ||
+                        ++depth > SCORE_HEIGHT - l->y)
+                    {
+                        return SCORE_INVALID;
+                    }
                     seen[t] = 1;
                     const Tile* v = &s->tiles[t];
                     if (!value_valid(v->value)) return SCORE_INVALID;
-                    if (v->value.kind == TILE_JUMP && (!valid(s, v->branch) || s->lanes[v->branch].source != t))
+                    if (v->value.kind == TILE_JUMP &&
+                        (!valid(s, v->branch) ||
+                         s->lanes[v->branch].source != t))
                     {
                         return SCORE_INVALID;
                     }
@@ -278,7 +325,11 @@ ScoreResult score_validate_import(const Score* s)
         if (s->lanes[i].active && s->lanes[i].source)
         {
             TileId t = s->lanes[i].source;
-            if (!seen[t] || s->tiles[t].value.kind != TILE_JUMP || s->tiles[t].branch != i) return SCORE_INVALID;
+            if (!seen[t] || s->tiles[t].value.kind != TILE_JUMP ||
+                s->tiles[t].branch != i)
+            {
+                return SCORE_INVALID;
+            }
         }
     }
     for (int t = 1; t <= SCORE_TILE_CAPACITY; t++)
@@ -404,7 +455,8 @@ static void erase_lane(Score* s, int i)
     Lane* l = &s->lanes[i];
     for (int j = 0; j < l->length; j++)
     {
-        for (TileId t = l->tiles[j], next; t; t = next)
+        TileId next;
+        for (TileId t = l->tiles[j]; t; t = next)
         {
             next = s->tiles[t].next;
             erase_tile(s, t);
@@ -456,7 +508,10 @@ ScoreResult score_remove(Score* s, int x, int y)
  */
 static ScoreResult insert(Score* s, Cell c, TileValue v)
 {
-    if (!value_valid(v) || (c.kind != CELL_STEP && c.kind != CELL_END)) return SCORE_INVALID;
+    if (!value_valid(v) || (c.kind != CELL_STEP && c.kind != CELL_END))
+    {
+        return SCORE_INVALID;
+    }
     Lane* l = &s->lanes[c.lane];
     if (c.kind == CELL_END)
     {
@@ -465,7 +520,10 @@ static ScoreResult insert(Score* s, Cell c, TileValue v)
     }
     TileId id = 1;
     while (id <= SCORE_TILE_CAPACITY && s->tiles[id].value.kind) id++;
-    if (id > SCORE_TILE_CAPACITY || s->generation == UINT32_MAX) return SCORE_FULL;
+    if (id > SCORE_TILE_CAPACITY || s->generation == UINT32_MAX)
+    {
+        return SCORE_FULL;
+    }
     s->tile_generation[id] = ++s->generation;
     TileId* p = link_at(s, c);
     s->tiles[id] = (Tile){v, *p, -1};
@@ -483,7 +541,8 @@ static ScoreResult insert(Score* s, Cell c, TileValue v)
                 for (int j = 0; j < s->lanes[i].length; j++)
                 {
                     int y = s->lanes[i].y;
-                    for (TileId t = s->lanes[i].tiles[j]; t; t = s->tiles[t].next, y++)
+                    for (TileId t = s->lanes[i].tiles[j]; t;
+                         t = s->tiles[t].next, y++)
                     {
                         if (y > bottom) bottom = y;
                     }
@@ -526,7 +585,10 @@ void score_copy(const Score* s, int x, int y, Clipboard* b)
     Clipboard copy = {0};
     for (TileId t = c.tile; t; t = s->tiles[t].next)
     {
-        if (s->tiles[t].value.kind != TILE_JUMP) copy.values[copy.count++] = s->tiles[t].value;
+        if (s->tiles[t].value.kind != TILE_JUMP)
+        {
+            copy.values[copy.count++] = s->tiles[t].value;
+        }
     }
     if (copy.count) *b = copy;
 }
@@ -538,7 +600,8 @@ ScoreResult score_paste(Score* s, int x, int y, const Clipboard* b)
     for (int i = 0; i < b->count; i++)
     {
         if (b->values[i].kind == TILE_JUMP) return SCORE_INVALID;
-        ScoreResult r = insert(&scratch, score_resolve(&scratch, x, y + i), b->values[i]);
+        ScoreResult r =
+            insert(&scratch, score_resolve(&scratch, x, y + i), b->values[i]);
         if (r) return r;
     }
     return commit(s);
@@ -550,7 +613,8 @@ ScoreResult score_paste(Score* s, int x, int y, const Clipboard* b)
  */
 static ScoreResult move(const Score* s, int sx, int sy, int x, int y)
 {
-    Cell a = score_at(s, sx, sy), b = score_resolve(s, x, y);
+    Cell a = score_at(s, sx, sy);
+    Cell b = score_resolve(s, x, y);
     scratch = *s;
     if (a.kind != CELL_HEAD && a.kind != CELL_TILE) return SCORE_INVALID;
     if (sx == x && sy == y) return SCORE_OK;
@@ -560,8 +624,12 @@ static ScoreResult move(const Score* s, int sx, int sy, int x, int y)
         scratch.lanes[a.lane].y = y;
         return admission(&scratch);
     }
-    if (b.kind != CELL_TILE && b.kind != CELL_STEP && b.kind != CELL_END) return SCORE_INVALID;
-    TileId *from = link_at(&scratch, a), tail = a.tile;
+    if (b.kind != CELL_TILE && b.kind != CELL_STEP && b.kind != CELL_END)
+    {
+        return SCORE_INVALID;
+    }
+    TileId* from = link_at(&scratch, a);
+    TileId tail = a.tile;
     int same = a.lane == b.lane && a.step == b.step;
     // Within a stack the target depth is the final index after extraction.
     // Across steps the complete suffix is detached and inserted as one chain.
@@ -604,26 +672,45 @@ ScoreResult score_apply_move(Score* s, MovePlan p)
 
 const char* score_tile_label(TileKind k)
 {
-    static const char* v[] = {"EMPTY", "NOTE", "CYCLE GATE", "PROBABILITY GATE", "JUMP", "RELATIVE LOCK"};
+    static const char* v[] =
+    {
+        "EMPTY",      "NOTE",
+        "CYCLE GATE", "PROBABILITY GATE",
+        "JUMP",       "RELATIVE LOCK"
+    };
     return k >= 0 && k < TILE_KIND_COUNT ? v[k] : "?";
 }
 
 const char* score_message(ScoreResult r)
 {
-    static const char* v[] = {
-        "", "LIMIT / EDGE", "COLLISION", "SCORE FULL", "REMOVE TRAILING TILES FIRST", "INVALID CELL", "BRANCH CYCLE"};
+    static const char* v[] =
+    {
+        "",
+        "LIMIT / EDGE",
+        "COLLISION",
+        "SCORE FULL",
+        "REMOVE TRAILING TILES FIRST",
+        "INVALID CELL",
+        "BRANCH CYCLE"
+    };
     return v[r];
 }
 
 const char* score_wave_name(int wave)
 {
-    static const char* names[] = {"SINE", "TRIANGLE", "SAW", "SQUARE", "NOISE"};
+    static const char* names[] =
+    {
+        "SINE", "TRIANGLE", "SAW", "SQUARE", "NOISE"
+    };
     return wave >= 0 && wave < WAVE_COUNT ? names[wave] : "?";
 }
 
 const char* score_reverb_size(int size)
 {
-    static const char* names[] = {"SMALL", "MEDIUM", "LARGE"};
+    static const char* names[] =
+    {
+        "SMALL", "MEDIUM", "LARGE"
+    };
     return size >= 0 && size < 3 ? names[size] : "?";
 }
 
@@ -637,7 +724,11 @@ ScoreResult score_set_bpm(Score* s, int bpm)
 
 ScoreResult score_set_reverb(Score* s, ReverbSettings reverb)
 {
-    if (reverb.size < 0 || reverb.size > 2 || reverb.amount < 0 || reverb.amount > 100) return SCORE_INVALID;
+    if (reverb.size < 0 || reverb.size > 2 || reverb.amount < 0 ||
+        reverb.amount > 100)
+    {
+        return SCORE_INVALID;
+    }
     s->reverb = reverb;
     s->revision++;
     return SCORE_OK;
@@ -647,15 +738,20 @@ ScoreResult score_set_sound(Score* s, int channel, SoundSettings sound)
 {
     if (channel < 0 || channel >= SCORE_CHANNELS) return SCORE_INVALID;
     if (sound.reverb < 0 || sound.reverb > 1) return SCORE_INVALID;
-    if (sound.attack < 0 || sound.attack > SOUND_MAX_MS || sound.release < 0 || sound.release > SOUND_MAX_MS)
+    if (sound.attack < 0 || sound.attack > SOUND_MAX_MS || sound.release < 0 ||
+        sound.release > SOUND_MAX_MS)
     {
         return SCORE_INVALID;
     }
-    if (sound.wave_a < 0 || sound.wave_a >= WAVE_COUNT || sound.wave_b < 0 || sound.wave_b >= WAVE_COUNT ||
-        sound.mix_attack < 0 || sound.mix_attack > SOUND_MAX_MIX_MS || sound.mix_release < 0 ||
-        sound.mix_release > SOUND_MAX_MIX_MS || sound.sweep < -SOUND_MAX_SWEEP || sound.sweep > SOUND_MAX_SWEEP ||
+    if (sound.wave_a < 0 || sound.wave_a >= WAVE_COUNT || sound.wave_b < 0 ||
+        sound.wave_b >= WAVE_COUNT || sound.mix_attack < 0 ||
+        sound.mix_attack > SOUND_MAX_MIX_MS || sound.mix_release < 0 ||
+        sound.mix_release > SOUND_MAX_MIX_MS ||
+        sound.sweep < -SOUND_MAX_SWEEP || sound.sweep > SOUND_MAX_SWEEP ||
         sound.decay < 0 || sound.decay > SOUND_MAX_DECAY_MS)
+    {
         return SCORE_INVALID;
+    }
     s->sounds[channel] = sound;
     s->revision++;
     return SCORE_OK;

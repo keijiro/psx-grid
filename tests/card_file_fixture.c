@@ -20,13 +20,15 @@ static Score score;
 static void report(const char* stage, StorageResult result)
 {
     static char line[96];
-    snprintf(line, sizeof(line), "CARD_FILE stage=%s result=%d free=%d\n", stage, result, storage.free_blocks);
+    snprintf(line, sizeof(line), "CARD_FILE stage=%s result=%d free=%d\n",
+             stage, result, storage.free_blocks);
     *(const char* volatile*)0x1f802084 = line;
 }
 
 static void finish(int code)
 {
-    *(const char* volatile*)0x1f802084 = code ? "CARD_FILE FAILED\n" : "CARD_FILE COMPLETE\n";
+    *(const char* volatile*)0x1f802084 =
+        code ? "CARD_FILE FAILED\n" : "CARD_FILE COMPLETE\n";
     *(volatile short*)0x1f802082 = code;
     for (;;)
     {

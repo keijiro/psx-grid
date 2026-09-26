@@ -10,12 +10,13 @@
 #include "render.h"
 #include "ui_style.h"
 
-#include <psxgpu.h>
 #include <assert.h>
+#include <psxgpu.h>
 #include <stdio.h>
 #include <string.h>
 
-extern volatile unsigned render_packet_peak, render_overflows;
+extern volatile unsigned render_packet_peak;
+extern volatile unsigned render_overflows;
 
 /*
  * Packet captures retain ordering-table depth and VRAM pixels so the test
@@ -23,11 +24,14 @@ extern volatile unsigned render_packet_peak, render_overflows;
  */
 static uint32_t* current_ot;
 static void* primitives[8][2048];
-static int counts[8], frame_count;
+static int counts[8];
+static int frame_count;
 static uint16_t vram[512][1024];
 static uint8_t output[240][320];
 static int capture;
-_Static_assert(sizeof(TILE) == 16 && sizeof(SPRT) == 20 && sizeof(DR_TPAGE) == 8, "SDK packet sizes");
+_Static_assert(sizeof(TILE) == 16 && sizeof(SPRT) == 20 &&
+                   sizeof(DR_TPAGE) == 8,
+               "SDK packet sizes");
 
 /*
  * Records packet order before rasterization because the SDK's ordering table
@@ -42,7 +46,8 @@ void addPrim(uint32_t* ot, void* packet)
 
     TILE* p = packet;
     assert(p->r0 == p->g0 && p->g0 == p->b0);
-    int w = p->w, h = p->h;
+    int w = p->w;
+    int h = p->h;
     if (p->code == 0x64)
     {
         SPRT* s = packet;
@@ -51,14 +56,18 @@ void addPrim(uint32_t* ot, void* packet)
         assert(s->u0 + w <= 256 && s->v0 + h <= 96);
         assert(s->clut == ((96 << 6) | (640 >> 4)));
     }
-    else assert(p->code == 0x60);
+    else
+    {
+        assert(p->code == 0x60);
+    }
 
     assert(p->x0 >= 0 && p->y0 >= 0 && w > 0 && h > 0);
     assert(p->x0 + w <= 320 && p->y0 + h <= 240);
 }
 int LoadImage(const RECT* r, const uint32_t* data)
 {
-    assert(r->x == 640 && ((r->y == 0 && r->w == 64 && r->h == 96) || (r->y == 96 && r->w == 16 && r->h == 1)));
+    assert(r->x == 640 && ((r->y == 0 && r->w == 64 && r->h == 96) ||
+                           (r->y == 96 && r->w == 16 && r->h == 1)));
 
     const uint16_t* src = (const uint16_t*)data;
     for (int y = 0; y < r->h; y++)
@@ -72,7 +81,8 @@ int LoadImage(const RECT* r, const uint32_t* data)
         {
             uint16_t rgb = vram[96][640 + i];
             assert(rgb);
-            assert((rgb & 31) == ((rgb >> 5) & 31) && (rgb & 31) == ((rgb >> 10) & 31));
+            assert((rgb & 31) == ((rgb >> 5) & 31) &&
+                   (rgb & 31) == ((rgb >> 10) & 31));
         }
     }
     return 0;
@@ -156,7 +166,8 @@ void DrawOTagEnv(uint32_t* p, DRAWENV* e)
             int textured = t->code == 0x64;
             if (textured) assert(page == getTPage(0, 0, 640, 0));
             if (!capture) continue;
-            int w = textured ? s->w : t->w, h = textured ? s->h : t->h;
+            int w = textured ? s->w : t->w;
+            int h = textured ? s->h : t->h;
             for (int y = 0; y < h; y++)
             {
                 for (int x = 0; x < w; x++)
@@ -164,11 +175,14 @@ void DrawOTagEnv(uint32_t* p, DRAWENV* e)
                     int gray = (t->r0 >> 3) * 255 / 31;
                     if (textured)
                     {
-                        int u = s->u0 + x, v = s->v0 + y;
-                        int index = (vram[v][640 + u / 4] >> ((u % 4) * 4)) & 15;
+                        int u = s->u0 + x;
+                        int v = s->v0 + y;
+                        int index =
+                            (vram[v][640 + u / 4] >> ((u % 4) * 4)) & 15;
                         uint16_t rgb = vram[96][640 + index];
                         if (!rgb) continue;
-                        assert((rgb & 31) == ((rgb >> 5) & 31) && (rgb & 31) == ((rgb >> 10) & 31));
+                        assert((rgb & 31) == ((rgb >> 5) & 31) &&
+                               (rgb & 31) == ((rgb >> 10) & 31));
                         gray = (rgb & 31) * 255 / 31;
                     }
                     output[t->y0 + y][t->x0 + x] = gray;
@@ -235,7 +249,8 @@ static void assert_menu_edge(void)
         {
             TILE* p = primitives[depth][i];
             int h = p->code == 0x64 ? ((SPRT*)p)->h : p->h;
-            assert(p->y0 >= UI_MENU_EDGE && p->y0 + h <= SCREEN_H - UI_MENU_EDGE);
+            assert(p->y0 >= UI_MENU_EDGE &&
+                   p->y0 + h <= SCREEN_H - UI_MENU_EDGE);
         }
     }
 }
@@ -267,7 +282,10 @@ int main(void)
             int changed = 0;
             for (int y = row * 16; y < (row + 1) * 16; y++)
             {
-                for (int x = col * 16; x < (col + 1) * 16; x++) changed += output[y][x] != background;
+                for (int x = col * 16; x < (col + 1) * 16; x++)
+                {
+                    changed += output[y][x] != background;
+                }
             }
             assert(changed == 1);
         }
@@ -277,7 +295,8 @@ int main(void)
     draw("main");
     e.selected = 5;
     draw("main-last-row");
-    for (int status = STORAGE_UNKNOWN; status <= STORAGE_GENERATION_FULL; status++)
+    for (int status = STORAGE_UNKNOWN; status <= STORAGE_GENERATION_FULL;
+         status++)
     {
         e.slot_status = status;
         e.card_free = status % 16;
@@ -341,7 +360,8 @@ int main(void)
         e.mode = EDIT_SOUND;
         e.sound_channel = 7;
         e.selected = 12;
-        e.score.sounds[7] = (SoundSettings){16000, 16000, WAVE_TRIANGLE, WAVE_NOISE, 500, 500, -24, 2000, 1};
+        e.score.sounds[7] = (SoundSettings){
+            16000, 16000, WAVE_TRIANGLE, WAVE_NOISE, 500, 500, -24, 2000, 1};
         draw("sound-corner");
         e.mode = EDIT_PICKER;
         draw("picker-corner");
@@ -361,7 +381,10 @@ int main(void)
     draw("sound-top");
     assert_menu_edge();
 
-    int top_x, top_y, bottom_x, bottom_y;
+    int top_x;
+    int top_y;
+    int bottom_x;
+    int bottom_y;
     sound_selection(&top_x, &top_y);
     e.selected = 12;
     draw("sound");
@@ -379,6 +402,7 @@ int main(void)
     draw("delete");
 
     assert(render_overflows == 0);
-    printf("PASS: %d render frames; peak %u / 65536 bytes; no overflow or screen escape\n", frame_count,
-           render_packet_peak);
+    printf("PASS: %d render frames; peak %u / 65536 bytes; no overflow or "
+           "screen escape\n",
+           frame_count, render_packet_peak);
 }

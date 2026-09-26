@@ -18,9 +18,13 @@
 
 #define REVERB_BASE 0x75000
 
-extern volatile uint32_t audio_service_peak, audio_interval_peak, audio_services;
-extern volatile uint32_t audio_dispatch_peak, audio_note_count;
-static Score score, candidate;
+extern volatile uint32_t audio_service_peak;
+extern volatile uint32_t audio_interval_peak;
+extern volatile uint32_t audio_services;
+extern volatile uint32_t audio_dispatch_peak;
+extern volatile uint32_t audio_note_count;
+static Score score;
+static Score candidate;
 
 static void log_line(const char* line)
 {
@@ -29,7 +33,8 @@ static void log_line(const char* line)
 
 static void finish(int code)
 {
-    log_line(code ? "REPLACEMENT FIXTURE FAILED\n" : "REPLACEMENT FIXTURE COMPLETE\n");
+    log_line(code ? "REPLACEMENT FIXTURE FAILED\n"
+                  : "REPLACEMENT FIXTURE COMPLETE\n");
     *(volatile int16_t*)0x1f802082 = code;
     for (;;) VSync(0);
 }
@@ -38,10 +43,12 @@ static void report(const char* name, int a, int b, AudioTime ticks)
 {
     char line[256];
     snprintf(line, sizeof(line),
-             "REPLACEMENT case=%s a=%d b=%d ticks=%u services=%u cost=%u interval=%u dispatch=%u "
+             "REPLACEMENT case=%s a=%d b=%d ticks=%u services=%u cost=%u "
+             "interval=%u dispatch=%u "
              "notes=%u playing=%d revision=%u\n",
-             name, a, b, (unsigned)ticks, (unsigned)audio_services, (unsigned)audio_service_peak,
-             (unsigned)audio_interval_peak, (unsigned)audio_dispatch_peak, (unsigned)audio_note_count,
+             name, a, b, (unsigned)ticks, (unsigned)audio_services,
+             (unsigned)audio_service_peak, (unsigned)audio_interval_peak,
+             (unsigned)audio_dispatch_peak, (unsigned)audio_note_count,
              audio_platform_playing(), (unsigned)audio_platform_revision());
     log_line(line);
 }
@@ -140,7 +147,11 @@ int main(void)
     audio_service_peak = audio_interval_peak = 0;
     AudioTime elapsed = wait_adopt(&score);
     report("supersede", first, repeated, elapsed);
-    if (!pending || !first || repeated || score.bpm != 173 || audio_platform_revision() != incoming_revision) finish(1);
+    if (!pending || !first || repeated || score.bpm != 173 ||
+        audio_platform_revision() != incoming_revision)
+    {
+        finish(1);
+    }
 
     make_score(&candidate, 181, 1, 52);
     if (!audio_platform_replace(&candidate)) finish(2);
@@ -172,7 +183,8 @@ int main(void)
     if (!audio_platform_replace(&candidate)) finish(6);
     elapsed = wait_adopt(&score);
     uint32_t retained = reverb_word();
-    report("reverb-same", retained == marker, SPU_REVERB_VOL_L, audio_platform_time() - begin);
+    report("reverb-same", retained == marker, SPU_REVERB_VOL_L,
+           audio_platform_time() - begin);
     if (retained != marker || score.reverb.size != 1) finish(7);
 
     marker = 0x29d46fb1;
@@ -183,7 +195,8 @@ int main(void)
     if (!audio_platform_replace(&candidate)) finish(8);
     elapsed = wait_adopt(&score);
     uint32_t cleared = reverb_word();
-    report("reverb-different", cleared == 0, SPU_REVERB_VOL_L, audio_platform_time() - begin);
+    report("reverb-different", cleared == 0, SPU_REVERB_VOL_L,
+           audio_platform_time() - begin);
     if (cleared || score.reverb.size != 2) finish(9);
 
     frames(8);

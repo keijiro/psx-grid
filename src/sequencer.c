@@ -22,8 +22,14 @@ static int bound(int value)
  */
 static void lock(SoundSettings* sound, TileValue v)
 {
-    if (v.lock_mask & LOCK_ATTACK) sound->attack = bound(sound->attack + v.attack);
-    if (v.lock_mask & LOCK_RELEASE) sound->release = bound(sound->release + v.release);
+    if (v.lock_mask & LOCK_ATTACK)
+    {
+        sound->attack = bound(sound->attack + v.attack);
+    }
+    if (v.lock_mask & LOCK_RELEASE)
+    {
+        sound->release = bound(sound->release + v.release);
+    }
 }
 
 /*
@@ -41,7 +47,8 @@ static uint32_t random_next(Sequencer* s)
 
 static int precedes(const Score* s, int a, int b)
 {
-    const Lane *x = &s->lanes[a], *y = &s->lanes[b];
+    const Lane* x = &s->lanes[a];
+    const Lane* y = &s->lanes[b];
     return x->y != y->y ? x->y < y->y : x->x != y->x ? x->x < y->x : a < b;
 }
 
@@ -70,7 +77,8 @@ static void order_runners(Sequencer* s)
         if (s->runners[i].active)
         {
             int n = s->count++;
-            while (n && precedes(s->score, s->runners[i].origin, s->runners[s->order[n - 1]].origin))
+            while (n && precedes(s->score, s->runners[i].origin,
+                                 s->runners[s->order[n - 1]].origin))
             {
                 s->order[n] = s->order[n - 1];
                 n--;
@@ -89,7 +97,8 @@ static void order_runners(Sequencer* s)
     }
 }
 
-void sequencer_start(Sequencer* s, const Score* score, NoteSink sink, AudioTime now)
+void sequencer_start(Sequencer* s, const Score* score, NoteSink sink,
+                     AudioTime now)
 {
     memset(s, 0, sizeof(*s));
     s->score = score;
@@ -118,7 +127,8 @@ void sequencer_start(Sequencer* s, const Score* score, NoteSink sink, AudioTime 
  */
 static int same_lane(const Score* old, const Score* score, int lane)
 {
-    return score->lanes[lane].active && old->lane_generation[lane] == score->lane_generation[lane];
+    return score->lanes[lane].active &&
+           old->lane_generation[lane] == score->lane_generation[lane];
 }
 
 int sequencer_resync(Sequencer* s, const Score* score, AudioTime now)
@@ -143,7 +153,8 @@ int sequencer_resync(Sequencer* s, const Score* score, AudioTime now)
             r->step = 0;
         }
         if (r->step >= score->lanes[r->lane].length) r->step = 0;
-        if (!same_lane(old, score, r->playing_lane) || r->playing_step >= score->lanes[r->playing_lane].length)
+        if (!same_lane(old, score, r->playing_lane) ||
+            r->playing_step >= score->lanes[r->playing_lane].length)
         {
             r->playing_lane = r->origin;
             r->playing_step = -1;
@@ -154,7 +165,8 @@ int sequencer_resync(Sequencer* s, const Score* score, AudioTime now)
     {
         if (score->lanes[lane].active && !score->lanes[lane].source)
         {
-            int found = 0, free_slot = -1;
+            int found = 0;
+            int free_slot = -1;
             for (int i = 0; i < SCORE_LANES; i++)
             {
                 Runner* r = &s->runners[i];
@@ -166,8 +178,8 @@ int sequencer_resync(Sequencer* s, const Score* score, AudioTime now)
     }
     s->score = score;
     order_runners(s);
-    // The selected Channel 1 master cannot wait for its own
-    // lap, and an empty playing score must be able to accept its first lane.
+    // The selected Channel 1 master cannot wait for its own lap, and an empty
+    // playing score must be able to accept its first lane.
     if (s->count)
     {
         Runner* master = &s->runners[s->master];
@@ -196,7 +208,10 @@ static Sequencer* adopt(Sequencer* s, AudioTime at)
     // Runner/held-lock preparation is already complete. Only bounded deadlines
     // and the twelve outstanding gates cross the interrupt-time seam.
     for (int i = 0; i < SEQUENCER_VOICES; i++) next->offs[i] = s->offs[i];
-    for (int i = 0; i < next->count; i++) next->runners[next->order[i]].next = at;
+    for (int i = 0; i < next->count; i++)
+    {
+        next->runners[next->order[i]].next = at;
+    }
     next->skipped = s->skipped;
     next->overloads = s->overloads;
     s->replacement = NULL;
@@ -224,7 +239,11 @@ static void offs_until(Sequencer* s, AudioTime now)
         int first = -1;
         for (int i = 0; i < SEQUENCER_VOICES; i++)
         {
-            if (s->offs[i].token && s->offs[i].at <= now && (first < 0 || s->offs[i].at < s->offs[first].at)) first = i;
+            if (s->offs[i].token && s->offs[i].at <= now &&
+                (first < 0 || s->offs[i].at < s->offs[first].at))
+            {
+                first = i;
+            }
         }
         if (first < 0) return;
         AudioTime at = s->offs[first].at;
@@ -249,7 +268,8 @@ static void offs_until(Sequencer* s, AudioTime now)
 static void tile_event(Sequencer* s, Runner* r, TileId t, AudioTime now)
 {
     TileValue v = s->score->tiles[t].value;
-    if (v.kind == TILE_CYCLE && !(v.pattern & ((uint32_t)1 << (r->lap % v.period))))
+    if (v.kind == TILE_CYCLE &&
+        !(v.pattern & ((uint32_t)1 << (r->lap % v.period))))
     {
         s->cursor = 0;
         return;
@@ -257,7 +277,8 @@ static void tile_event(Sequencer* s, Runner* r, TileId t, AudioTime now)
     if (v.kind == TILE_PROBABILITY)
     {
         uint32_t draw = random_next(s);
-        if (v.chance == 0 || (v.chance < 100 && draw % 100 >= (unsigned)v.chance))
+        if (v.chance == 0 ||
+            (v.chance < 100 && draw % 100 >= (unsigned)v.chance))
         {
             s->cursor = 0;
             return;
@@ -278,8 +299,13 @@ static void tile_event(Sequencer* s, Runner* r, TileId t, AudioTime now)
             return;
         }
         uint32_t token =
-            s->sink.on(s->sink.context, s->slice_at, v.pitch, s->working[s->score->lanes[r->origin].channel]);
-        if (token) s->offs[token & 31] = (NoteOff){s->slice_at + (AudioTime)(r->duration / 20) * v.length, token};
+            s->sink.on(s->sink.context, s->slice_at, v.pitch,
+                       s->working[s->score->lanes[r->origin].channel]);
+        if (token)
+        {
+            s->offs[token & 31] = (NoteOff){
+                s->slice_at + (AudioTime)(r->duration / 20) * v.length, token};
+        }
     }
 }
 
@@ -302,9 +328,11 @@ static int slice(Sequencer* s, AudioTime now, int* budget)
                 r->held_count = 0;
                 r->playing_lane = r->lane;
                 r->playing_step = r->step;
-                // Tempo and division edits change the step beginning now, not the
-                // deadline of a step already sounding or its scheduled gates.
-                r->duration = (uint32_t)(240u * SEQUENCER_HZ / s->score->bpm) / s->score->lanes[r->origin].division;
+                // Tempo and division edits change the step beginning now, not
+                // the deadline of a step already sounding or its scheduled
+                // gates.
+                r->duration = (uint32_t)(240u * SEQUENCER_HZ / s->score->bpm) /
+                              s->score->lanes[r->origin].division;
                 s->cursor = s->score->lanes[r->lane].tiles[r->step];
             }
         }
@@ -330,11 +358,17 @@ static int slice(Sequencer* s, AudioTime now, int* budget)
                 r->lap++;
                 if (s->order[s->runner_index] == s->master)
                 {
-                    if (s->replacement && s->replacement_at == UINT64_MAX) s->replacement_at = r->next + r->duration;
+                    if (s->replacement && s->replacement_at == UINT64_MAX)
+                    {
+                        s->replacement_at = r->next + r->duration;
+                    }
                     for (int i = 0; i < s->count; i++)
                     {
                         Runner* pending = &s->runners[s->order[i]];
-                        if (pending->next == UINT64_MAX) pending->next = r->next + r->duration;
+                        if (pending->next == UINT64_MAX)
+                        {
+                            pending->next = r->next + r->duration;
+                        }
                     }
                 }
             }
@@ -350,7 +384,10 @@ static int slice(Sequencer* s, AudioTime now, int* budget)
                 TileId t = r->held[h];
                 if (r->held_generation[h] == s->score->tile_generation[t] &&
                     s->score->tiles[t].value.kind == TILE_RELATIVE)
-                    lock(&s->working[s->score->lanes[r->origin].channel], s->score->tiles[t].value);
+                {
+                    lock(&s->working[s->score->lanes[r->origin].channel],
+                         s->score->tiles[t].value);
+                }
             }
         }
         s->visiting = 0;
@@ -362,7 +399,8 @@ static int slice(Sequencer* s, AudioTime now, int* budget)
 
 Sequencer* sequencer_service(Sequencer* s, AudioTime now)
 {
-    int work = 0, budget = SEQUENCER_TILE_BUDGET;
+    int work = 0;
+    int budget = SEQUENCER_TILE_BUDGET;
     if (!s->playing && s->replacement) s = adopt(s, now);
     if (s->playing)
     {
@@ -373,12 +411,17 @@ Sequencer* sequencer_service(Sequencer* s, AudioTime now)
                 AudioTime at = UINT64_MAX;
                 for (int i = 0; i < s->count; i++)
                 {
-                    if (s->runners[s->order[i]].next < at) at = s->runners[s->order[i]].next;
+                    if (s->runners[s->order[i]].next < at)
+                    {
+                        at = s->runners[s->order[i]].next;
+                    }
                 }
                 // Complete the split slice that discovered the lap, then drain
                 // outgoing deadlines strictly below its seam. Takeover precedes
-                // slice selection even when this service arrived after the seam.
-                if (s->replacement && s->replacement_at <= now && at >= s->replacement_at)
+                // slice selection even when this service arrived after the
+                // seam.
+                if (s->replacement && s->replacement_at <= now &&
+                    at >= s->replacement_at)
                 {
                     s = adopt(s, s->replacement_at);
                     continue;
@@ -390,20 +433,25 @@ Sequencer* sequencer_service(Sequencer* s, AudioTime now)
                     break;
                 }
                 offs_until(s, at);
-                // A split slice retains the whole bank, including locks from earlier
-                // runners. Branch traversal always uses the regular origin's channel.
-                // Typed copies avoid the SDK's bytewise memcpy in this deadline
-                // path now that the bank contains eight complete sounds.
-                for (int i = 0; i < SCORE_CHANNELS; i++) s->working[i] = s->score->sounds[i];
+                // A split slice retains the whole bank, including locks from
+                // earlier runners. Branch traversal always uses the regular
+                // origin's channel. Typed copies avoid the SDK's bytewise
+                // memcpy in this deadline path now that the bank contains eight
+                // complete sounds.
+                for (int i = 0; i < SCORE_CHANNELS; i++)
+                {
+                    s->working[i] = s->score->sounds[i];
+                }
                 s->slice_at = at;
                 s->slicing = 1;
                 s->runner_index = s->visiting = 0;
             }
             // Both time slices and tile visits are bounded. Dense stacks resume
             // from this exact cursor on later interrupts, including held-lock
-            // replay. Gates and PRNG draws occur once; late note-ons are dropped.
-            // This avoids a 4096-tile score monopolizing an interrupt or losing
-            // clock wraps, without resetting its musical state under overload.
+            // replay. Gates and PRNG draws occur once; late note-ons are
+            // dropped. This avoids a 4096-tile score monopolizing an interrupt
+            // or losing clock wraps, without resetting its musical state under
+            // overload.
             if (!slice(s, now, &budget))
             {
                 s->overloads++;

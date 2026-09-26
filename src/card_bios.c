@@ -11,25 +11,34 @@
 
 #include <psxapi.h>
 #include <psxetc.h>
-#include <sys/fcntl.h>
 #include <string.h>
+#include <sys/fcntl.h>
 
 enum
 {
-    EVENT_COUNT = 8,
-    WAIT_TICKS = 5 * 4233600
+    EVENT_COUNT = 8, // The BIOS provides two groups of four events.
+    WAIT_TICKS = 5 * 4233600        // Polling stops after five clock seconds.
 };
 
 /*
  * Each hardware and software card event uses the same ordered status slots.
  * wait_card checks replacement and error slots before completion.
  */
-static const unsigned specs[4] = {EvSpIOE, EvSpTIMOUT, EvSpNEW, EvSpERROR};
+static const unsigned specs[4] =
+{
+    EvSpIOE, EvSpTIMOUT, EvSpNEW, EvSpERROR
+};
 /*
  * BIOS event handles have their high bit set, so only -1 denotes no event.
  * owned and poisoned prevent further traffic after a media change.
  */
-static int events[EVENT_COUNT], file_event = -1, fd = -1, owned, started, poisoned, initialized;
+static int events[EVENT_COUNT];
+static int file_event = -1;
+static int fd = -1;
+static int owned;
+static int started;
+static int poisoned;
+static int initialized;
 static struct DIRENTRY directory_entry;
 
 // Timer 0 is stopped while the BIOS owns IRQ dispatch. Timer 2 remains a
@@ -99,8 +108,8 @@ static CardResult probe(int initial)
     CardResult r = wait_card(-1, 0);
     if (r == CARD_CHANGED && initial)
     {
-        // Only session entry may acknowledge insertion. A later NEW event
-        // means that the card used for discovery may have been replaced.
+        // Only session entry may acknowledge insertion. A later NEW event means
+        // that the card used for discovery may have been replaced.
         drain();
         if (!_card_clear(0)) return CARD_IO;
         r = wait_card(-1, 1);
@@ -132,8 +141,8 @@ static CardResult check(void* context)
 static void end(void* context)
 {
     (void)context;
-    // Once replacement or timeout is seen, stop card traffic before releasing
-    // a BIOS handle; do not let close issue another transfer to a new card.
+    // Once replacement or timeout is seen, stop card traffic before releasing a
+    // BIOS handle; do not let close issue another transfer to a new card.
     if (poisoned && started)
     {
         StopCARD();
@@ -174,7 +183,8 @@ static CardResult begin(void* context)
     poisoned = started = 0;
     for (int i = 0; i < EVENT_COUNT; i++)
     {
-        events[i] = OpenEvent(i < 4 ? HwCARD : SwCARD, specs[i % 4], EvMdNOINTR, NULL);
+        events[i] =
+            OpenEvent(i < 4 ? HwCARD : SwCARD, specs[i % 4], EvMdNOINTR, NULL);
         if (events[i] == -1)
         {
             end(NULL);
@@ -197,7 +207,10 @@ static CardResult begin(void* context)
     if (!r)
     {
         drain();
-        if (!_card_load(0)) r = CARD_IO;
+        if (!_card_load(0))
+        {
+            r = CARD_IO;
+        }
         else
         {
             r = wait_card(-1, 0);
@@ -222,7 +235,8 @@ static CardResult list(void* context, int index, CardFile* file)
     if (!owned || fd >= 0) return CARD_IO;
     CardResult r = check(NULL);
     if (r) return r;
-    struct DIRENTRY* entry = index ? nextfile(&directory_entry) : firstfile("bu00:*", &directory_entry);
+    struct DIRENTRY* entry = index ? nextfile(&directory_entry)
+                                   : firstfile("bu00:*", &directory_entry);
     if (!entry)
     {
         r = check(NULL);
@@ -356,6 +370,7 @@ static CardResult erase_file(void* context, const char* name)
 
 CardBackend card_platform_backend(void)
 {
-    return (CardBackend){NULL,        begin,     end,        check,      list,      open_read,
-                         open_create, read_file, write_file, close_file, erase_file};
+    return (CardBackend){NULL,       begin,      end,         check,
+                         list,       open_read,  open_create, read_file,
+                         write_file, close_file, erase_file};
 }

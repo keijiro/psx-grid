@@ -9,11 +9,11 @@
 
 #include "audio.h"
 #include "editor.h"
-#include "render.h"
 #include "pad.h"
+#include "render.h"
 
-#include <psxgpu.h>
 #include <psxapi.h>
+#include <psxgpu.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
@@ -24,24 +24,34 @@
 #include "../src/main.c"
 #undef main
 
-volatile unsigned storage_fixture_phase, storage_fixture_error;
+volatile unsigned storage_fixture_phase;
+volatile unsigned storage_fixture_error;
 volatile unsigned storage_fixture_removed;
 volatile uintptr_t storage_fixture_isr_stack;
 volatile unsigned storage_fixture_stack_ready;
-static unsigned resumed_cross, resumed_start;
-static uint8_t expected[SCORE_FILE_BYTES], actual[SCORE_FILE_BYTES];
-extern volatile uint32_t audio_service_peak, audio_interval_peak, audio_services;
+static unsigned resumed_cross;
+static unsigned resumed_start;
+static uint8_t expected[SCORE_FILE_BYTES];
+static uint8_t actual[SCORE_FILE_BYTES];
+extern volatile uint32_t audio_service_peak;
+extern volatile uint32_t audio_interval_peak;
+extern volatile uint32_t audio_services;
 extern volatile uint32_t audio_dispatch_peak;
 static CardBackend backend;
-static unsigned io_services, services_before, io_polls, polls_before;
+static unsigned io_services;
+static unsigned services_before;
+static unsigned io_polls;
+static unsigned polls_before;
 enum
 {
-    MAIN_STACK_WINDOW = 64 * 1024,
-    MAIN_STACK_MARGIN = 2 * 1024,
-    ISR_STACK_BYTES = 4096
+    MAIN_STACK_WINDOW = 64 * 1024,  // The sampled main-stack range.
+    MAIN_STACK_MARGIN = 2 * 1024,   // Reserve space below the stack top.
+    ISR_STACK_BYTES = 4096          // The sampled interrupt-stack range.
 };
 static const uint32_t stack_mark = 0xa55ac33c;
-static uint32_t *main_stack_low, *main_stack_high, *isr_stack_low;
+static uint32_t* main_stack_low;
+static uint32_t* main_stack_high;
+static uint32_t* isr_stack_low;
 static uintptr_t main_stack_top;
 static int stack_ready;
 extern char _end[];
@@ -67,8 +77,15 @@ static int stack_fill(void)
 
     isr_stack_low = (uint32_t*)storage_fixture_isr_stack;
     EnterCriticalSection();
-    for (uint32_t* p = main_stack_low; p < main_stack_high; p++) *p = stack_mark;
-    for (uint32_t* p = isr_stack_low; p < isr_stack_low + ISR_STACK_BYTES / 4; p++) *p = stack_mark;
+    for (uint32_t* p = main_stack_low; p < main_stack_high; p++)
+    {
+        *p = stack_mark;
+    }
+    for (uint32_t* p = isr_stack_low; p < isr_stack_low + ISR_STACK_BYTES / 4;
+         p++)
+    {
+        *p = stack_mark;
+    }
     ExitCriticalSection();
     stack_ready = 1;
     return 1;
@@ -85,16 +102,23 @@ static void stack_report(void)
 
     EnterCriticalSection();
     uint32_t* isr_used = isr_stack_low;
-    while (isr_used < isr_stack_low + ISR_STACK_BYTES / 4 && *isr_used == stack_mark) isr_used++;
+    while (isr_used < isr_stack_low + ISR_STACK_BYTES / 4 &&
+           *isr_used == stack_mark)
+    {
+        isr_used++;
+    }
 
     unsigned main_peak = (unsigned)(main_stack_top - (uintptr_t)main_used);
     unsigned main_limit = (unsigned)(main_stack_top - (uintptr_t)_end);
-    unsigned isr_peak = (unsigned)(ISR_STACK_BYTES - ((uintptr_t)isr_used - (uintptr_t)isr_stack_low));
+    unsigned isr_peak =
+        (unsigned)(ISR_STACK_BYTES -
+                   ((uintptr_t)isr_used - (uintptr_t)isr_stack_low));
     ExitCriticalSection();
 
     char line[160];
-    snprintf(line, sizeof(line), "STACK main_peak=%u main_limit=%u isr_peak=%u isr_limit=%u\n", main_peak, main_limit,
-             isr_peak, ISR_STACK_BYTES);
+    snprintf(line, sizeof(line),
+             "STACK main_peak=%u main_limit=%u isr_peak=%u isr_limit=%u\n",
+             main_peak, main_limit, isr_peak, ISR_STACK_BYTES);
     *(const char* volatile*)0x1f802084 = line;
 }
 
@@ -128,18 +152,21 @@ static void report(const char* stage, StorageResult result, AudioTime elapsed)
 {
     char line[320];
     snprintf(line, sizeof(line),
-             "STORAGE stage=%s result=%d ticks=%u services=%u cost=%u interval=%u dispatch=%u "
+             "STORAGE stage=%s result=%d ticks=%u services=%u cost=%u "
+             "interval=%u dispatch=%u "
              "playing=%d free=%d io_services=%u io_polls=%u removed=%u\n",
-             stage, result, (unsigned)elapsed, audio_services, audio_service_peak, audio_interval_peak,
-             audio_dispatch_peak, audio_platform_playing(), storage.free_blocks, io_services, io_polls,
-             storage_fixture_removed);
+             stage, result, (unsigned)elapsed, audio_services,
+             audio_service_peak, audio_interval_peak, audio_dispatch_peak,
+             audio_platform_playing(), storage.free_blocks, io_services,
+             io_polls, storage_fixture_removed);
     *(const char* volatile*)0x1f802084 = line;
 }
 
 static void finish(int code)
 {
     if (stack_ready) stack_report();
-    *(const char* volatile*)0x1f802084 = code ? "STORAGE FIXTURE FAILED\n" : "STORAGE FIXTURE COMPLETE\n";
+    *(const char* volatile*)0x1f802084 =
+        code ? "STORAGE FIXTURE FAILED\n" : "STORAGE FIXTURE COMPLETE\n";
     *(volatile short*)0x1f802082 = code;
     for (;;) VSync(0);
 }
@@ -152,7 +179,8 @@ static void frames(int count)
         InputSample sample;
         while (pad_read(&sample))
         {
-            InputFrame frame = input_update(&input, sample.connected, sample.held);
+            InputFrame frame =
+                input_update(&input, sample.connected, sample.held);
             resumed_cross += frame.cross;
             resumed_start += frame.start;
         }
@@ -187,9 +215,12 @@ int main(void)
         VSync(0);
     }
 
-    if (storage_fixture_isr_stack < 0x80010000 || storage_fixture_isr_stack > (uintptr_t)_end - ISR_STACK_BYTES ||
+    if (storage_fixture_isr_stack < 0x80010000 ||
+        storage_fixture_isr_stack > (uintptr_t)_end - ISR_STACK_BYTES ||
         (storage_fixture_isr_stack & 3) || !stack_fill())
+    {
         finish(13);
+    }
 
     audio_platform_update(&editor.score, 1, 1);
     frames(20);
@@ -206,7 +237,11 @@ int main(void)
         unsigned reports = pad_reports;
         frames(20);
         report("error-resume", result, pad_reports - reports);
-        if (storage_fixture_error == 1 && pad_reports > reports && !audio_platform_playing()) finish(0);
+        if (storage_fixture_error == 1 && pad_reports > reports &&
+            !audio_platform_playing())
+        {
+            finish(0);
+        }
         finish(1);
     }
     if (result == STORAGE_SAVED)
@@ -218,7 +253,11 @@ int main(void)
         score_format_encode(&editor.score, expected, 1, 1);
         score_format_encode(&storage.incoming, actual, 1, 1);
         report("restart-load", result, 0);
-        if (result != STORAGE_SAVED || memcmp(expected, actual, sizeof(expected))) finish(2);
+        if (result != STORAGE_SAVED ||
+            memcmp(expected, actual, sizeof(expected)))
+        {
+            finish(2);
+        }
     }
     editor.mode = EDIT_MAIN;
     editor.selected = 3;
@@ -234,7 +273,11 @@ int main(void)
         unsigned reports = pad_reports;
         frames(20);
         report("error-resume", result, pad_reports - reports);
-        if (storage_fixture_error == 1 && pad_reports > reports && !audio_platform_playing()) finish(0);
+        if (storage_fixture_error == 1 && pad_reports > reports &&
+            !audio_platform_playing())
+        {
+            finish(0);
+        }
         finish(3);
     }
     editor.selected = 4;
@@ -247,8 +290,15 @@ int main(void)
     report("load", result, audio_platform_time() - at);
     score_format_encode(&editor.score, expected, 1, 1);
     score_format_encode(&storage.incoming, actual, 1, 1);
-    if (result != STORAGE_SAVED || memcmp(expected, actual, sizeof(expected))) finish(4);
-    if (editor.load_busy || audio_platform_replacing() || strcmp(editor.message, "LOADED")) finish(5);
+    if (result != STORAGE_SAVED || memcmp(expected, actual, sizeof(expected)))
+    {
+        finish(4);
+    }
+    if (editor.load_busy || audio_platform_replacing() ||
+        strcmp(editor.message, "LOADED"))
+    {
+        finish(5);
+    }
     report("adopt", STORAGE_SAVED, 0);
     if (resumed_cross || resumed_start) finish(10);
     storage_fixture_phase = 4;
@@ -256,6 +306,10 @@ int main(void)
     frames(20);
     report("resume", STORAGE_SAVED, pad_reports - reports);
     if (pad_reports == reports || audio_platform_playing()) finish(7);
-    if (storage_fixture_error == 2 && (resumed_cross != 1 || resumed_start != 1)) finish(11);
+    if (storage_fixture_error == 2 &&
+        (resumed_cross != 1 || resumed_start != 1))
+    {
+        finish(11);
+    }
     finish(0);
 }

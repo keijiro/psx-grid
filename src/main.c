@@ -8,10 +8,10 @@
  * callbacks.
  */
 
-#include "editor.h"
 #include "audio.h"
-#include "render.h"
+#include "editor.h"
 #include "pad.h"
+#include "render.h"
 
 #include <psxapi.h>
 #include <psxetc.h>
@@ -46,19 +46,22 @@ static void replacement_acknowledged(void)
  */
 static void storage_action(int connected)
 {
-    int action = editor.storage_request, slot = editor.storage_slot;
+    int action = editor.storage_request;
+    int slot = editor.storage_slot;
     editor.storage_request = STORAGE_ACTION_NONE;
     if (editor.load_busy || audio_platform_replacing())
     {
         editor.message = storage_message(STORAGE_BUSY);
         return;
     }
-    if (action < STORAGE_ACTION_CHECK || action > STORAGE_ACTION_LOAD || slot < 1 || slot > STORAGE_SLOTS)
+    if (action < STORAGE_ACTION_CHECK || action > STORAGE_ACTION_LOAD ||
+        slot < 1 || slot > STORAGE_SLOTS)
     {
         editor.message = storage_message(STORAGE_IO);
         return;
     }
-    if (action == STORAGE_ACTION_SAVE && score_format_encode(&editor.score, storage.save, slot, 1) != FORMAT_OK)
+    if (action == STORAGE_ACTION_SAVE &&
+        score_format_encode(&editor.score, storage.save, slot, 1) != FORMAT_OK)
     {
         editor.message = storage_message(STORAGE_SCORE_FULL);
         return;
@@ -76,14 +79,16 @@ static void storage_action(int connected)
     pad_suspend();
     audio_platform_card_stop();
     // StopCallback saves the SDK IRQ/DMA state and leaves CPU interrupts
-    // disabled. BIOS card service needs VBlank and SIO0 after that handoff;
-    // no critical section may span its event waits or filesystem calls.
+    // disabled. BIOS card service needs VBlank and SIO0 after that handoff; no
+    // critical section may span its event waits or filesystem calls.
     StopCallback();
     IRQ_MASK = (1u << IRQ_VBLANK) | (1u << IRQ_SIO0);
     ExitCriticalSection();
-    StorageResult result = action == STORAGE_ACTION_SAVE   ? storage_save(&storage, slot, &editor.score)
-                           : action == STORAGE_ACTION_LOAD ? storage_load(&storage, slot)
-                                                           : storage_refresh(&storage, slot);
+    StorageResult result = action == STORAGE_ACTION_SAVE
+                               ? storage_save(&storage, slot, &editor.score)
+                           : action == STORAGE_ACTION_LOAD
+                               ? storage_load(&storage, slot)
+                               : storage_refresh(&storage, slot);
     EnterCriticalSection();
     RestartCallback();
     audio_platform_card_resume(&editor.score);
@@ -102,7 +107,10 @@ static void storage_action(int connected)
             // replacement adopts immediately after SDK restoration.
             editor.load_busy = 1;
             editor.load_slot = slot;
-            if (audio_platform_take_replacement(&editor.score)) replacement_acknowledged();
+            if (audio_platform_take_replacement(&editor.score))
+            {
+                replacement_acknowledged();
+            }
         }
     }
 }
@@ -129,7 +137,10 @@ int main(void)
             InputFrame frame = input_update(&input, connected, sample.held);
             editor_update(&editor, frame);
             if (editor.mode != before) input_reset_repeat(&input);
-            else if (editor.selected != selected) input_reset_value_repeat(&input);
+            else if (editor.selected != selected)
+            {
+                input_reset_value_repeat(&input);
+            }
             if (editor.storage_request)
             {
                 storage_action(connected);
@@ -142,11 +153,13 @@ int main(void)
         {
             replacement_acknowledged();
         }
-        editor.slot_status = editor.load_busy && editor.storage_slot == editor.load_slot
-                                 ? STORAGE_BUSY
-                                 : storage.slots[editor.storage_slot - 1];
+        editor.slot_status =
+            editor.load_busy && editor.storage_slot == editor.load_slot
+                ? STORAGE_BUSY
+                : storage.slots[editor.storage_slot - 1];
         editor.playing = audio_platform_playing();
-        editor.snapshot_dirty = editor.playing && editor.score.revision != audio_platform_revision();
+        editor.snapshot_dirty = editor.playing && editor.score.revision !=
+                                                      audio_platform_revision();
         render_frame(&editor, connected);
     }
 }
