@@ -6,6 +6,7 @@ import re
 import shutil
 import subprocess
 import sys
+from tool_paths import emulator_path
 
 root = Path(__file__).resolve().parents[1]
 configuration = sys.argv[1] if len(sys.argv) > 1 else 'debug'
@@ -30,7 +31,7 @@ for sector in range(16, 36):
     card[sector * 128:sector * 128 + 4] = b'\xff' * 4
 (data / 'memcard1.mcd').write_bytes(bytes(len(card)) if scenario == 'unformatted' else card)
 (data / 'memcard2.mcd').write_bytes(card)
-emulator = os.environ.get('PCSX_REDUX', str(root / '.local/PCSX-Redux.app/Contents/MacOS/PCSX-Redux'))
+emulator = os.environ.get('PCSX_REDUX', str(emulator_path(root)))
 bios = os.environ.get('PCSX_REDUX_BIOS')
 if not bios:
     raise SystemExit('Set PCSX_REDUX_BIOS to the BIOS under test')

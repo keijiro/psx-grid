@@ -3,13 +3,14 @@ set -euo pipefail
 
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 PROJECT_ROOT=$(CDPATH= cd -- "${SCRIPT_DIR}/.." && pwd)
+. "${SCRIPT_DIR}/dependency-paths.sh"
+psx_grid_set_dependency_paths "${PROJECT_ROOT}"
 
 SDK_TAG="v0.24"
-SDK_COMMIT="06e65bea3a778b2dae5af77a7935ae3868ddd4d3"
+SDK_COMMIT="${PSX_GRID_SDK_COMMIT}"
 PCSX_COMMIT="c2e2dec197d3eb8f3db2ee63b8037321dbe1085e"
-PCSX_BUILD_ID="250"
 BINUTILS_VERSION="2.47"
-GCC_VERSION="16.2.0"
+GCC_VERSION="${PSX_GRID_GCC_VERSION}"
 
 FORMULA_BASE="https://raw.githubusercontent.com/grumpycoders/pcsx-redux/${PCSX_COMMIT}/tools/macos-mips"
 BINUTILS_FORMULA_SHA256="20c8043f71773402683d30e0a611586bf6755f721421a4b435f09b050c955f03"
@@ -17,13 +18,13 @@ GCC_FORMULA_SHA256="d6a9737b2bd04031ef7a4dfa8e163338feb214837fa466f0d37bed03166a
 PCSX_DMG_URL="https://distrib.app/storage/assets/df7/d54/7b1/7fb5a8875b24e0329d2e496aed2e88d0b800935f5df8ac3172c0578/PCSX-Redux-c2e2dec1-Arm.dmg"
 PCSX_DMG_SHA256="8022e3b3158fc2aa6f742b83e582783552fc2adebf9af6cd94da22786703d882"
 
-SDK_SOURCE="${PROJECT_ROOT}/third_party/PSn00bSDK"
-SDK_INSTALL="${PROJECT_ROOT}/.local/psn00bsdk"
-SDK_BUILD="${PROJECT_ROOT}/build/psn00bsdk"
+SDK_SOURCE="${PSX_GRID_SDK_SOURCE}"
+SDK_INSTALL="${PSX_GRID_SDK_INSTALL}"
+SDK_BUILD="${PSX_GRID_SDK_BUILD}"
 PATCH_FILE="${PROJECT_ROOT}/patches/psn00bsdk-v0.24-macos-clang.patch"
-FORMULA_DIR="${PROJECT_ROOT}/.local/toolchain-formulas"
-DOWNLOAD_DIR="${PROJECT_ROOT}/.local/downloads"
-PCSX_APP="${PROJECT_ROOT}/.local/PCSX-Redux.app"
+FORMULA_DIR="${PSX_GRID_DEPS}/toolchain-formulas"
+DOWNLOAD_DIR="${PSX_GRID_DEPS}/downloads"
+PCSX_APP="${PSX_GRID_PCSX_APP}"
 PCSX_DMG="${DOWNLOAD_DIR}/PCSX-Redux-c2e2dec1-Arm.dmg"
 
 die() {
@@ -57,10 +58,17 @@ command -v brew >/dev/null || die "Homebrew is required"
 command -v git >/dev/null || die "Git is required"
 command -v rustup >/dev/null || die "rustup is required; install it from https://rustup.rs"
 
+# Worktrees may start setup together; serialize clone, patch, and install.
+if [ "${1:-}" != "--cache-locked" ]; then
+  [ "$#" -eq 0 ] || die "Usage: ./scripts/setup.sh"
+  mkdir -p "${PSX_GRID_DEPS}"
+  exec lockf -k "${PSX_GRID_DEPS}/setup.lock" "${SCRIPT_DIR}/setup.sh" --cache-locked
+fi
+
 rustup toolchain install nightly-2026-09-26 --profile minimal \
   --component rust-src --component rustfmt --component clippy
 
-mkdir -p "${FORMULA_DIR}" "${DOWNLOAD_DIR}" "${PROJECT_ROOT}/third_party" "${PROJECT_ROOT}/build"
+mkdir -p "${FORMULA_DIR}" "${DOWNLOAD_DIR}" "${PSX_GRID_SDK_DIR}" "$(dirname "${PCSX_APP}")"
 
 brew tap nikitabobko/tap
 
@@ -98,7 +106,7 @@ fi
 [ "$(git -C "${SDK_SOURCE}" rev-parse HEAD)" = "${SDK_COMMIT}" ] || \
   die "${SDK_SOURCE} exists at a different revision"
 git -C "${SDK_SOURCE}" submodule update --init --recursive
-[ "$(sha256_of "${PATCH_FILE}")" = "b82973981b81362284426b9b7b77d79ee299226928abc75f4e9fa2ae3c51ce45" ] || die "unexpected SDK patch"
+[ "$(sha256_of "${PATCH_FILE}")" = "${PSX_GRID_SDK_PATCH}" ] || die "unexpected SDK patch"
 [ "$(git -C "${SDK_SOURCE}/tools/mkpsxiso" rev-parse HEAD)" = "9f6275f08829ea9de8122c8232a019e8724acbbd" ] || die "unexpected mkpsxiso revision"
 [ "$(git -C "${SDK_SOURCE}/tools/tinyxml2" rev-parse HEAD)" = "e05956094c27117f989d22f25b75633123d72a83" ] || die "unexpected tinyxml2 revision"
 

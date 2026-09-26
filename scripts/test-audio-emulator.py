@@ -6,6 +6,7 @@ import re
 from pathlib import Path
 import subprocess
 import sys
+from tool_paths import bios_path, emulator_path
 root = Path(__file__).resolve().parents[1]
 pair_gain = 0x3fff
 configuration = sys.argv[1] if len(sys.argv)>1 else 'debug'
@@ -18,8 +19,8 @@ output = root / 'build/validation'
 output.mkdir(parents=True, exist_ok=True)
 data = output / ('emulator-'+configuration)
 data.mkdir(exist_ok=True)
-emulator = os.environ.get('PCSX_REDUX', str(root / '.local/PCSX-Redux.app/Contents/MacOS/PCSX-Redux'))
-bios = os.environ.get('PCSX_REDUX_BIOS', str(root / '.local/PCSX-Redux.app/Contents/Resources/share/pcsx-redux/resources/openbios.bin'))
+emulator = os.environ.get('PCSX_REDUX', str(emulator_path(root)))
+bios = os.environ.get('PCSX_REDUX_BIOS', str(bios_path(root)))
 command = [emulator, '-portable', str(data), '-no-ui', '-no-gui-log', '-testmode', '-stdout', '-interpreter', '-bios', bios, '-exe', str(exe), '-run']
 # Dense Debug playback can take longer in the interpreter after Rust audio
 # controls are linked, even when the emulated deadlines remain bounded.

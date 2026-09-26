@@ -38,7 +38,7 @@ standard_library = "core (built from rust-src)"
 repository = "https://github.com/Lameguy64/PSn00bSDK"
 tag = "v0.24"
 commit = "06e65bea3a778b2dae5af77a7935ae3868ddd4d3"
-install_path = ".local/psn00bsdk"
+install_path = "<git-common-dir>/psx-grid-deps/psn00bsdk-<commit>-<patch_sha256>-<gcc_version>/install"
 patch = "patches/psn00bsdk-v0.24-macos-clang.patch"
 patch_sha256 = "b82973981b81362284426b9b7b77d79ee299226928abc75f4e9fa2ae3c51ce45"
 mkpsxiso_commit = "9f6275f08829ea9de8122c8232a019e8724acbbd"
@@ -54,11 +54,11 @@ manifest_url = "https://distrib.app/storage/manifests/pcsx-redux/dev-macos-arm/m
 dmg_url = "https://distrib.app/storage/assets/df7/d54/7b1/7fb5a8875b24e0329d2e496aed2e88d0b800935f5df8ac3172c0578/PCSX-Redux-c2e2dec1-Arm.dmg"
 dmg_size = 48236326
 dmg_sha256 = "8022e3b3158fc2aa6f742b83e582783552fc2adebf9af6cd94da22786703d882"
-install_path = ".local/PCSX-Redux.app"
+install_path = "<git-common-dir>/psx-grid-deps/pcsx-redux-250/PCSX-Redux.app"
 
 [openbios]
 provenance = "Bundled with PCSX-Redux macOS ARM build 250"
 source_commit = "c2e2dec197d3eb8f3db2ee63b8037321dbe1085e"
-path = ".local/PCSX-Redux.app/Contents/Resources/share/pcsx-redux/resources/openbios.bin"
+path = "<git-common-dir>/psx-grid-deps/pcsx-redux-250/PCSX-Redux.app/Contents/Resources/share/pcsx-redux/resources/openbios.bin"
 sha256 = "713ea2aed58606282b3ff5e91d77f8c5892ea36f5adcd279d2c7dd26604a625d"
 pcsx_detected_id = "0b0359a7"

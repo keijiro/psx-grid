@@ -5,6 +5,7 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+from tool_paths import bios_path, emulator_path
 
 root = Path(__file__).resolve().parents[1]
 configuration = sys.argv[1] if len(sys.argv) > 1 else 'replacement-debug'
@@ -17,8 +18,8 @@ output = root / 'build/validation'
 output.mkdir(parents=True, exist_ok=True)
 data = output / ('storage-replacement-emulator-' + configuration)
 data.mkdir(parents=True, exist_ok=True)
-emulator = os.environ.get('PCSX_REDUX', str(root / '.local/PCSX-Redux.app/Contents/MacOS/PCSX-Redux'))
-bios = os.environ.get('PCSX_REDUX_BIOS', str(root / '.local/PCSX-Redux.app/Contents/Resources/share/pcsx-redux/resources/openbios.bin'))
+emulator = os.environ.get('PCSX_REDUX', str(emulator_path(root)))
+bios = os.environ.get('PCSX_REDUX_BIOS', str(bios_path(root)))
 command = [emulator, '-portable', str(data), '-no-ui', '-no-gui-log', '-testmode', '-stdout',
            '-interpreter', '-bios', bios, '-exe', str(exe), '-run']
 path = output / f'storage-replacement-{configuration}-emulator.log'

@@ -6,6 +6,7 @@ import re
 import shutil
 import subprocess
 import sys
+from tool_paths import bios_path, emulator_path
 
 root = Path(__file__).resolve().parents[1]
 configuration = sys.argv[1] if len(sys.argv) > 1 else 'debug'
@@ -24,8 +25,8 @@ script.write_text(f'input_analog = {str(device == "analog").lower()}\n'
                   f'input_phase_offset = {offset("input_fixture_phase")}\n'
                   f'input_expected_offset = {offset("input_fixture_expected")}\n'
                   + (root / 'tests/input_fixture.lua').read_text())
-emulator = os.environ.get('PCSX_REDUX', str(root / '.local/PCSX-Redux.app/Contents/MacOS/PCSX-Redux'))
-bios = os.environ.get('PCSX_REDUX_BIOS', str(root / '.local/PCSX-Redux.app/Contents/Resources/share/pcsx-redux/resources/openbios.bin'))
+emulator = os.environ.get('PCSX_REDUX', str(emulator_path(root)))
+bios = os.environ.get('PCSX_REDUX_BIOS', str(bios_path(root)))
 command = [emulator, '-portable', str(data), '-no-ui', '-no-gui-log', '-testmode', '-stdout',
            '-interpreter', '-bios', bios, '-exe', str(root / 'build' / configuration / 'input-fixture.exe'),
            '-dofile', str(script), '-run']

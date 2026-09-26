@@ -25,12 +25,17 @@ For a release build:
 ./scripts/run.sh build/release/psx-grid.exe
 ```
 
-The setup places the SDK, emulator, and configuration under `.local/`, and the
-SDK sources under `third_party/`. It reuses an existing system toolchain when
-the installed version matches the pinned version. The setup can be run more
-than once. `env.sh` does not modify shell configuration files. `run.sh` enables
-the interpreter and debugger and sends logs to standard output. Override the
-launch targets with `PCSX_REDUX`, `PCSX_REDUX_BIOS`, and `PCSX_REDUX_DATA`.
+The setup places the SDK source, build, and installation and the emulator under
+`psx-grid-deps/` in Git's common directory. All worktrees share these tools;
+the SDK directory is keyed by its pinned commit, patch, and GCC version.
+Generated game builds and emulator configuration stay in each worktree under
+`build/` and `.local/pcsx-redux-data/`. Existing tools in a checkout's old
+`third_party/` and `.local/` directories are not used by the shared setup; run
+`./scripts/setup.sh` once after updating. The setup reuses an existing system
+toolchain when the installed version matches the pinned version and can be run
+more than once. `env.sh` does not modify shell configuration files. `run.sh`
+enables the interpreter and debugger and sends logs to standard output. Override
+the launch targets with `PCSX_REDUX`, `PCSX_REDUX_BIOS`, and `PCSX_REDUX_DATA`.
 
 When the emulator first asks about automatic updates, complete the prompt.
 Disable automatic updates to retain the pinned version. If macOS blocks the

@@ -3,9 +3,11 @@ set -eu
 
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 PROJECT_ROOT=$(CDPATH= cd -- "${SCRIPT_DIR}/.." && pwd)
+. "${SCRIPT_DIR}/dependency-paths.sh"
+psx_grid_set_dependency_paths "${PROJECT_ROOT}"
 
-EMULATOR=${PCSX_REDUX:-"${PROJECT_ROOT}/.local/PCSX-Redux.app/Contents/MacOS/PCSX-Redux"}
-BIOS=${PCSX_REDUX_BIOS:-"${PROJECT_ROOT}/.local/PCSX-Redux.app/Contents/Resources/share/pcsx-redux/resources/openbios.bin"}
+EMULATOR=${PCSX_REDUX:-"${PSX_GRID_PCSX_APP}/Contents/MacOS/PCSX-Redux"}
+BIOS=${PCSX_REDUX_BIOS:-"${PSX_GRID_PCSX_APP}/Contents/Resources/share/pcsx-redux/resources/openbios.bin"}
 DATA_DIR=${PCSX_REDUX_DATA:-"${PROJECT_ROOT}/.local/pcsx-redux-data"}
 EXE_PATH=${1:-"${PROJECT_ROOT}/build/debug/psx-grid.exe"}
 
@@ -41,4 +43,3 @@ exec "${EMULATOR}" \
   -interpreter \
   -debugger \
   -stdout
-

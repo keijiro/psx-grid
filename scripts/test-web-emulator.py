@@ -13,6 +13,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from tool_paths import bios_path, emulator_path
 
 root = Path(__file__).resolve().parents[1]
 parser = argparse.ArgumentParser(description=__doc__)
@@ -34,8 +35,8 @@ with tempfile.TemporaryDirectory(prefix='session-', dir=output) as directory:
     data = Path(directory)
     data.joinpath('pcsx.json').write_text(json.dumps({'emulator': {
         'AutoUpdate': False, 'ShownAutoUpdateConfig': True}}))
-    emulator = os.environ.get('PCSX_REDUX', str(root / '.local/PCSX-Redux.app/Contents/MacOS/PCSX-Redux'))
-    bios = os.environ.get('PCSX_REDUX_BIOS', str(root / '.local/PCSX-Redux.app/Contents/Resources/share/pcsx-redux/resources/openbios.bin'))
+    emulator = os.environ.get('PCSX_REDUX', str(emulator_path(root)))
+    bios = os.environ.get('PCSX_REDUX_BIOS', str(bios_path(root)))
     command = [emulator, '-portable', str(data), '-no-ui', '-no-gui-log', '-stdout',
                '-lua_stdout', '-interpreter', '-webserver', '-webserver-port', str(args.port),
                '-bios', bios, '-exe', str(exe), '-dofile', str(root / 'tests/web_control.lua'), '-run']

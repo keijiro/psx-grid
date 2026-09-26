@@ -6,6 +6,7 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+from tool_paths import emulator_path
 
 root = Path(__file__).resolve().parents[1]
 configuration = sys.argv[1] if len(sys.argv) > 1 else 'debug'
@@ -14,8 +15,7 @@ if configuration not in ('debug', 'release'):
 bios = os.environ.get('PCSX_REDUX_BIOS')
 if not bios:
     raise SystemExit('Set PCSX_REDUX_BIOS to the BIOS under test')
-emulator = Path(os.environ.get('PCSX_REDUX',
-    root / '.local/PCSX-Redux.app/Contents/MacOS/PCSX-Redux'))
+emulator = Path(os.environ.get('PCSX_REDUX', emulator_path(root)))
 data = root / 'build/validation' / ('card-file-' + configuration)
 data.mkdir(parents=True, exist_ok=True)
 card = bytearray(128 * 1024)

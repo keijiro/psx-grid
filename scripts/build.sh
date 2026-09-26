@@ -20,5 +20,17 @@ esac
 
 source "${SCRIPT_DIR}/env.sh"
 cd "${PROJECT_ROOT}"
-cmake --preset "${CONFIGURATION}"
+CACHE="${PROJECT_ROOT}/build/${CONFIGURATION}/CMakeCache.txt"
+CACHED_TOOLCHAIN=
+CACHED_ELF2X=
+if [[ -f "${CACHE}" ]]; then
+  CACHED_TOOLCHAIN=$(sed -n 's/^CMAKE_TOOLCHAIN_FILE:FILEPATH=//p' "${CACHE}")
+  CACHED_ELF2X=$(sed -n 's/^ELF2X:FILEPATH=//p' "${CACHE}")
+fi
+# CMake retains SDK tools in the cache when the toolchain path changes.
+if [[ -f "${CACHE}" && ( "${CACHED_TOOLCHAIN}" != "${PSN00BSDK_LIBS}/cmake/sdk.cmake" || "${CACHED_ELF2X}" != "${PSN00BSDK_HOME}/bin/elf2x" ) ]]; then
+  cmake --fresh --preset "${CONFIGURATION}"
+else
+  cmake --preset "${CONFIGURATION}"
+fi
 cmake --build --preset "${CONFIGURATION}"
