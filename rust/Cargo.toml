@@ -8,7 +8,7 @@ crate-type = ["staticlib"]
 
 [profile.dev]
 panic = "abort"
-# Rust traversal and synthesis share the 1 ms timer budget in Debug;
+# Queued dispatch and synthesis retain the 1 ms timer deadline in Debug;
 # emulator fixtures validate this profile under dense note load.
 opt-level = 2
 overflow-checks = false

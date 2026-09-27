@@ -1,11 +1,11 @@
 //! Allocates logical SPU voice pairs and evaluates their control envelopes.
 //!
 //! Rust owns one fixed voice state and the caller supplies register callbacks.
-//! The timer service serializes every callback without allocation.
+//! The timer service serializes voice callbacks without allocation.
 
 // Implementation notes:
-// Keep divisions in 32 bits on MIPS. The C note-sink adapter owns its
-// aggregate input; driver callbacks use pointer and scalar arguments.
+// Keep divisions in 32 bits on MIPS. Driver callbacks use pointer and scalar
+// arguments, including queued note settings copied before dispatch.
 
 use core::ffi::{c_int, c_void};
 use core::mem::MaybeUninit;
@@ -48,6 +48,7 @@ pub(crate) struct AudioDriver {
 
 struct AudioVoice {
     start: u64,
+    gate_at: u64,
     release_at: u64,
     end: u64,
     modulation_start: u64,
@@ -355,6 +356,7 @@ pub unsafe extern "C" fn rust_audio_advance(ctx: *mut c_void, now: u64) {
     if a.idle_mask == IDLE_MASK && a.starts | a.stops == 0 {
         return;
     }
+    release_due(a, now);
     for i in 0..VOICES {
         let v = &mut a.voices[i];
         if v.active == 0 {
@@ -461,6 +463,29 @@ pub unsafe extern "C" fn rust_audio_advance(ctx: *mut c_void, now: u64) {
     a.stops = 0;
 }
 
+/// Applies queued gates before a same-time note can reuse a voice.
+fn release_due(a: &mut Audio, now: u64) {
+    for i in 0..VOICES {
+        let v = &a.voices[i];
+        if v.active != 0 && v.releasing == 0 && now >= v.gate_at {
+            let at = v.gate_at;
+            let ms = v.sound.release;
+            release(a, i, at, ms);
+        }
+    }
+}
+
+/// Releases gates due through a queued event time without flushing registers.
+///
+/// # Safety
+/// `ctx` must identify the initialized audio state under serialized access.
+#[no_mangle]
+pub unsafe extern "C" fn rust_audio_release_due(ctx: *mut c_void, now: u64) {
+    // SAFETY: The caller holds the timer's exclusive audio ownership.
+    let a = unsafe { &mut *(ctx as *mut Audio) };
+    release_due(a, now);
+}
+
 /// Allocates one pair and returns its generation-tagged gate token.
 #[no_mangle]
 pub unsafe extern "C" fn rust_audio_on(
@@ -543,6 +568,7 @@ pub unsafe extern "C" fn rust_audio_on(
         generation = 1;
     }
     v.start = now;
+    v.gate_at = u64::MAX;
     v.modulation_start = now;
     v.generation = generation;
     v.sound = sound;
@@ -563,9 +589,33 @@ pub unsafe extern "C" fn rust_audio_on(
     generation << 5 | slot as u32
 }
 
+/// Starts a queued note and binds its gate to the selected voice generation.
+///
+/// # Safety
+/// `ctx` must identify the initialized audio state and `sound` must be live.
+#[no_mangle]
+pub unsafe extern "C" fn rust_audio_on_gate(
+    ctx: *mut c_void,
+    now: u64,
+    gate_at: u64,
+    pitch: c_int,
+    sound: *const SoundSettings,
+) {
+    // SAFETY: The caller serializes dispatch and supplies a live sound value.
+    let token = unsafe { rust_audio_on(ctx, now, pitch, sound) };
+    if token != 0 {
+        // SAFETY: The token identifies the voice just allocated above.
+        unsafe {
+            (*(ctx as *mut Audio)).voices[(token & 31) as usize].gate_at =
+                gate_at
+        };
+    }
+}
+
 /// Captures the current level so a release begins without a discontinuity.
 fn release(a: &mut Audio, i: usize, now: u64, ms: c_int) {
     let v = &mut a.voices[i];
+    v.gate_at = u64::MAX;
     v.release_level = level_at(v, now);
     v.release_at = now;
     v.end = now.wrapping_add(audio_ms(ms));

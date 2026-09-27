@@ -52,6 +52,29 @@ static uint32_t last_wet;
 static AudioTime dispatch_time;
 static uint32_t serial;
 
+typedef enum
+{
+    PLAN_STEP,
+    PLAN_NOTE,
+    PLAN_REVISION
+} PlanEventKind;
+
+typedef struct
+{
+    PlanEventKind kind;
+    AudioTime at;
+    AudioTime until;
+    int runner;
+    int lane;
+    int step;
+    int pitch;
+    uint32_t revision;
+    SoundSettings sound;
+} PlanEvent;
+
+static PlanEvent plan_events[64];
+static int plan_count;
+
 static uint32_t note(void* ctx, AudioTime at, int pitch,
                      const SoundSettings* sound)
 {
@@ -75,6 +98,42 @@ static void stop(void* ctx, AudioTime at)
 }
 
 static NoteSink trace = {NULL, note, off, stop, NULL};
+
+static void plan_note(void* context, AudioTime at, AudioTime gate_at,
+                      int pitch, const SoundSettings* sound)
+{
+    (void)context;
+    assert(plan_count < (int)(sizeof(plan_events) / sizeof(plan_events[0])));
+    plan_events[plan_count++] = (PlanEvent){.kind = PLAN_NOTE,
+                                           .at = at,
+                                           .until = gate_at,
+                                           .pitch = pitch,
+                                           .sound = *sound};
+}
+
+static void plan_step(void* context, AudioTime at, int runner, int lane,
+                      int step, AudioTime until)
+{
+    (void)context;
+    assert(plan_count < (int)(sizeof(plan_events) / sizeof(plan_events[0])));
+    plan_events[plan_count++] = (PlanEvent){.kind = PLAN_STEP,
+                                           .at = at,
+                                           .until = until,
+                                           .runner = runner,
+                                           .lane = lane,
+                                           .step = step};
+}
+
+static void plan_revision(void* context, AudioTime at, uint32_t revision)
+{
+    (void)context;
+    assert(plan_count < (int)(sizeof(plan_events) / sizeof(plan_events[0])));
+    plan_events[plan_count++] = (PlanEvent){.kind = PLAN_REVISION,
+                                           .at = at,
+                                           .revision = revision};
+}
+
+static PlannerSink planner = {NULL, plan_note, plan_step, plan_revision};
 
 static void base(int length)
 {
@@ -1207,6 +1266,55 @@ static void play_finishes_lap(void)
 }
 
 /*
+ * Checks future planner records, traversal order and revision publication.
+ */
+static void planner_callbacks(void)
+{
+    AudioTime step = SEQUENCER_HZ / 8;
+    AudioTime future = 3 * step;
+    base(1);
+    TileValue value = test_score_default(TILE_NOTE);
+    value.length = 5;
+    put(1, 0, value);
+    assert(!score_create(&score, 0, 4, 1));
+    value.pitch = 60;
+    put(1, 4, value);
+    snapshot = score;
+    plan_count = 0;
+    sequencer_start(&seq, &snapshot, &trace, future);
+    sequencer_set_planner(&seq, &planner);
+    sequencer_service(&seq, future);
+
+    assert(count == 0 && off_count == 0);
+    assert(plan_count == 4);
+    assert(plan_events[0].kind == PLAN_STEP &&
+           plan_events[0].at == future && plan_events[0].runner == 0 &&
+           plan_events[0].lane == 0 && plan_events[0].step == 0 &&
+           plan_events[0].until == future + step);
+    assert(plan_events[1].kind == PLAN_NOTE &&
+           plan_events[1].at == future &&
+           plan_events[1].until == future + step / 4 &&
+           plan_events[1].pitch == 48);
+    assert(plan_events[2].kind == PLAN_STEP &&
+           plan_events[2].at == future && plan_events[2].runner == 1 &&
+           plan_events[2].lane == 1 && plan_events[2].step == 0 &&
+           plan_events[2].until == future + step);
+    assert(plan_events[3].kind == PLAN_NOTE &&
+           plan_events[3].at == future &&
+           plan_events[3].until == future + step / 4 &&
+           plan_events[3].pitch == 60);
+
+    assert(!test_score_edit(&score, test_score_at(&score, 1, 0).tile,
+                            value));
+    updated = score;
+    assert(sequencer_resync(&seq, &updated, future + 1));
+    assert(plan_count == 5 && plan_events[4].kind == PLAN_REVISION &&
+           plan_events[4].at == future + 1 &&
+           plan_events[4].revision == updated.revision);
+    assert(count == 0 && off_count == 0);
+}
+
+/*
  * Checks that the level setting reaches the driver volume callback.
  */
 static void sound_level(void)
@@ -1225,6 +1333,7 @@ static void sound_level(void)
 
 int main(void)
 {
+    planner_callbacks();
     channel_play_and_gate();
     play_finishes_lap();
     channels();

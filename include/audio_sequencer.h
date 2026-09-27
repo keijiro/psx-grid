@@ -2,9 +2,10 @@
  * audio_sequencer.h - Clocked traversal of score lanes into note events
  *
  * A caller-owned Sequencer holds Rust traversal state for an immutable Score
- * snapshot and supplies note events through a sink. It uses fixed storage for
- * pending note-offs and must be serviced with serialized access. A replacement
- * is adopted only at a complete slice edge.
+ * snapshot and supplies note events through a sink. An optional planner writes
+ * future events instead, including their gate deadlines. The generic sink
+ * path uses fixed storage for pending note-offs. Access must be serialized;
+ * a replacement is adopted only at a complete slice edge.
  */
 
 #ifndef AUDIO_SEQUENCER_H
@@ -39,6 +40,16 @@ typedef struct
     void (*stop)(void*, AudioTime);
     void (*advance)(void*, AudioTime);
 } NoteSink;
+
+// Optional main-thread event writer; callbacks copy sound before returning.
+typedef struct
+{
+    void* context;
+    void (*note)(void*, AudioTime, AudioTime, int,
+                 const SoundSettings*);
+    void (*step)(void*, AudioTime, int, int, int, AudioTime);
+    void (*revision)(void*, AudioTime, uint32_t);
+} PlannerSink;
 
 // Cursor and lock state for a lane that began at `origin`.
 typedef struct
@@ -101,6 +112,7 @@ typedef struct Sequencer
     int working_dirty;
     // Conservative earliest gate deadline avoids scanning future offs.
     AudioTime off_min;
+    PlannerSink planner;
 } Sequencer;
 
 /*
@@ -112,6 +124,13 @@ typedef struct Sequencer
  */
 void sequencer_start(Sequencer* seq, const Score* snapshot, const NoteSink* sink,
                      AudioTime now);
+/*
+ * Installs a planner after start. Planned notes carry their gate deadlines;
+ * the regular note sink is not called while a planner is installed.
+ * `seq` and `planner` must not be NULL, and the planner context must outlive
+ * subsequent service calls.
+ */
+void sequencer_set_planner(Sequencer* seq, const PlannerSink* planner);
 /*
  * Returns success if the transport can adopt `snapshot` at `now`. Keep the
  * new score alive and immutable while it is active. Resync is accepted only

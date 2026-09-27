@@ -59,6 +59,7 @@ static void frames(int count)
 {
     for (int i = 0; i < count; i++)
     {
+        audio_platform_fill();
         AudioTime begin = audio_platform_time();
         while (audio_platform_time() - begin < SEQUENCER_HZ / 60)
         {

@@ -64,8 +64,7 @@ beside their source in `src/`.
 - `src/card.h`, `src/card_bios.c`: File-level card interface
   and BIOS backend.
 - `rust/src/sequencer.rs`: SDK-independent runners, exact absolute deadlines,
-  live runner reconciliation, ordered held locks, generation-tagged gate-offs,
-  and bounded catch-up.
+  live runner reconciliation, ordered held locks, and bounded planning.
 - `include/audio_sequencer.h`: Shared caller-owned layout and pointer-based
   C declarations for generic sink callbacks.
 - `rust/src/audio.rs`: SDK-independent 12-note pair allocation,
@@ -73,8 +72,9 @@ beside their source in `src/`.
   register driver for host tests.
 - `include/audio_synth.h`: Opaque Rust voice state, synthesis declarations,
   and the inline binding to pointer-based Rust callbacks.
-- `rust/src/audio_transport.rs`, `include/audio_platform.h`: Double-buffered
-  score publication, transport lifecycle, and replacement handoff.
+- `rust/src/audio_transport.rs`, `include/audio_platform.h`: Main-thread
+  lookahead planning, fixed event queue, score publication, transport lifecycle,
+  and replacement handoff.
 - `src/audio_psx.c`, `src/audio_hw.h`: SPU upload/registers, timer interrupts,
   hardware callbacks, and debugger-visible measurements.
 - `scripts/generate-audio.py`: Deterministic five-wave ADPCM banks
@@ -109,9 +109,9 @@ The Rust crate targets `mipsel-sony-psx` and builds `core` from pinned
 static library into the game and fixtures.
 The editor, model, file codec, storage coordinator, input history, and display
 formatting run in Rust. C retains SDK and hardware access. Shared
-aggregates cross the C/Rust boundary through pointers. The main thread calls
-Rust transport operations directly; the C timer callback enters Rust to
-service sequencing and voice synthesis. Changes to either path require
+aggregates cross the C/Rust boundary through pointers. The main thread plans
+sequencer events ahead of playback; the C timer callback enters Rust to dequeue
+due events and control voices. Changes to either path require
 checking the 1 ms dispatch deadline and interrupt stack use on the emulator.
 `scripts/elf2x-rust.py` omits Rust's GNU_STACK metadata from the temporary ELF
 passed to the SDK converter. The linked ELF itself is unchanged. Host tests
@@ -168,8 +168,9 @@ Size/Amount remain global. See [usage.md](usage.md) for selection and editing.
 Each logical note owns a fixed pair of hardware voices throughout its lifetime.
 The portable driver passes a root bank and captured wave choices at start,
 then paired gains and a shared pitch register without retriggering. Flush masks
-use logical slots; the platform expands them to hardware pairs. Gate tokens and
-pending gate-offs address logical notes. Each note also captures its reverb
+use logical slots; the platform expands them to hardware pairs. Queued notes
+carry absolute gate deadlines, which the selected logical voice owns after
+dispatch. Each note also captures its reverb
 send for both hardware voices. One shared network uses global Size/Amount;
 channel sound publication affects future notes, while held/releasing notes
 retain their sends and the shared wet return remains independent of them.
@@ -211,14 +212,15 @@ The fixture's exit port is emulator-specific; use `psx-grid.exe` on hardware.
 A completed fixture is not a substitute for the listening/controller walkthrough.
 
 `audio_service_peak`, `audio_interval_peak`, and `audio_dispatch_peak` use
-4,233,600-Hz clock ticks. Voice steals, skipped notes, and catch-up overloads
-have separate counters. Linker maps are emitted beside both executables.
-The mutable editor score, model scratch score, and two playback buffers are
-separate fixed allocations. The main thread prepares score revisions; the
-interrupt adopts them and reconciles playback between complete time slices.
-No interrupt allocates, copies the score, logs, renders, or starts DMA.
-Lifecycle preparation runs on the main thread. Regular platform updates also
-run without input so that coalesced revisions can reach playback.
+4,233,600-Hz clock ticks. Voice steals, skipped notes, planning overloads, and
+queue underruns have separate counters. Linker maps are emitted beside both
+executables. The mutable editor score, model scratch score, two playback
+buffers, and event ring are separate fixed allocations. The main thread
+adopts score revisions at its planned frontier. Already queued events retain
+their captured settings, so edits can become audible after the lookahead.
+The interrupt never traverses a score, allocates memory, copies a score, logs,
+renders, or starts DMA. Lifecycle preparation and regular queue refills run
+on the main thread, including frames without input.
 
 ## HTTP and Lua editor control
 

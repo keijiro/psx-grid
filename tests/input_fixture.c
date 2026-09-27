@@ -62,6 +62,7 @@ static void run(unsigned phase)
     if (phase == 6) frames = 150;
     for (int i = 0; i < frames; i++)
     {
+        audio_platform_fill();
         editor.x = i % 64;
         render_frame(&editor, 1, NULL);
         // A slow main loop must retain complete taps, not just the latest held

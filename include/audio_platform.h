@@ -36,13 +36,19 @@ void audio_platform_init(void);
 AudioTime audio_platform_time(void);
 
 /*
- * Publishes the current `score` and services transport controls. `connected`
+ * Prepares the current `score` and services transport controls. `connected`
  * reports pad presence; `start` is a button edge that toggles playback.
  * Call regularly even without input so edits coalesced behind a pending
- * snapshot are eventually published. `score` must not be NULL and must remain
+ * snapshot are eventually planned. `score` must not be NULL and must remain
  * valid for this call.
  */
 void audio_platform_update(const Score* score, int connected, int start);
+
+/*
+ * Plans enough future events to cover the next frame and ordinary main-loop
+ * stalls. Call after model updates and before the frame wait.
+ */
+void audio_platform_fill(void);
 
 /*
  * Suspends audio callbacks before BIOS memory-card ownership begins.
@@ -76,8 +82,9 @@ void audio_platform_playheads(AudioPlayheads* out);
 int audio_platform_replace(const Score* incoming);
 
 /*
- * Copies an adopted replacement into caller-owned `score` once. Returns one
- * after copying, or zero and leaves `score` unchanged until adoption.
+ * Copies a replacement into caller-owned `score` once its lap seam reaches
+ * timer dispatch. Returns one after copying, or zero and leaves `score`
+ * unchanged until that handoff.
  * `score` must not be NULL.
  */
 int audio_platform_take_replacement(Score* score);

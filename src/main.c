@@ -165,6 +165,7 @@ int main(void)
                                                       audio_platform_revision();
         AudioPlayheads playheads;
         audio_platform_playheads(&playheads);
+        audio_platform_fill();
         render_frame(&editor, connected, &playheads);
     }
 }

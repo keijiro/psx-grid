@@ -95,11 +95,14 @@ property edit or move. It never repeats while held. Playback starts at step
 zero with lap zero on every regular lane; branches have no independent runner.
 Stopping silences voices with a short ramp. Starting again restarts the score.
 
-Committed score, channel assignment, and channel sound edits are published
-during playback, after any time slice already being processed has finished. Notes, gates, jumps, and
-new locks use the updated contents when their steps are next read; a held
-lock uses its updated value on subsequent slices until its step ends. Deleted
-locks stop contributing after publication. Moves are not published until the object is dropped.
+Committed score, channel assignment, and channel sound edits are planned into
+future playback after the current planning slice completes. Events already in
+the roughly 60 ms lookahead queue keep their captured values, so an edit can
+become audible after the lookahead and the next step boundary. New notes,
+gates, jumps, and locks use the updated contents when their steps are next
+planned; a held lock uses its updated value on subsequent slices until its step
+ends. Deleted locks stop contributing after publication. Moves are not
+published until the object is dropped.
 
 Existing regular lanes retain their next deadline and lap count. A tempo or division
 change applies to the next step's duration; it does not move the deadline of

@@ -26,6 +26,7 @@ volatile uint32_t audio_services;
 volatile uint32_t audio_voice_steals;
 volatile uint32_t audio_skipped_notes;
 volatile uint32_t audio_overloads;
+volatile uint32_t audio_queue_underruns;
 volatile uint32_t audio_dispatch_peak;
 volatile uint32_t audio_note_count;
 volatile uint32_t audio_first_note;
@@ -322,10 +323,10 @@ void audio_hw_init(void)
         audio_hw_volume(NULL, i, 0, 0);
     }
     // Timer 2 free-runs at CLK/8 (4,233,600 Hz). Timer 0 requests service every
-    // 8,467 CPU clocks, approximately 0.25 ms, independently of VSync. Retain
-    // the cadence used by the original sine backend; paired control cost and
-    // the 1 ms dispatch deadline must be measured with the fixture. Read
-    // elapsed hardware ticks, never count interrupts as elapsed time. The
+    // 8,467 CPU clocks, approximately 0.25 ms, independently of VSync. The
+    // transport dequeues at that cadence and updates dense voice envelopes
+    // about every 1 ms, leaving time for score planning and SPU transfers.
+    // Read elapsed hardware ticks, never count interrupts as elapsed time. The
     // 16-bit clock must be sampled within 15.48 ms; no callback, DMA wait or
     // score copy may mask interrupts for that long. Peaks expose violations
     // below that limit, but multiple missed wraps require external validation.

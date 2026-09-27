@@ -29,6 +29,7 @@ extern volatile uint32_t audio_services;
 extern volatile uint32_t audio_voice_steals;
 extern volatile uint32_t audio_skipped_notes;
 extern volatile uint32_t audio_overloads;
+extern volatile uint32_t audio_queue_underruns;
 extern volatile uint32_t audio_dispatch_peak;
 extern volatile uint32_t audio_note_count;
 extern volatile uint32_t audio_first_note;
@@ -63,6 +64,7 @@ static void report(const char* phase)
         audio_voice_steals,
         audio_skipped_notes,
         audio_overloads,
+        audio_queue_underruns,
         SPU_CH_ADSR_VOL(0),
         SPU_CH_VOL_L(0),
         audio_dispatch_peak,
@@ -79,19 +81,20 @@ static void report(const char* phase)
     audio_service_peak = audio_interval_peak = 0;
     ExitCriticalSection();
     log_message("AUDIO %s: calls=%u cost=%u interval=%u steals=%u skipped=%u "
-                "overloads=%u env=%u "
+                "overloads=%u underruns=%u env=%u "
                 "vol=%u volumes=%u send=%u\n",
                 phase, (unsigned)v[0], (unsigned)v[1], (unsigned)v[2],
                 (unsigned)v[3], (unsigned)v[4], (unsigned)v[5], (unsigned)v[6],
-                (unsigned)v[7], volumes, sends);
+                (unsigned)v[7], (unsigned)v[8], volumes, sends);
     log_message("DISPATCH %s: peak=%u count=%u span=%u\n", phase,
-                (unsigned)v[8], (unsigned)v[9], (unsigned)v[10]);
+                (unsigned)v[9], (unsigned)v[10], (unsigned)v[11]);
 }
 
 static void frames(int count)
 {
     for (int i = 0; i < count; i++)
     {
+        audio_platform_fill();
         editor.x = i % 128;
         editor.y = (i / 4) % 64;
         render_frame(&editor, 1, NULL);
@@ -135,6 +138,7 @@ static void publish_revisions(const char* phase, int count)
                audio_platform_time() - begin < SEQUENCER_HZ / 2)
         {
             audio_platform_update(&editor.score, 1, 0);
+            audio_platform_fill();
         }
         uint32_t elapsed = (uint32_t)(audio_platform_time() - begin);
         if (elapsed > adopt_peak) adopt_peak = elapsed;
@@ -183,8 +187,8 @@ static void stop_pending(int disconnect)
 }
 
 /*
- * Exercises rapid main-thread edits while the interrupt still owns the
- * previous snapshot.
+ * Exercises rapid main-thread edits while previously queued events retain
+ * their captured settings.
  */
 static void coalesce_revision(void)
 {
@@ -216,6 +220,7 @@ static void coalesce_revision(void)
            audio_platform_time() - begin < SEQUENCER_HZ / 2)
     {
         audio_platform_update(&editor.score, 1, 0);
+        audio_platform_fill();
     }
     log_message(
         "LIVE coalesced: pending=%d deferred=%d adopted=%d playing=%d\n",
@@ -427,8 +432,14 @@ static void channel_sample(int wet, const char* phase)
 
 static void channel_wait(int ms)
 {
+    AudioTime next_fill = audio_platform_time();
     while (audio_platform_time() - audio_started < audio_ms(ms))
     {
+        if (audio_platform_time() >= next_fill)
+        {
+            audio_platform_fill();
+            next_fill += audio_ms(10);
+        }
     }
 }
 

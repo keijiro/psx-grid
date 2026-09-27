@@ -1,5 +1,38 @@
 # Validation Record
 
+## Main-thread audio planning (2026-09-27)
+
+The sequencer now plans a 60 ms horizon on the main thread into a fixed,
+time-ordered event ring. The timer consumes due notes and step/revision
+markers, assigns hardware voices, and controls active voices. It checks the
+queue every 0.25 ms and updates ongoing voice controls about every 1 ms;
+note events still trigger immediate control. A score copy refills the old
+plan between chunks, so publication does not stall the queue. Already queued
+events retain their captured settings after an edit.
+
+The ASan/UBSan host suite, Debug/Release console builds, and both audio
+emulator harnesses pass. The envelope endpoint tolerance is 1.5 ms for the
+new control cadence. Both replacement fixtures pass against the final
+transport. Normal cases report no skipped notes or
+planning overloads. The dense 4,096-tile case still reports intentional
+overloads, while the service interval remains below the 16-bit clock wrap.
+
+| Emulated case | Debug cost / interval / dispatch peak | Release cost / interval / dispatch peak |
+| --- | ---: | ---: |
+| C4 loop | 646 / 1,268 / 947 ticks | 631 / 1,265 / 675 ticks |
+| Twelve-note chord | 2,768 / 2,794 / 2,785 ticks | 2,667 / 2,687 / 2,670 ticks |
+| Live pitch edits | 657 / 1,276 / 1,048 ticks | 641 / 1,350 / 1,048 ticks |
+| 4,096-tile stress | 6,938 / 6,982 / 3,562 ticks | 6,391 / 6,419 / 0 ticks |
+
+The normal dispatch deadline is 4,233 ticks (1 ms). The debug twelve-note
+chord started all 12 notes together, and 25/25 live pitch edits were adopted
+without skipped notes. Debug stress reported 594 skipped notes and 32 planning
+overloads, as expected for work beyond the bounded planner budget. The
+Release harness also passed waveform, sweep, reverb, channel, and transient
+checks. Logs are `build/validation/audio-{debug,release}-emulator.log` and
+`build/verification/queue-*`. These are emulator measurements; physical
+console playback remains to be checked.
+
 ## Pointer-based audio callback verification (2026-09-26)
 
 The host suite and Debug/Release PlayStation builds pass after switching the

@@ -1,7 +1,7 @@
 //! Traverses immutable score snapshots into bounded, clocked note events.
 //!
 //! Caller-owned state can resume a split slice without replaying events. The
-//! timer service serializes access and prepared replacements enter at a lap seam.
+//! caller serializes access and prepared replacements enter at a lap seam.
 
 // Implementation notes:
 // The layout mirrors audio_sequencer.h for C tests and FFI callers. The sink
@@ -39,6 +39,26 @@ pub struct NoteSink {
     pub(crate) off: Option<unsafe extern "C" fn(*mut c_void, u64, u32)>,
     pub(crate) stop: Option<unsafe extern "C" fn(*mut c_void, u64)>,
     pub(crate) advance: Option<unsafe extern "C" fn(*mut c_void, u64)>,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+/// Writes immutable future events without assigning a hardware voice.
+pub struct PlannerSink {
+    pub(crate) context: *mut c_void,
+    pub(crate) note: Option<
+        unsafe extern "C" fn(
+            *mut c_void,
+            u64,
+            u64,
+            c_int,
+            *const SoundSettings,
+        ),
+    >,
+    pub(crate) step: Option<
+        unsafe extern "C" fn(*mut c_void, u64, c_int, c_int, c_int, u64),
+    >,
+    pub(crate) revision: Option<unsafe extern "C" fn(*mut c_void, u64, u32)>,
 }
 
 #[repr(C)]
@@ -94,13 +114,14 @@ pub struct Sequencer {
     channels: [c_int; LANES],
     working_dirty: c_int,
     off_min: u64,
+    planner: PlannerSink,
 }
 
 const _: () = assert!(core::mem::size_of::<Runner>() == 440);
 #[cfg(target_pointer_width = "64")]
-const _: () = assert!(core::mem::size_of::<Sequencer>() == 7920);
+const _: () = assert!(core::mem::size_of::<Sequencer>() == 7952);
 #[cfg(target_pointer_width = "32")]
-const _: () = assert!(core::mem::size_of::<Sequencer>() == 7888);
+const _: () = assert!(core::mem::size_of::<Sequencer>() == 7904);
 
 /// Accumulates relative locks on the working channel within edit bounds.
 fn lock(sound: &mut SoundSettings, value: TileValue) {
@@ -258,6 +279,35 @@ pub unsafe extern "C" fn sequencer_start(
     }
 }
 
+/// Installs a future-event writer after the state is initialized.
+///
+/// # Safety
+/// Both pointers must be valid, and the writer context must outlive service.
+#[no_mangle]
+pub unsafe extern "C" fn sequencer_set_planner(
+    s: *mut Sequencer,
+    planner: *const PlannerSink,
+) {
+    // SAFETY: The caller owns the state and a live writer value.
+    unsafe { (*s).planner = *planner };
+}
+
+/// Reports work remaining through a planning horizon.
+pub(crate) fn pending_until(s: &Sequencer, until: u64) -> bool {
+    s.slicing != 0
+        || s.runners.iter().any(|r| r.active != 0 && r.next <= until)
+        || (!s.replacement.is_null() && s.replacement_at <= until)
+}
+
+/// Returns a safe publication time after all events already planned.
+pub(crate) fn publication_at(s: &Sequencer, filled_until: u64) -> Option<u64> {
+    if s.slicing != 0 {
+        None
+    } else {
+        Some(filled_until.max(s.slice_at.saturating_add(1)))
+    }
+}
+
 /// Distinguishes a reused lane slot from the prior runner's origin.
 fn same_lane(old: &Score, score: &Score, lane: c_int) -> bool {
     let lane = lane as usize;
@@ -335,6 +385,10 @@ pub unsafe extern "C" fn sequencer_resync(
     s.step_ticks = 240 * HZ / new_score.bpm as u32;
     s.working_dirty = 1;
     order_runners(s);
+    if let Some(revision) = s.planner.revision {
+        // SAFETY: The planner context remains live while service owns `s`.
+        unsafe { revision(s.planner.context, now, new_score.revision) };
+    }
     // A new master cannot wait for its own lap, including the first lane
     // inserted into an otherwise empty playing score.
     if s.count != 0 {
@@ -386,6 +440,10 @@ fn adopt(s: &mut Sequencer, at: u64) -> *mut Sequencer {
     }
     next.skipped = s.skipped;
     next.overloads = s.overloads;
+    if let Some(revision) = next.planner.revision {
+        // SAFETY: The prepared score and planner remain live through adoption.
+        unsafe { revision(next.planner.context, at, (*next.score).revision) };
+    }
     s.replacement = core::ptr::null_mut();
     next
 }
@@ -491,11 +549,37 @@ fn tile_event(s: &mut Sequencer, index: usize, tile: u16, now: u64) {
         }
         JUMP => s.jump = score.tiles[usize::from(tile)].branch,
         NOTE => {
-            if now.wrapping_sub(s.slice_at) > u64::from(HZ / 1000) {
+            if s.planner.note.is_none()
+                && now.wrapping_sub(s.slice_at) > u64::from(HZ / 1000)
+            {
                 s.skipped += 1;
                 return;
             }
             let sound = &s.working[s.channels[index] as usize];
+            let gate_ratio = if sound.gate_ratio == 0 {
+                100
+            } else {
+                sound.gate_ratio
+            };
+            let at = s.slice_at
+                + (u64::from(s.runners[index].duration / 20)
+                    * value.length as u64
+                    * gate_ratio as u64
+                    / 100)
+                    .max(u64::from(HZ / 200));
+            if let Some(note) = s.planner.note {
+                // SAFETY: The writer copies sound before returning.
+                unsafe {
+                    note(
+                        s.planner.context,
+                        s.slice_at,
+                        at,
+                        (value.pitch + sound.transpose).clamp(0, 108),
+                        sound,
+                    )
+                };
+                return;
+            }
             // SAFETY: The callback and sound stay live through this call.
             let token = unsafe {
                 s.sink.on.expect("note sink requires on callback")(
@@ -506,17 +590,6 @@ fn tile_event(s: &mut Sequencer, index: usize, tile: u16, now: u64) {
                 )
             };
             if token != 0 {
-                let gate_ratio = if sound.gate_ratio == 0 {
-                    100
-                } else {
-                    sound.gate_ratio
-                };
-                let at = s.slice_at
-                    + (u64::from(s.runners[index].duration / 20)
-                        * value.length as u64
-                        * gate_ratio as u64
-                        / 100)
-                        .max(u64::from(HZ / 200));
                 s.offs[(token & 31) as usize] = NoteOff { at, token };
                 s.off_min = s.off_min.min(at);
             }
@@ -545,6 +618,19 @@ fn slice(s: &mut Sequencer, now: u64, budget: &mut c_int) -> bool {
                 r.duration = s.step_ticks
                     / score.lanes[r.origin as usize].division as u32;
                 r.playing_until = r.next + u64::from(r.duration);
+                if let Some(step) = s.planner.step {
+                    // SAFETY: The writer owns a live context for this slice.
+                    unsafe {
+                        step(
+                            s.planner.context,
+                            s.slice_at,
+                            index as c_int,
+                            r.playing_lane,
+                            r.playing_step,
+                            r.playing_until,
+                        )
+                    };
+                }
                 s.cursor = score.lanes[r.lane as usize].tiles[r.step as usize];
             }
         }
