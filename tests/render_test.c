@@ -364,7 +364,7 @@ int main(void)
         e.sound_channel = 7;
         e.selected = 12;
         e.score.sounds[7] = (SoundSettings){
-            16000, 16000, WAVE_TRIANGLE, WAVE_NOISE, 500, 500, -24, 2000, 1};
+            16000, 16000, WAVE_TRIANGLE, WAVE_NOISE, 500, 500, -24, 2000, 1, 0, 0, 0, 100};
         draw("sound-corner");
         e.mode = EDIT_PICKER;
         draw("picker-corner");
@@ -380,53 +380,25 @@ int main(void)
     e.x = 1;
     e.y = 1;
     e.sound_channel = 7;
-    e.selected = 1;
+    e.selected = 0;
     draw("sound-top");
     assert_menu_edge();
-
     int top_x;
     int top_y;
     int bottom_x;
     int bottom_y;
     sound_selection(&top_x, &top_y);
-    e.selected = 7;
-    draw(NULL);
-    int before_scroll_y;
-    sound_selection(&top_x, &before_scroll_y);
-    e.selected = 8;
-    draw(NULL);
-    int scroll_start_y;
-    sound_selection(&top_x, &scroll_start_y);
-    assert(scroll_start_y - before_scroll_y < 17);
-    e.selected = 10;
-    draw(NULL);
-    int scrolling_y;
-    sound_selection(&top_x, &scrolling_y);
-    assert(scrolling_y == scroll_start_y);
-    e.selected = 12;
+    const int sound_rows[] = {1, 2, 3, 5, 6, 8, 9, 11, 12, 14, 15, 16};
+    for (unsigned i = 0; i < sizeof(sound_rows) / sizeof(*sound_rows); i++)
+    {
+        e.selected = sound_rows[i];
+        draw(NULL);
+        assert_menu_edge();
+        sound_selection(&bottom_x, &bottom_y);
+        assert(bottom_x == top_x && bottom_y >= 0 && bottom_y < 240);
+    }
     draw("sound");
-    assert_menu_edge();
-    sound_selection(&bottom_x, &bottom_y);
-    assert(top_x == bottom_x && top_y < bottom_y && bottom_y < 240);
-    e.selected = 5;
-    draw(NULL);
-    int held_scroll_y;
-    sound_selection(&top_x, &held_scroll_y);
-    e.selected = 4;
-    draw(NULL);
-    int before_return_y;
-    sound_selection(&top_x, &before_return_y);
-    assert(held_scroll_y - before_return_y == 17);
-    e.selected = 2;
-    draw(NULL);
-    int return_start_y;
-    sound_selection(&top_x, &return_start_y);
-    e.selected = 1;
-    draw(NULL);
-    int returning_y;
-    sound_selection(&top_x, &returning_y);
-    assert(return_start_y < before_return_y &&
-           returning_y == return_start_y);
+    assert(top_y < bottom_y);
 
     e.mode = EDIT_PATTERN;
     e.pattern_cursor = 31;

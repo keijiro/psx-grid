@@ -46,7 +46,8 @@ static void chooser_and_requests(void)
     assert(editor.storage_slot == 1);
     assert(editor.slot_status == STORAGE_UNKNOWN);
     assert(editor.card_free == -1);
-    assert(editor.free_bytes == 7464);
+    assert(editor.free_bytes ==
+           SCORE_FILE_BYTES - (int)score_format_measure(&editor.score));
 
     tap(INPUT_SELECT);
     assert(editor.mode == EDIT_MAIN && editor.selected == 0);

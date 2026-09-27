@@ -17,6 +17,15 @@ const VOICES: usize = 12;
 const IDLE_MASK: u32 = (1 << VOICES) - 1;
 const LEVEL: u32 = 0x3fff;
 const HZ: u32 = 4_233_600;
+// Rounded 1 dB steps preserve the original Sound level scale without
+// floating-point work in the timer service. The minimum is silent.
+const DB_GAIN: [u16; 67] = [
+    0, 18, 21, 23, 26, 29, 33, 37, 41, 46, 52, 58, 65, 73, 82, 92, 103, 116,
+    130, 146, 164, 184, 206, 231, 260, 291, 327, 367, 412, 462, 518, 581, 652,
+    732, 821, 921, 1034, 1160, 1301, 1460, 1638, 1838, 2063, 2314, 2597, 2914,
+    3269, 3668, 4115, 4618, 5181, 5813, 6523, 7318, 8211, 9213, 10338, 11599,
+    13014, 14602, 16384, 18383, 20626, 23143, 25967, 29135, 32690,
+];
 
 type Start =
     unsafe extern "C" fn(*mut c_void, c_int, c_int, *const SoundSettings);
@@ -362,7 +371,9 @@ pub unsafe extern "C" fn rust_audio_advance(ctx: *mut c_void, now: u64) {
                 }
             }
         }
-        v.level = level_at(v, now);
+        let gain = u32::from(DB_GAIN[(v.sound.level + 60) as usize]);
+        v.level =
+            ((level_at(v, now) as u32 * gain / 16384).min(LEVEL)) as c_int;
         if a.starts & (1 << i) != 0 {
             // SAFETY: C receives a live sound pointer for this call.
             unsafe {

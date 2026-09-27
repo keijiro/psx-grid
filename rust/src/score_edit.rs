@@ -151,6 +151,7 @@ fn new_lane(
             lane.length = length;
             lane.division = 16;
             lane.channel = if source == 0 { 0 } else { -1 };
+            lane.play = 1;
             lane.source = source;
             return Some(i);
         }

@@ -18,7 +18,7 @@
 
 // Maximum context actions and setting rows exposed in one editor menu.
 #define EDITOR_MENU_ITEMS 8
-#define EDITOR_ROWS 16
+#define EDITOR_ROWS 20
 
 // Row roles determine navigation and whether an adjustment is available.
 typedef enum
@@ -77,7 +77,8 @@ typedef enum
     ACTION_LOCK_ATTACK_ENABLE,      // Toggle attack override.
     ACTION_LOCK_RELEASE_ENABLE,     // Toggle release override.
     ACTION_LOCK_ATTACK,             // Change attack offset.
-    ACTION_LOCK_RELEASE             // Change release offset.
+    ACTION_LOCK_RELEASE,            // Change release offset.
+    ACTION_PLAY                     // Toggle the regular lane's Play switch.
 } EditorAction;
 
 // Requests are consumed by the main-thread storage coordinator.

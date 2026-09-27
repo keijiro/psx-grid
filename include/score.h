@@ -30,7 +30,8 @@
 #define SOUND_MAX_SWEEP 24
 // New channels start with this dry dual-sine sound.
 #define SOUND_DEFAULT                                                          \
-    ((SoundSettings){5, 5, WAVE_SINE, WAVE_SINE, 120, 280, 0, 200, 0})
+    ((SoundSettings){5, 5, WAVE_SINE, WAVE_SINE, 120, 280, 0, 200, 0, \
+                     0, 0, 0, 100})
 // User-editable tempo bounds in beats per minute.
 #define SCORE_MIN_BPM 30
 #define SCORE_MAX_BPM 300
@@ -82,6 +83,10 @@ typedef struct
     int sweep;
     int decay;
     int reverb;
+    int level;                      // Decibels, -60..6.
+    int pan;                        // Stereo position, -100..100.
+    int transpose;                  // Semitones, -24..24.
+    int gate_ratio;                 // Note gate percentage, 5..400.
 } SoundSettings;
 
 // Shared reverb preset index and wet-return percentage.
@@ -124,6 +129,7 @@ typedef struct
     int length;
     int division;
     int channel;
+    int play;                       // Whether this regular lane plays.
     TileId source;
     TileId tiles[SCORE_STEPS];
 } Lane;
@@ -268,6 +274,11 @@ int score_channel(const Score* score, int lane);
  * `score` must not be NULL.
  */
 ScoreResult score_set_channel(Score* score, int lane, int channel);
+/*
+ * Sets a regular lane's Play switch to zero or one.
+ * `score` must not be NULL.
+ */
+ScoreResult score_set_play(Score* score, int lane, int play);
 /*
  * Returns the inherited division of a live lane, or 16 if unresolved.
  * `score` must not be NULL.

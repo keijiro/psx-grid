@@ -27,7 +27,7 @@ const SCORE_FILE_BYTES: c_int = 8192;
 const SCORE_WIDTH: c_int = 128;
 const SCORE_HEIGHT: c_int = 64;
 const EDITOR_MENU_ITEMS: usize = 8;
-const EDITOR_ROWS: usize = 16;
+const EDITOR_ROWS: usize = 20;
 
 const EDIT_PLANE: c_int = 0;
 const EDIT_MENU: c_int = 1;
@@ -58,6 +58,7 @@ const ACTION_LOCK_ATTACK_ENABLE: c_int = 15;
 const ACTION_LOCK_RELEASE_ENABLE: c_int = 16;
 const ACTION_LOCK_ATTACK: c_int = 17;
 const ACTION_LOCK_RELEASE: c_int = 18;
+const ACTION_PLAY: c_int = 19;
 
 const ROW_HEADING: c_int = 0;
 const ROW_VALUE: c_int = 1;
@@ -81,6 +82,10 @@ const ROW_MIX_RELEASE: c_int = 205;
 const ROW_SWEEP: c_int = 206;
 const ROW_DECAY: c_int = 207;
 const ROW_SEND: c_int = 208;
+const ROW_LEVEL: c_int = 209;
+const ROW_PAN: c_int = 210;
+const ROW_TRANSPOSE: c_int = 211;
+const ROW_GATE_RATIO: c_int = 212;
 
 const STORAGE_ACTION_CHECK: c_int = 1;
 const STORAGE_ACTION_SAVE: c_int = 2;
@@ -152,17 +157,17 @@ pub struct Editor {
 #[cfg(target_pointer_width = "64")]
 const _: () = {
     assert!(core::mem::size_of::<EditorRow>() == 32);
-    assert!(core::mem::size_of::<Editor>() == 202016);
-    assert!(core::mem::offset_of!(Editor, target) == 201884);
-    assert!(core::mem::offset_of!(Editor, message) == 201976);
+    assert!(core::mem::size_of::<Editor>() == 202208);
+    assert!(core::mem::offset_of!(Editor, target) == 202076);
+    assert!(core::mem::offset_of!(Editor, message) == 202168);
 };
 
 #[cfg(target_pointer_width = "32")]
 const _: () = {
     assert!(core::mem::size_of::<EditorRow>() == 28);
-    assert!(core::mem::size_of::<Editor>() == 202008);
-    assert!(core::mem::offset_of!(Editor, target) == 201884);
-    assert!(core::mem::offset_of!(Editor, message) == 201972);
+    assert!(core::mem::size_of::<Editor>() == 202200);
+    assert!(core::mem::offset_of!(Editor, target) == 202076);
+    assert!(core::mem::offset_of!(Editor, message) == 202164);
 };
 
 fn text(value: &'static [u8]) -> *const c_char {
@@ -260,6 +265,7 @@ fn menu(editor: &Editor, actions: &mut [c_int; EDITOR_MENU_ITEMS]) -> usize {
         if editor.score.lanes[cell.lane as usize].source == 0 {
             add_action(actions, &mut n, ACTION_DIVISION);
             add_action(actions, &mut n, ACTION_CHANNEL);
+            add_action(actions, &mut n, ACTION_PLAY);
             add_action(actions, &mut n, ACTION_SOUND);
         }
         add_action(actions, &mut n, ACTION_DELETE);
@@ -284,7 +290,7 @@ pub unsafe extern "C" fn editor_menu(
     menu(editor, items) as c_int
 }
 
-const ACTION_LABELS: [&[u8]; 19] = [
+const ACTION_LABELS: [&[u8]; 20] = [
     b"NEW LANE\0",
     b"CREATE TILE...\0",
     b"DELETE TILE\0",
@@ -304,6 +310,7 @@ const ACTION_LABELS: [&[u8]; 19] = [
     b"RELEASE ENABLE\0",
     b"ATTACK OFFSET\0",
     b"RELEASE OFFSET\0",
+    b"PLAY\0",
 ];
 
 /// Returns the fixed display label for a valid context action.
@@ -393,6 +400,26 @@ pub(crate) fn rows(
         push(
             output,
             &mut n,
+            row(ROW_VALUE, ROW_LEVEL, b"LEVEL\0", -60, 6, 1, 6),
+        );
+        push(
+            output,
+            &mut n,
+            row(ROW_VALUE, ROW_PAN, b"PAN\0", -100, 100, 1, 10),
+        );
+        push(
+            output,
+            &mut n,
+            row(ROW_VALUE, ROW_TRANSPOSE, b"TRANSPOSE\0", -24, 24, 1, 12),
+        );
+        push(
+            output,
+            &mut n,
+            row(ROW_VALUE, ROW_GATE_RATIO, b"GATE RATIO\0", 5, 400, 1, 10),
+        );
+        push(
+            output,
+            &mut n,
             row(ROW_HEADING, 0, b"WAVEFORM\0", 0, 0, 0, 0),
         );
         push(
@@ -462,6 +489,7 @@ pub(crate) fn rows(
                 ACTION_LENGTH
                     | ACTION_DIVISION
                     | ACTION_CHANNEL
+                    | ACTION_PLAY
                     | ACTION_PITCH
                     | ACTION_DURATION
                     | ACTION_PERIOD
@@ -487,6 +515,11 @@ pub(crate) fn rows(
                 }
                 ACTION_CHANNEL => {
                     max = 7;
+                    fine = 1;
+                    coarse = 1;
+                }
+                ACTION_PLAY => {
+                    max = 1;
                     fine = 1;
                     coarse = 1;
                 }
@@ -555,7 +588,7 @@ pub unsafe extern "C" fn editor_rows(
 ) -> c_int {
     // SAFETY: The C caller supplies a valid immutable editor.
     let editor = unsafe { &*editor };
-    // SAFETY: The C caller supplies 16 distinct writable rows.
+    // SAFETY: The C caller supplies 20 distinct writable rows.
     let output = unsafe { &mut *(output as *mut [EditorRow; EDITOR_ROWS]) };
     rows(editor, output) as c_int
 }
@@ -646,6 +679,10 @@ fn current_value(editor: &Editor, id: c_int) -> Option<c_int> {
         ROW_SWEEP => sound?.sweep,
         ROW_DECAY => sound?.decay,
         ROW_SEND => sound?.reverb,
+        ROW_LEVEL => sound?.level,
+        ROW_PAN => sound?.pan,
+        ROW_TRANSPOSE => sound?.transpose,
+        ROW_GATE_RATIO => sound?.gate_ratio,
         ACTION_LENGTH => editor.score.lanes[editor.lane as usize].length,
         ACTION_DIVISION => {
             // SAFETY: The editor keeps a valid selected lane.
@@ -660,6 +697,7 @@ fn current_value(editor: &Editor, id: c_int) -> Option<c_int> {
             // SAFETY: The editor keeps a valid selected lane.
             unsafe { score_channel(&editor.score, editor.lane) }
         }
+        ACTION_PLAY => editor.score.lanes[editor.lane as usize].play,
         ACTION_PITCH => value?.pitch,
         ACTION_DURATION => value?.length,
         ACTION_PERIOD => value?.period,
@@ -755,6 +793,14 @@ fn apply_value(editor: &mut Editor, id: c_int, candidate: c_int) {
                 .expect("sound row requires a selected channel")
                 .reverb = candidate
         }
+        ROW_LEVEL => sound.as_mut().expect("sound row").level = candidate,
+        ROW_PAN => sound.as_mut().expect("sound row").pan = candidate,
+        ROW_TRANSPOSE => {
+            sound.as_mut().expect("sound row").transpose = candidate
+        }
+        ROW_GATE_RATIO => {
+            sound.as_mut().expect("sound row").gate_ratio = candidate
+        }
         ACTION_LENGTH => {
             // SAFETY: The editor exclusively owns its embedded score.
             result = unsafe {
@@ -775,6 +821,16 @@ fn apply_value(editor: &mut Editor, id: c_int, candidate: c_int) {
             // SAFETY: The editor exclusively owns its embedded score.
             result = unsafe {
                 score_set_channel(&mut editor.score, editor.lane, candidate)
+            };
+        }
+        ACTION_PLAY => {
+            // SAFETY: The editor exclusively owns its embedded score.
+            result = unsafe {
+                crate::score::score_set_play(
+                    &mut editor.score,
+                    editor.lane,
+                    candidate,
+                )
             };
         }
         ACTION_PITCH => {
@@ -954,7 +1010,7 @@ fn activate(editor: &mut Editor, row: EditorRow) {
             editor.sound_channel =
                 unsafe { score_channel(&editor.score, editor.lane) };
             editor.parent_selected = editor.selected;
-            editor.selected = 1;
+            editor.selected = 0;
             editor.mode = EDIT_SOUND;
         }
         ACTION_PATTERN => {

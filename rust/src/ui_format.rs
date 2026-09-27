@@ -25,6 +25,10 @@ const ROW_MIX_RELEASE: c_int = 205;
 const ROW_SWEEP: c_int = 206;
 const ROW_DECAY: c_int = 207;
 const ROW_SEND: c_int = 208;
+const ROW_LEVEL: c_int = 209;
+const ROW_PAN: c_int = 210;
+const ROW_TRANSPOSE: c_int = 211;
+const ROW_GATE_RATIO: c_int = 212;
 const ACTION_LENGTH: c_int = 3;
 const ACTION_PITCH: c_int = 7;
 const ACTION_DURATION: c_int = 8;
@@ -36,6 +40,7 @@ const ACTION_LOCK_ATTACK_ENABLE: c_int = 15;
 const ACTION_LOCK_RELEASE_ENABLE: c_int = 16;
 const ACTION_LOCK_ATTACK: c_int = 17;
 const ACTION_LOCK_RELEASE: c_int = 18;
+const ACTION_PLAY: c_int = 19;
 const LOCK_ATTACK: c_int = 1;
 const LOCK_RELEASE: c_int = 2;
 
@@ -140,6 +145,10 @@ pub(crate) fn row_value(editor: &Editor, id: c_int, out: &mut Text<'_>) {
             out.push(if sound.reverb != 0 { b"ON" } else { b"OFF" });
             Ok(())
         }
+        ROW_LEVEL => write!(out, "{:+} DB", sound.level),
+        ROW_PAN => write!(out, "{:+}%", sound.pan),
+        ROW_TRANSPOSE => write!(out, "{:+} ST", sound.transpose),
+        ROW_GATE_RATIO => write!(out, "{}%", sound.gate_ratio),
         ACTION_LENGTH => {
             write!(out, "{}", editor.score.lanes[editor.lane as usize].length)
         }
@@ -153,6 +162,14 @@ pub(crate) fn row_value(editor: &Editor, id: c_int, out: &mut Text<'_>) {
             // SAFETY: The editor's selected lane is a valid model lane.
             let channel = unsafe { score_channel(&editor.score, editor.lane) };
             write!(out, "{}", channel + 1)
+        }
+        ACTION_PLAY => {
+            out.push(if editor.score.lanes[editor.lane as usize].play != 0 {
+                b"ON"
+            } else {
+                b"OFF"
+            });
+            Ok(())
         }
         ACTION_PITCH => {
             // SAFETY: The model returns a static C string.

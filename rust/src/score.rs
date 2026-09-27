@@ -26,6 +26,10 @@ pub(crate) struct SoundSettings {
     pub(crate) sweep: c_int,
     pub(crate) decay: c_int,
     pub(crate) reverb: c_int,
+    pub(crate) level: c_int,
+    pub(crate) pan: c_int,
+    pub(crate) transpose: c_int,
+    pub(crate) gate_ratio: c_int,
 }
 
 #[repr(C)]
@@ -64,6 +68,7 @@ pub(crate) struct Lane {
     pub(crate) length: c_int,
     pub(crate) division: c_int,
     pub(crate) channel: c_int,
+    pub(crate) play: c_int,
     pub(crate) source: u16,
     pub(crate) tiles: [u16; STEPS],
 }
@@ -94,9 +99,10 @@ pub struct Cell {
 }
 
 const _: () = assert!(core::mem::size_of::<TileValue>() == 36);
+const _: () = assert!(core::mem::size_of::<SoundSettings>() == 52);
 const _: () = assert!(core::mem::size_of::<Tile>() == 44);
-const _: () = assert!(core::mem::size_of::<Lane>() == 156);
-const _: () = assert!(core::mem::size_of::<Score>() == 199524);
+const _: () = assert!(core::mem::size_of::<Lane>() == 160);
+const _: () = assert!(core::mem::size_of::<Score>() == 199716);
 const _: () = assert!(core::mem::size_of::<Cell>() == 20);
 
 /// Supported step divisions shared with C editor menus and fixtures.
@@ -258,6 +264,10 @@ pub unsafe extern "C" fn score_init(score: *mut Score) {
         sweep: 0,
         decay: 200,
         reverb: 0,
+        level: 0,
+        pan: 0,
+        transpose: 0,
+        gate_ratio: 100,
     });
     score.bpm = 120;
     score.reverb = ReverbSettings {
@@ -321,6 +331,29 @@ pub unsafe extern "C" fn score_set_channel(
         return 5;
     }
     score.lanes[lane as usize].channel = channel;
+    score.revision = score.revision.wrapping_add(1);
+    0
+}
+
+/// Sets the Play switch on a regular lane.
+///
+/// # Safety
+/// `score` must point to a valid exclusively writable C `Score`.
+#[no_mangle]
+pub unsafe extern "C" fn score_set_play(
+    score: *mut Score,
+    lane: c_int,
+    play: c_int,
+) -> c_int {
+    // SAFETY: The C caller supplies exclusive access to a valid score.
+    let score = unsafe { &mut *score };
+    if !valid(score, lane)
+        || score.lanes[lane as usize].source != 0
+        || !(0..=1).contains(&play)
+    {
+        return SCORE_INVALID;
+    }
+    score.lanes[lane as usize].play = play;
     score.revision = score.revision.wrapping_add(1);
     0
 }
@@ -402,17 +435,7 @@ pub unsafe extern "C" fn score_set_sound(
 ) -> c_int {
     // SAFETY: The C caller supplies a valid immutable sound object.
     let sound = unsafe { *sound };
-    if !(0..CHANNELS as c_int).contains(&channel)
-        || !(0..=1).contains(&sound.reverb)
-        || !(0..=SOUND_MAX_MS).contains(&sound.attack)
-        || !(0..=SOUND_MAX_MS).contains(&sound.release)
-        || !(0..5).contains(&sound.wave_a)
-        || !(0..5).contains(&sound.wave_b)
-        || !(0..=500).contains(&sound.mix_attack)
-        || !(0..=500).contains(&sound.mix_release)
-        || !(-24..=24).contains(&sound.sweep)
-        || !(0..=2000).contains(&sound.decay)
-    {
+    if !(0..CHANNELS as c_int).contains(&channel) || !sound_valid(&sound) {
         return SCORE_INVALID;
     }
     // SAFETY: The C caller supplies exclusive access to the score.
@@ -420,6 +443,25 @@ pub unsafe extern "C" fn score_set_sound(
     score.sounds[channel as usize] = sound;
     score.revision = score.revision.wrapping_add(1);
     0
+}
+
+fn sound_valid(sound: &SoundSettings) -> bool {
+    (0..=1).contains(&sound.reverb)
+        && (0..=SOUND_MAX_MS).contains(&sound.attack)
+        && (0..=SOUND_MAX_MS).contains(&sound.release)
+        && (0..5).contains(&sound.wave_a)
+        && (0..5).contains(&sound.wave_b)
+        && (0..=500).contains(&sound.mix_attack)
+        && (0..=500).contains(&sound.mix_release)
+        && (-24..=24).contains(&sound.sweep)
+        && (0..=2000).contains(&sound.decay)
+        && (-60..=6).contains(&sound.level)
+        && (-100..=100).contains(&sound.pan)
+        && (-24..=24).contains(&sound.transpose)
+        // Zero remains a unity sentinel for C aggregate callers compiled
+        // before this setting existed; the editor only offers 5..400.
+        && (sound.gate_ratio == 0
+            || (5..=400).contains(&sound.gate_ratio))
 }
 
 /// Writes the exact cell found at a grid coordinate.
@@ -612,6 +654,9 @@ pub(crate) fn geometry_lane_move(
 
 /// Validates pool links before traversing geometry or branch ancestry.
 fn validate_import(score: &Score) -> c_int {
+    if score.sounds.iter().any(|sound| !sound_valid(sound)) {
+        return SCORE_INVALID;
+    }
     let mut seen = [0u8; TILE_CAPACITY + 1];
     for i in 0..LANES {
         let lane = &score.lanes[i];
@@ -625,6 +670,7 @@ fn validate_import(score: &Score) -> c_int {
             return SCORE_INVALID;
         }
         if usize::from(lane.source) > TILE_CAPACITY
+            || !(0..=1).contains(&lane.play)
             || lane.source != 0 && lane.channel != -1
             || lane.source == 0
                 && !(0..CHANNELS as c_int).contains(&lane.channel)

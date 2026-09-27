@@ -234,7 +234,7 @@ static void synthesis_checks(void)
         score_create(&editor.score, 0, 0, 1);
         score_set_division(&editor.score, 0, 1);
         test_score_set_sound(&editor.score, 0,
-                        (SoundSettings){0, 5, wave, wave, 0, 0, 0, 200, 0});
+                        (SoundSettings){0, 5, wave, wave, 0, 0, 0, 200, 0, 0, 0, 0, 100});
         TileValue note = test_score_default(TILE_NOTE);
         note.length = 1280;
         for (int i = 0; i < SEQUENCER_VOICES; i++)
@@ -279,7 +279,7 @@ static void synthesis_checks(void)
         score_set_division(&editor.score, 0, 1);
         test_score_set_sound(&editor.score, 0,
                         (SoundSettings){0, 500, WAVE_SAW, WAVE_SQUARE, 100, 100,
-                                        sign * 24, 200, 0});
+                                        sign * 24, 200, 0, 0, 0, 0, 100});
         TileValue note = test_score_default(TILE_NOTE);
         note.length = 1280;
         for (int i = 0; i < SEQUENCER_VOICES; i++)
@@ -358,7 +358,7 @@ static void transient_checks(void)
         score_set_division(&editor.score, 0, 1);
         test_score_set_sound(
             &editor.score, 0,
-            (SoundSettings){0, 5, WAVE_SINE, WAVE_NOISE, 0, 1, 24, 1, 0});
+            (SoundSettings){0, 5, WAVE_SINE, WAVE_NOISE, 0, 1, 24, 1, 0, 0, 0, 0, 100});
         TileValue note = test_score_default(TILE_NOTE);
         note.length = 1280;
         test_score_place_value(&editor.score, 1, 0, note);
@@ -721,7 +721,7 @@ int main(void)
         score_set_division(&editor.score, 0, 1);
         test_score_set_sound(&editor.score, 0,
                         (SoundSettings){times[i], times[i], WAVE_SINE,
-                                        WAVE_SINE, 0, 0, 0, 200, 0});
+                                        WAVE_SINE, 0, 0, 0, 200, 0, 0, 0, 0, 100});
         TileValue note = test_score_default(TILE_NOTE);
         note.length = 5;
         test_score_place_value(&editor.score, 1, 0, note);

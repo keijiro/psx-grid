@@ -22,9 +22,11 @@ _Static_assert(WAVE_SINE == 0 && WAVE_TRIANGLE == 1 && WAVE_SAW == 2 &&
 _Static_assert(TILE_NOTE == 1 && TILE_CYCLE == 2 && TILE_PROBABILITY == 3 &&
                    TILE_JUMP == 4 && TILE_RELATIVE == 5,
                "Rust tile tags must match the C model");
-_Static_assert(sizeof(Score) == 199524, "Rust Score ABI changed");
+_Static_assert(sizeof(Score) == 199716, "Rust Score ABI changed");
+_Static_assert(sizeof(SoundSettings) == 52 && sizeof(Lane) == 160,
+               "Rust sound and lane ABI changed");
 _Static_assert(sizeof(Runner) == 432, "Rust Runner ABI changed");
-_Static_assert(sizeof(Sequencer) == (sizeof(void*) == 4 ? 7632 : 7664),
+_Static_assert(sizeof(Sequencer) == (sizeof(void*) == 4 ? 7760 : 7792),
                "Rust Sequencer ABI changed");
 _Static_assert(sizeof(TileValue) == 36, "Rust TileValue ABI changed");
 _Static_assert(sizeof(Cell) == 20, "Rust Cell ABI changed");
@@ -35,7 +37,8 @@ _Static_assert(sizeof(InputFrame) == 48, "Rust InputFrame ABI changed");
 _Static_assert(sizeof(CardFile) == 28, "Rust CardFile ABI changed");
 
 // These shared values also shape Rust menu arrays and value ranges.
-_Static_assert(EDITOR_MENU_ITEMS == 8 && EDITOR_ROWS == 16, "editor menu bounds");
+_Static_assert(EDITOR_MENU_ITEMS == 8 && EDITOR_ROWS == 20,
+               "editor menu bounds");
 _Static_assert(SCORE_WIDTH == 128 && SCORE_HEIGHT == 64, "editor grid bounds");
 _Static_assert(SCORE_FILE_BYTES == 8192 && STORAGE_SLOTS == 15,
                "editor card bounds");
@@ -46,6 +49,7 @@ _Static_assert(SOUND_MAX_MS == 16000 && SOUND_MAX_MIX_MS == 500 &&
                WAVE_COUNT == 5,
                "editor sound bounds");
 _Static_assert(EDIT_REVERB == 8 && ACTION_LOCK_RELEASE == 18 &&
+                   ACTION_PLAY == 19 &&
                    TILE_RELATIVE == 5 && CELL_END == 4,
                "editor discriminants");
 

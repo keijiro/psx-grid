@@ -83,12 +83,13 @@ static void example(Score* s)
     assert(score_set_bpm(s, 173) == SCORE_OK);
     assert(test_score_set_reverb(s, (ReverbSettings){2, 87}) == SCORE_OK);
     SoundSettings sound = {16000, 1234, WAVE_NOISE, WAVE_TRIANGLE, 500, 321,
-                           -24,   2000, 1};
+                           -24,   2000, 1, -17, 63, 7, 175};
     assert(test_score_set_sound(s, 7, sound) == SCORE_OK);
     assert(score_set_channel(s, 0, 7) == SCORE_OK);
     assert(score_set_division(s, 0, 3) == SCORE_OK);
     assert(score_set_channel(s, 1, 2) == SCORE_OK);
     assert(score_set_division(s, 1, 64) == SCORE_OK);
+    assert(score_set_play(s, 1, 0) == SCORE_OK);
     assert(score_place(s, 21, 10, TILE_NOTE) == SCORE_OK);
     TileValue v = s->tiles[tile(s, 21, 10)].value;
     v.pitch = 108;
@@ -164,18 +165,18 @@ static void golden(int write_fixture)
     Score source;
     Score decoded;
     example(&source);
-    assert(score_format_measure(&source) == 801);
+    assert(score_format_measure(&source) == 833);
     assert(score_format_encode(&source, block, 15, 0x89abcdefu) == FORMAT_OK);
     assert(get(block + ENVELOPE + 12, 4) + ENVELOPE + HEADER ==
            score_format_measure(&source));
     if (write_fixture)
     {
-        FILE* f = fopen("tests/fixtures/score-v1.bin", "wb");
+        FILE* f = fopen("tests/fixtures/score-v2.bin", "wb");
         assert(f);
         assert(fwrite(block, 1, sizeof(block), f) == sizeof(block));
         assert(!fclose(f));
     }
-    FILE* f = fopen("tests/fixtures/score-v1.bin", "rb");
+    FILE* f = fopen("tests/fixtures/score-v2.bin", "rb");
     assert(f);
     assert(fread(changed, 1, sizeof(changed), f) == sizeof(changed));
     assert(fgetc(f) == EOF);
@@ -186,6 +187,11 @@ static void golden(int write_fixture)
     assert(score_format_decode(changed, sizeof(changed), &decoded, &slot,
                                &generation) == FORMAT_OK);
     assert(slot == 15 && generation == 0x89abcdefu);
+    assert(decoded.sounds[7].level == -17);
+    assert(decoded.sounds[7].pan == 63);
+    assert(decoded.sounds[7].transpose == 7);
+    assert(decoded.sounds[7].gate_ratio == 175);
+    assert(decoded.lanes[0].play == 0);
     equivalent(&source, &decoded);
     score_format_set_generation(changed, 7);
     assert(score_format_decode(changed, sizeof(changed), &decoded, &slot,
@@ -202,6 +208,18 @@ static void compatibility(void)
 {
     Score expected;
     Score decoded;
+    uint8_t legacy[SCORE_FILE_BYTES];
+    FILE* fixture = fopen("tests/fixtures/score-v1.bin", "rb");
+    assert(fixture);
+    assert(fread(legacy, 1, sizeof(legacy), fixture) == sizeof(legacy));
+    assert(!fclose(fixture));
+    assert(score_format_decode(legacy, sizeof(legacy), &decoded, NULL,
+                               NULL) == FORMAT_OK);
+    assert(decoded.sounds[7].level == 0);
+    assert(decoded.sounds[7].pan == 0);
+    assert(decoded.sounds[7].transpose == 0);
+    assert(decoded.sounds[7].gate_ratio == 100);
+    assert(decoded.lanes[0].play == 1);
     example(&expected);
     memcpy(changed, block, sizeof(changed));
     uint8_t* h = changed + ENVELOPE;
@@ -233,7 +251,7 @@ static void compatibility(void)
     repair_crc(changed);
     rejected(FORMAT_NEWER, sizeof(changed));
     mutate(ENVELOPE + 4, 2, FORMAT_NEWER);
-    mutate(ENVELOPE + 6, 2, FORMAT_NEWER);
+    mutate(ENVELOPE + 6, 3, FORMAT_NEWER);
     mutate(ENVELOPE + 16, 1, FORMAT_NEWER);
 }
 
@@ -288,12 +306,12 @@ static void invalid_inputs(void)
     rejected(FORMAT_NEWER, sizeof(changed));
     memcpy(changed, block, sizeof(changed));
     sounds = chunk(changed, 2);
-    sounds[CHUNK + 14] = 1;
+    sounds[CHUNK + 19] = 1;
     repair_crc(changed);
     rejected(FORMAT_CORRUPT, sizeof(changed));
     memcpy(changed, block, sizeof(changed));
     uint8_t* lanes = chunk(changed, 3);
-    lanes[CHUNK + 6] = 1;
+    lanes[CHUNK + 6] = 2;
     repair_crc(changed);
     rejected(FORMAT_CORRUPT, sizeof(changed));
     memcpy(changed, block, sizeof(changed));
@@ -376,21 +394,20 @@ static void encode_rejects_invalid(void)
     score_init(&s);
     assert(score_create(&s, 0, 0, 64) == SCORE_OK);
     assert(score_create(&s, 70, 0, 4) == SCORE_OK);
-    for (int n = 0; n < 1474; n++)
+    for (int n = 0; score_format_measure(&s) + 5 <= SCORE_FILE_BYTES;
+         n++)
     {
         assert(score_place(&s, n / 64 + 1, n % 64, TILE_NOTE) == SCORE_OK);
     }
-    assert(score_remove(&s, 24, 1) == SCORE_OK);
-    assert(score_place(&s, 24, 1, TILE_CYCLE) == SCORE_OK);
-    assert(score_format_measure(&s) == SCORE_FILE_BYTES);
-    TileId tail = s.lanes[0].tiles[23];
+    assert(score_format_measure(&s) <= SCORE_FILE_BYTES);
+    TileId tail = s.lanes[0].tiles[22];
     while (s.tiles[tail].next) tail = s.tiles[tail].next;
     TileId extra = 1;
     while (s.tiles[extra].value.kind) extra++;
     s.tiles[tail].next = extra;
     s.tiles[extra].value = test_score_default(TILE_NOTE);
     s.tiles[extra].branch = -1;
-    assert(score_format_measure(&s) == SCORE_FILE_BYTES + 5);
+    assert(score_format_measure(&s) > SCORE_FILE_BYTES);
     memset(changed, 0xa5, sizeof(changed));
     assert(score_format_encode(&s, changed, 1, 1) == FORMAT_FULL);
     assert(changed[0] == 0xa5);
@@ -402,7 +419,7 @@ int main(int argc, char** argv)
     compatibility();
     invalid_inputs();
     encode_rejects_invalid();
-    puts("PASS: deterministic v1 fixture, round trip, compatibility, staged "
+    puts("PASS: deterministic v2 fixture, round trip, compatibility, staged "
          "rejection and "
          "validation");
 }

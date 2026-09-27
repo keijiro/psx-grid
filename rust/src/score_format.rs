@@ -146,7 +146,7 @@ fn payload(score: &Score, data: Option<&mut [u8]>) -> usize {
     writer.emit(score.reverb.size as u32, 1);
     writer.emit(score.reverb.amount as u32, 1);
     writer.emit(0, 4);
-    writer.chunk(2, 16 * CHANNELS);
+    writer.chunk(2, 20 * CHANNELS);
     for sound in &score.sounds {
         writer.emit(sound.attack as u32, 2);
         writer.emit(sound.release as u32, 2);
@@ -157,7 +157,11 @@ fn payload(score: &Score, data: Option<&mut [u8]>) -> usize {
         writer.emit(sound.sweep as u32, 1);
         writer.emit(sound.decay as u32, 2);
         writer.emit(sound.reverb as u32, 1);
-        writer.emit(0, 2);
+        writer.emit(sound.level as u32, 1);
+        writer.emit(sound.pan as u32, 1);
+        writer.emit(sound.transpose as u32, 1);
+        writer.emit(sound.gate_ratio as u32, 2);
+        writer.emit(0, 1);
     }
     writer.chunk(3, count * 12);
     for &i in &order[..count] {
@@ -182,7 +186,15 @@ fn payload(score: &Score, data: Option<&mut [u8]>) -> usize {
             1,
         );
         writer.emit(u32::from(lane.source != 0), 1);
-        writer.emit(0, 4);
+        writer.emit(
+            if lane.source == 0 {
+                lane.play as u32
+            } else {
+                0
+            },
+            1,
+        );
+        writer.emit(0, 3);
         writer.emit(0, 2);
     }
     let mut measure = Writer { data: None, at: 0 };
@@ -294,7 +306,7 @@ pub unsafe extern "C" fn score_format_encode(
     let header = &mut block[WRAPPER..];
     header[..4].copy_from_slice(b"JQSC");
     put(&mut header[4..6], 1);
-    put(&mut header[6..8], 1);
+    put(&mut header[6..8], 2);
     put(&mut header[8..10], HEADER as u32);
     put(&mut header[12..16], (used - WRAPPER - HEADER) as u32);
     put(&mut header[24..28], generation);
@@ -388,7 +400,7 @@ fn decode_chunks(
     }
     if seen != REQUIRED_CHUNKS
         || chunks[GLOBAL].len() != 8
-        || chunks[SOUNDS].len() != 128
+        || !matches!(chunks[SOUNDS].len(), 128 | 160)
         || chunks[LANES_TAG].len() % 12 != 0
         || chunks[LANES_TAG].len() / 12 > LANES
     {
@@ -399,7 +411,8 @@ fn decode_chunks(
 
 /// Preserves the distinction between newer waveform tags and corrupt values.
 fn decode_sounds(data: &[u8], score: &mut Score) -> Result<(), c_int> {
-    for (i, sound) in data.as_chunks::<16>().0.iter().enumerate() {
+    let width = data.len() / CHANNELS;
+    for (i, sound) in data.chunks_exact(width).enumerate() {
         if sound[4] > 4 || sound[5] > 4 {
             return Err(FORMAT_NEWER);
         }
@@ -413,8 +426,29 @@ fn decode_sounds(data: &[u8], score: &mut Score) -> Result<(), c_int> {
             sweep: c_int::from(sound[10] as i8),
             decay: get(&sound[11..13]) as c_int,
             reverb: c_int::from(sound[13]),
+            level: if width == 20 {
+                c_int::from(sound[14] as i8)
+            } else {
+                0
+            },
+            pan: if width == 20 {
+                c_int::from(sound[15] as i8)
+            } else {
+                0
+            },
+            transpose: if width == 20 {
+                c_int::from(sound[16] as i8)
+            } else {
+                0
+            },
+            gate_ratio: if width == 20 {
+                get(&sound[17..19]) as c_int
+            } else {
+                100
+            },
         };
-        if !zero(&sound[14..16]) {
+        if width == 16 && !zero(&sound[14..16]) || width == 20 && sound[19] != 0
+        {
             return Err(FORMAT_CORRUPT);
         }
         // SAFETY: `score` and `value` are valid, distinct C layout objects.
@@ -430,11 +464,17 @@ fn decode_lanes(
     data: &[u8],
     score: &mut Score,
     roles: &mut [u8; LANES],
+    version: u32,
 ) -> Result<usize, c_int> {
     let count = data.len() / 12;
     for (i, lane_bytes) in data.as_chunks::<12>().0.iter().enumerate() {
         let role = lane_bytes[5];
-        if !zero(&lane_bytes[6..12]) || role > 1 {
+        if !zero(&lane_bytes[7..12])
+            || version < 2 && lane_bytes[6] != 0
+            || version >= 2 && lane_bytes[6] > 1
+            || role != 0 && version >= 2 && lane_bytes[6] != 0
+            || role > 1
+        {
             return Err(FORMAT_CORRUPT);
         }
         if role != 0 && (lane_bytes[3] != 0 || lane_bytes[4] != 255)
@@ -460,6 +500,11 @@ fn decode_lanes(
         }
         let lane = &mut score.lanes[i];
         lane.active = 1;
+        lane.play = if version < 2 || role != 0 {
+            1
+        } else {
+            c_int::from(lane_bytes[6])
+        };
         lane.x = c_int::from(lane_bytes[0]);
         lane.y = c_int::from(lane_bytes[1]);
         lane.length = length as c_int;
@@ -641,7 +686,7 @@ pub unsafe extern "C" fn score_format_decode(
         return FORMAT_CORRUPT;
     }
     if get(&header[4..6]) != 1
-        || get(&header[6..8]) > 1
+        || get(&header[6..8]) > 2
         || get(&header[16..20]) != 0
         || header_bytes != HEADER
     {
@@ -678,7 +723,12 @@ pub unsafe extern "C" fn score_format_decode(
         return error;
     }
     let mut roles = [0; LANES];
-    let lane_count = match decode_lanes(chunks[LANES_TAG], score, &mut roles) {
+    let lane_count = match decode_lanes(
+        chunks[LANES_TAG],
+        score,
+        &mut roles,
+        get(&header[6..8]),
+    ) {
         Ok(count) => count,
         Err(error) => return error,
     };

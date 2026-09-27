@@ -118,8 +118,41 @@ static void update_reverb(const Score* score)
  * Register caches avoid redundant SPU writes in the timer callback. -1 forces
  * initial writes; volume entries are also reset after a card-session handoff.
  */
-static int cached_volume[AUDIO_HARDWARE_VOICES];
+static int cached_left[AUDIO_HARDWARE_VOICES];
+static int cached_right[AUDIO_HARDWARE_VOICES];
+static int voice_pan[SEQUENCER_VOICES];
 static int cached_pitch[SEQUENCER_VOICES];
+
+/*
+ * Equal-power gains sample a quarter-circle in one-percent pan steps:
+ * round(16384 * sqrt(2) * cos(index * pi / 400)). Center is unity on
+ * both sides, preserving the existing unpanned level; the SPU register
+ * caps peaks at its signed volume limit.
+ */
+static const uint16_t pan_gain[201] =
+{
+    23170, 23170, 23168, 23164, 23159, 23153, 23145, 23135, 23125, 23113,
+    23099, 23084, 23068, 23050, 23031, 23010, 22988, 22964, 22939, 22913,
+    22885, 22856, 22825, 22793, 22760, 22725, 22689, 22651, 22612, 22572,
+    22530, 22487, 22443, 22397, 22349, 22301, 22250, 22199, 22146, 22092,
+    22036, 21980, 21921, 21862, 21801, 21738, 21675, 21610, 21543, 21476,
+    21407, 21336, 21265, 21192, 21118, 21042, 20965, 20887, 20808, 20727,
+    20645, 20562, 20477, 20391, 20304, 20216, 20127, 20036, 19944, 19851,
+    19756, 19660, 19563, 19465, 19366, 19266, 19164, 19061, 18957, 18852,
+    18745, 18638, 18529, 18419, 18308, 18196, 18083, 17969, 17853, 17737,
+    17619, 17500, 17380, 17260, 17138, 17015, 16891, 16765, 16639, 16512,
+    16384, 16255, 16125, 15993, 15861, 15728, 15594, 15459, 15323, 15186,
+    15048, 14909, 14769, 14629, 14487, 14345, 14201, 14057, 13912, 13766,
+    13619, 13472, 13323, 13174, 13024, 12873, 12721, 12569, 12415, 12261,
+    12107, 11951, 11795, 11638, 11480, 11322, 11162, 11003, 10842, 10681,
+    10519, 10357, 10194, 10030, 9866, 9701, 9535, 9369, 9202, 9035,
+    8867, 8699, 8530, 8360, 8190, 8020, 7849, 7677, 7505, 7333,
+    7160, 6987, 6813, 6639, 6464, 6289, 6114, 5938, 5762, 5586,
+    5409, 5232, 5054, 4877, 4699, 4520, 4342, 4163, 3984, 3804,
+    3625, 3445, 3265, 3084, 2904, 2723, 2543, 2362, 2181, 1999,
+    1818, 1636, 1455, 1273, 1091, 910, 728, 546, 364, 182,
+    0
+};
 
 /*
  * Prepares both hardware halves from the same pitch bank while software
@@ -129,6 +162,7 @@ void audio_hw_start_voice(void* ctx, int slot, int bank,
                           const SoundSettings* sound)
 {
     (void)ctx;
+    voice_pan[slot] = sound->pan;
     for (int half = 0; half < 2; half++)
     {
         int voice = slot * 2 + half;
@@ -151,9 +185,16 @@ void audio_hw_volume(void* ctx, int slot, int a, int b)
     {
         int voice = slot * 2 + half;
         int level = half ? b : a;
-        if (cached_volume[voice] == level) continue;
-        cached_volume[voice] = level;
-        SpuSetVoiceVolume(voice, level, level);
+        int pan = voice_pan[slot] + 100;
+        int left = level * pan_gain[pan] / 16384;
+        int right = level * pan_gain[200 - pan] / 16384;
+        if (left > 0x3fff) left = 0x3fff;
+        if (right > 0x3fff) right = 0x3fff;
+        if (cached_left[voice] == left && cached_right[voice] == right)
+            continue;
+        cached_left[voice] = left;
+        cached_right[voice] = right;
+        SpuSetVoiceVolume(voice, left, right);
     }
 }
 
@@ -270,7 +311,11 @@ void audio_hw_init(void)
     SpuSetTransferStartAddr(WAVE_SPU_ADDRESS);
     SpuWrite(wave_data, sizeof(wave_data));
     SpuIsTransferCompleted(SPU_TRANSFER_WAIT);
-    for (int i = 0; i < AUDIO_HARDWARE_VOICES; i++) cached_volume[i] = -1;
+    for (int i = 0; i < AUDIO_HARDWARE_VOICES; i++)
+    {
+        cached_left[i] = -1;
+        cached_right[i] = -1;
+    }
     for (int i = 0; i < SEQUENCER_VOICES; i++)
     {
         cached_pitch[i] = -1;
@@ -348,7 +393,11 @@ void audio_hw_card_stop(void)
     SPU_REVERB_ON1 = SPU_REVERB_ON2 = 0;
     SPU_REVERB_VOL_L = SPU_REVERB_VOL_R = 0;
     SPU_CTRL &= ~0x80;
-    for (int i = 0; i < AUDIO_HARDWARE_VOICES; i++) cached_volume[i] = -1;
+    for (int i = 0; i < AUDIO_HARDWARE_VOICES; i++)
+    {
+        cached_left[i] = -1;
+        cached_right[i] = -1;
+    }
     TIMER_CTRL(0) = 0;
     IRQ_MASK &= ~(1u << IRQ_TIMER0);
     IRQ_STAT = (uint16_t)~(1u << IRQ_TIMER0);

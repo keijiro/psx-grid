@@ -211,7 +211,7 @@ static void locks(void)
     // Snapshot values and base are immutable after committed editor changes.
     assert(!test_score_set_sound(
         &score, 0,
-        (SoundSettings){999, 999, WAVE_SINE, WAVE_SINE, 0, 0, 0, 200, 0}));
+        (SoundSettings){999, 999, WAVE_SINE, WAVE_SINE, 0, 0, 0, 200, 0, 0, 0, 0, 100}));
     assert(!score_remove(&score, 1, 0));
     sequencer_service(&seq, SEQUENCER_HZ / 8);
     assert(events[1].sound.attack == 35);
@@ -357,7 +357,7 @@ static void voices(void)
     {
         tokens[i] = sink.on(
             sink.context, 0, 48 + i,
-            &(SoundSettings){100, 200, WAVE_SINE, WAVE_SINE, 0, 0, 0, 200, 0});
+            &(SoundSettings){100, 200, WAVE_SINE, WAVE_SINE, 0, 0, 0, 200, 0, 0, 0, 0, 100});
     }
     sink.advance(sink.context, audio_ms(50));
     assert(levels[0] >= AUDIO_LEVEL / 2 - 1 &&
@@ -368,20 +368,20 @@ static void voices(void)
            levels[0] <= (AUDIO_LEVEL + 3) / 4 + 1);
     uint32_t replacement =
         sink.on(sink.context, audio_ms(150), 80,
-                &(SoundSettings){0, 5, WAVE_SINE, WAVE_SINE, 0, 0, 0, 200, 0});
+                &(SoundSettings){0, 5, WAVE_SINE, WAVE_SINE, 0, 0, 0, 200, 0, 0, 0, 0, 100});
     assert((replacement & 31) == 0 && audio_steals(audio) == 1);
     sink.off(sink.context, audio_ms(160), tokens[0]);
     assert(!voice(0).releasing);
     replacement =
         sink.on(sink.context, audio_ms(160), 81,
-                &(SoundSettings){0, 0, WAVE_SINE, WAVE_SINE, 0, 0, 0, 200, 0});
+                &(SoundSettings){0, 0, WAVE_SINE, WAVE_SINE, 0, 0, 0, 200, 0, 0, 0, 0, 100});
     assert((replacement & 31) == 1);
     sink.off(sink.context, audio_ms(160), replacement);
     sink.advance(sink.context, audio_ms(160));
     assert(!voice(1).active && levels[1] == 0);
     sink.on(
         sink.context, audio_ms(161), 82,
-        &(SoundSettings){16000, 16000, WAVE_SINE, WAVE_SINE, 0, 0, 0, 200, 0});
+        &(SoundSettings){16000, 16000, WAVE_SINE, WAVE_SINE, 0, 0, 0, 200, 0, 0, 0, 0, 100});
     assert(voice(1).pitch == 82);
     sink.stop(sink.context, audio_ms(200));
     sink.advance(sink.context, audio_ms(205));
@@ -392,12 +392,12 @@ static void voices(void)
     assert(stops > 0);
     uint32_t old =
         sink.on(sink.context, audio_ms(1000), 48,
-                &(SoundSettings){0, 0, WAVE_SINE, WAVE_SINE, 0, 0, 0, 200, 0});
+                &(SoundSettings){0, 0, WAVE_SINE, WAVE_SINE, 0, 0, 0, 200, 0, 0, 0, 0, 100});
     sink.advance(sink.context, audio_ms(1000));
     sink.off(sink.context, audio_ms(1000), old);
     uint32_t fresh =
         sink.on(sink.context, audio_ms(1000), 60,
-                &(SoundSettings){0, 0, WAVE_SINE, WAVE_SINE, 0, 0, 0, 200, 0});
+                &(SoundSettings){0, 0, WAVE_SINE, WAVE_SINE, 0, 0, 0, 200, 0, 0, 0, 0, 100});
     assert((fresh & 31) == (old & 31) && fresh != old);
     sink.off(sink.context, audio_ms(1000), old);
     sink.advance(sink.context, audio_ms(1000));
@@ -407,7 +407,7 @@ static void voices(void)
     sink.advance(sink.context, audio_ms(1006));
     uint32_t long_note = sink.on(
         sink.context, 0, 48,
-        &(SoundSettings){16000, 16000, WAVE_SINE, WAVE_SINE, 0, 0, 0, 200, 0});
+        &(SoundSettings){16000, 16000, WAVE_SINE, WAVE_SINE, 0, 0, 0, 200, 0, 0, 0, 0, 100});
     sink.advance(sink.context, audio_ms(8000));
     assert(levels[0] >= AUDIO_LEVEL / 2 - 1 &&
            levels[0] <= (AUDIO_LEVEL + 1) / 2);
@@ -417,7 +417,7 @@ static void voices(void)
     AudioTime release_start = audio_ms(25000);
     uint32_t full_release = sink.on(
         sink.context, release_start, 48,
-        &(SoundSettings){0, 16000, WAVE_SINE, WAVE_SINE, 0, 0, 0, 200, 0});
+        &(SoundSettings){0, 16000, WAVE_SINE, WAVE_SINE, 0, 0, 0, 200, 0, 0, 0, 0, 100});
     sink.advance(sink.context, release_start);
     assert(levels[0] == AUDIO_LEVEL);
     sink.off(sink.context, release_start, full_release);
@@ -429,7 +429,7 @@ static void voices(void)
     // Sequencer gate-offs carry the release captured at note-on.
     base(2);
     score.sounds[0] =
-        (SoundSettings){0, 500, WAVE_SINE, WAVE_SINE, 0, 0, 0, 200, 0};
+        (SoundSettings){0, 500, WAVE_SINE, WAVE_SINE, 0, 0, 0, 200, 0, 0, 0, 0, 100};
     put(1, 0, test_score_default(TILE_NOTE));
     put(2, 0, relative(0, -500));
     snapshot = score;
@@ -482,7 +482,8 @@ static void late_dispatch(void)
     audio = audio_init(NULL, driver_start, driver_volume, driver_pitch,
                        driver_flush, NULL, driver_clock);
     SoundSettings sound =
-        {0, 100, WAVE_SINE, WAVE_SINE, 0, 0, 0, 200, 1};
+        {0, 100, WAVE_SINE, WAVE_SINE, 0, 0, 0, 200, 1,
+         0, 0, 0, 100};
     dispatch_time = SEQUENCER_HZ / 1000 + 1;
     NoteSink sink = audio_sink(audio);
     sink.on(sink.context, 0, 48, &sound);
@@ -535,10 +536,10 @@ static void model_editor(void)
     assert(test_score_edit(&score, id, v) == SCORE_INVALID);
     assert(test_score_set_sound(&score, 0,
                            (SoundSettings){-1, 0, WAVE_SINE, WAVE_SINE, 0, 0, 0,
-                                           200, 0}) == SCORE_INVALID);
+                                           200, 0, 0, 0, 0, 100}) == SCORE_INVALID);
     assert(test_score_set_sound(&score, 0,
                            (SoundSettings){0, 16001, WAVE_SINE, WAVE_SINE, 0, 0,
-                                           0, 200, 0}) == SCORE_INVALID);
+                                           0, 200, 0, 0, 0, 0, 100}) == SCORE_INVALID);
     editor_init(&editor);
     assert(!score_create(&editor.score, 0, 0, 2));
     assert(!score_place(&editor.score, 1, 0, TILE_RELATIVE));
@@ -569,13 +570,13 @@ static void model_editor(void)
         assert(!memcmp(&editor.score, &snapshot, sizeof(snapshot)));
     }
     editor.mode = EDIT_SOUND;
-    editor.selected = 4;
+    editor.selected = 8;
     editor.sound_channel = 0;
     test_editor_update(
         &editor,
         (InputFrame){.connected = 1, .value_dir = 1, .value_coarse = 1});
     assert(editor.score.sounds[0].attack == 105);
-    editor.selected = 5;
+    editor.selected = 9;
     test_editor_update(
         &editor,
         (InputFrame){.connected = 1, .value_dir = 1, .value_coarse = 1});
@@ -709,7 +710,7 @@ static void live_values(void)
     assert(!test_score_edit(&score, test_score_at(&score, 2, 0).tile, v));
     assert(!test_score_set_sound(
         &score, 0,
-        (SoundSettings){23, 41, WAVE_SINE, WAVE_SINE, 0, 0, 0, 200, 0}));
+        (SoundSettings){23, 41, WAVE_SINE, WAVE_SINE, 0, 0, 0, 200, 0, 0, 0, 0, 100}));
     assert(!score_set_division(&score, 0, 32));
     publish(2 * step + 1);
     assert(!memcmp(runner(0), &before, sizeof(before)) && seq.random == random);
@@ -967,7 +968,8 @@ static void channels(void)
         assert(!score_create(&score, 0, 4 * i, 1));
         put(1, 4 * i, test_score_default(TILE_NOTE));
     }
-    SoundSettings second = {20, 30, WAVE_SQUARE, WAVE_NOISE, 12, 34, -5, 67, 1};
+    SoundSettings second = {20, 30, WAVE_SQUARE, WAVE_NOISE, 12, 34, -5, 67, 1,
+                            0, 0, 0, 100};
     assert(!test_score_set_sound(&score, 7, second));
     assert(!score_set_channel(&score, 2, 7));
     start();
@@ -1095,8 +1097,88 @@ static void tempo_changes(void)
     assert(count == 3 && offs[1] == old + old / 2);
 }
 
+/*
+ * Checks channel pitch and gate shaping with each regular lane's Play state.
+ */
+static void channel_play_and_gate(void)
+{
+    base(1);
+    put(1, 0, test_score_default(TILE_NOTE));
+    assert(!score_create(&score, 0, 4, 1));
+    put(1, 4, test_score_default(TILE_NOTE));
+    assert(!score_set_channel(&score, 1, 1));
+    SoundSettings sound = score.sounds[1];
+    sound.transpose = 12;
+    sound.gate_ratio = 200;
+    assert(!test_score_set_sound(&score, 1, sound));
+    assert(!score_set_play(&score, 1, 0));
+    start();
+    assert(count == 1);
+    assert(events[0].pitch == 48);
+
+    assert(!score_set_play(&score, 1, 1));
+    publish(1);
+    sequencer_service(&seq, SEQUENCER_HZ / 8);
+    assert(count == 2);
+    sequencer_service(&seq, SEQUENCER_HZ / 4);
+    assert(count == 4);
+    assert(events[3].pitch == 60);
+    assert(events[3].sound.gate_ratio == 200);
+    sequencer_service(&seq, SEQUENCER_HZ / 2);
+    assert(offs[off_count - 1] == SEQUENCER_HZ / 2);
+}
+
+/*
+ * Checks that turning Play off finishes one lap and parks until the next
+ * master boundary after Play is turned on again.
+ */
+static void play_finishes_lap(void)
+{
+    base(2);
+    put(1, 0, test_score_default(TILE_NOTE));
+    put(2, 0, test_score_default(TILE_NOTE));
+    assert(!score_create(&score, 0, 4, 2));
+    put(1, 4, test_score_default(TILE_NOTE));
+    put(2, 4, test_score_default(TILE_NOTE));
+    start();
+    assert(count == 2);
+
+    assert(!score_set_play(&score, 1, 0));
+    publish(1);
+    sequencer_service(&seq, SEQUENCER_HZ / 8);
+    assert(count == 4);
+    sequencer_service(&seq, SEQUENCER_HZ / 4);
+    assert(count == 5);
+
+    assert(!score_set_play(&score, 1, 1));
+    publish(SEQUENCER_HZ / 4 + 1);
+    sequencer_service(&seq, SEQUENCER_HZ * 3 / 8);
+    assert(count == 6);
+    sequencer_service(&seq, SEQUENCER_HZ / 2);
+    assert(count == 8);
+}
+
+/*
+ * Checks that the level setting reaches the driver volume callback.
+ */
+static void sound_level(void)
+{
+    audio = audio_init(NULL, driver_start, driver_volume, driver_pitch,
+                       driver_flush, NULL, NULL);
+    NoteSink sink = audio_sink(audio);
+    SoundSettings sound = SOUND_DEFAULT;
+    sound.attack = 0;
+    sink.on(sink.context, 0, 48, &sound);
+    sound.level = -60;
+    sink.on(sink.context, 0, 48, &sound);
+    sink.advance(sink.context, 0);
+    assert(levels[0] > levels[1] * 100);
+}
+
 int main(void)
 {
+    channel_play_and_gate();
+    play_finishes_lap();
     channels();
     tempo_changes();
     timing();
@@ -1113,6 +1195,7 @@ int main(void)
     live_lanes();
     live_final_step();
     live_gates();
+    sound_level();
     live_branch();
     live_split();
     printf("PASS: sequencer timing, locks, gates, branches, voices, overload, "

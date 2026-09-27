@@ -89,7 +89,7 @@ it excludes the PSX wrapper and block padding.
 | --- | --- | --- |
 | 0 | 4 | ASCII `JQSC` |
 | 4 | 2 | Envelope version, 1 |
-| 6 | 2 | Minimum reader version, 1 |
+| 6 | 2 | Minimum reader version, 2 (older scores use 1) |
 | 8 | 2 | Envelope length, 32 |
 | 10 | 2 | Reserved, zero |
 | 12 | 4 | Payload length, excluding envelope |
@@ -111,7 +111,9 @@ output has Global (tag 1), Sounds (2), Lanes (3), and Steps (4), each exactly
 once with schema 1 and required set. Readers accept these chunks in any order;
 duplicate/missing known chunks fail. Unknown optional chunks are disposable
 metadata and are skipped; unknown required chunks or schemas report NEWER
-VERSION. There are no earlier released schemas to migrate in v1.
+VERSION. Minor version 2 extends sound and lane records while retaining schema
+1. The decoder accepts minor version 1 and supplies unity gate ratio and
+enabled Play switches for older scores.
 
 Persistent chunk content:
 
@@ -123,15 +125,17 @@ Persistent chunk content:
 | Steps | Ordered tile stacks for every step in each active lane |
 
 Global uses BPM u16, Size u8, Amount u8, and
-four reserved bytes. Each 16-byte sound uses attack/release u16, two waveform
-u8 tags, mix attack/release u16, sweep i8, decay u16, reverb u8, and two reserved
-bytes. Each 12-byte lane uses x, y, length, division, channel, and role as u8
-fields, followed by six reserved bytes; branches use a channel sentinel and
-inherit division. Reserved bytes are zero in v1. Active lanes appear in Y/X
+four reserved bytes. In minor version 2, each 20-byte sound uses attack/release
+u16, two waveform u8 tags, mix attack/release u16, sweep i8, decay u16,
+reverb u8, level i8, pan i8, transpose i8, gate ratio u16, and one reserved
+byte. Each 12-byte lane uses x, y, length, division, channel, role, and Play
+as u8 fields, followed by five reserved bytes; branches use a channel sentinel,
+zero Play, and inherit division. Minor version 1 used 16-byte sounds with two
+reserved bytes and six reserved lane bytes. Active lanes appear in Y/X
 order; their record positions define file-local indices. Steps follows that
 same lane order and ascending step order, with one count and its tile records
 per step. Lane lengths determine the number of counts, avoiding runtime IDs
-or a separate offset table. These are the v1 layouts. Waveform tags are explicitly 0=Sine, 1=Triangle,
+or a separate offset table. Waveform tags are explicitly 0=Sine, 1=Triangle,
 2=Saw, 3=Square, and 4=Noise. Branch records use role 1, division 0, and channel
 255; regular records use role 0 and a channel in 0–7. The decoder reconstructs
 branch inheritance rather than treating its zero division as a playback rate.
@@ -157,9 +161,9 @@ Relative Lock=5) and one-byte payload length, with these payloads:
 | Relative lock | mask u8, attack i16, release i16 in milliseconds | 7 |
 
 One u8 stack count per step accommodates the 64-cell height limit. The fixed
-v1 cost is 512 bytes reserved for the PSX wrapper, 32 for the application
-header, four 12-byte chunk headers, 8 global bytes, and eight 16-byte sounds:
-728 bytes. Every active lane adds 12 bytes plus one count byte per step, and
+minor version 2 cost is 512 bytes reserved for the PSX wrapper, 32 for the
+application header, four 12-byte chunk headers, 8 global bytes, and eight
+20-byte sounds: 760 bytes. Every active lane adds 12 bytes plus one count byte per step, and
 its tiles add the sizes above. The full model capacity would exceed a block;
 the one-block rule therefore adds an editing constraint alongside geometry,
 lane count, and tile pool capacity. Keep the encoding uncompressed so its cost

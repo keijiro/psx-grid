@@ -99,9 +99,9 @@ pub struct Sequencer {
 
 const _: () = assert!(core::mem::size_of::<Runner>() == 432);
 #[cfg(target_pointer_width = "64")]
-const _: () = assert!(core::mem::size_of::<Sequencer>() == 7664);
+const _: () = assert!(core::mem::size_of::<Sequencer>() == 7792);
 #[cfg(target_pointer_width = "32")]
-const _: () = assert!(core::mem::size_of::<Sequencer>() == 7632);
+const _: () = assert!(core::mem::size_of::<Sequencer>() == 7760);
 
 fn bound(value: c_int) -> c_int {
     value.clamp(0, MAX_MS)
@@ -222,6 +222,14 @@ pub unsafe extern "C" fn sequencer_start(
         }
     }
     order_runners(s);
+    for i in 0..s.count as usize {
+        let index = s.order[i] as usize;
+        if index != s.master as usize
+            && score.lanes[s.runners[index].origin as usize].play == 0
+        {
+            s.runners[index].next = u64::MAX;
+        }
+    }
 }
 
 /// Distinguishes a reused lane slot from the prior runner's origin.
@@ -466,14 +474,22 @@ fn tile_event(s: &mut Sequencer, index: usize, tile: u16, now: u64) {
                 s.sink.on.expect("note sink requires on callback")(
                     s.sink.context,
                     s.slice_at,
-                    value.pitch,
+                    (value.pitch + sound.transpose).clamp(0, 108),
                     sound,
                 )
             };
             if token != 0 {
+                let gate_ratio = if sound.gate_ratio == 0 {
+                    100
+                } else {
+                    sound.gate_ratio
+                };
                 let at = s.slice_at
-                    + u64::from(s.runners[index].duration / 20)
-                        * value.length as u64;
+                    + (u64::from(s.runners[index].duration / 20)
+                        * value.length as u64
+                        * gate_ratio as u64
+                        / 100)
+                        .max(u64::from(HZ / 200));
                 s.offs[(token & 31) as usize] = NoteOff { at, token };
                 s.off_min = s.off_min.min(at);
             }
@@ -536,7 +552,12 @@ fn slice(s: &mut Sequencer, now: u64, budget: &mut c_int) -> bool {
                         }
                         for i in 0..s.count as usize {
                             let pending = &mut s.runners[s.order[i] as usize];
-                            if pending.next == u64::MAX {
+                            if pending.next == u64::MAX
+                                && (s.order[i] == s.master
+                                    || score.lanes[pending.origin as usize]
+                                        .play
+                                        != 0)
+                            {
                                 pending.next = seam;
                             }
                         }
@@ -544,7 +565,17 @@ fn slice(s: &mut Sequencer, now: u64, budget: &mut c_int) -> bool {
                 }
             }
             let r = &mut s.runners[index];
-            r.next = r.next.wrapping_add(u64::from(r.duration));
+            // A switched-off lane finishes its current lap, then waits for
+            // the master's next seam to restart from step zero.
+            if r.lane == r.origin
+                && r.step == 0
+                && index != s.master as usize
+                && score.lanes[r.origin as usize].play == 0
+            {
+                r.next = u64::MAX;
+            } else {
+                r.next = r.next.wrapping_add(u64::from(r.duration));
+            }
         } else {
             while s.held_index < s.runners[index].held_count {
                 if *budget == 0 {

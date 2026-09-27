@@ -335,7 +335,7 @@ fn menu_title(editor: &Editor, out: &mut Text<'_>) {
 /// Sizes around visible text while the pattern grid retains its fixed pitch.
 fn menu_width(
     editor: &Editor,
-    rows: &[EditorRow; 16],
+    rows: &[EditorRow; 20],
     count: usize,
     title: &[u8],
     status: &[u8],
@@ -410,7 +410,7 @@ struct MenuLayout {
 /// Draws the surface-specific body after the shared panel and title.
 fn menu_body(
     editor: &Editor,
-    rows: &[EditorRow; 16],
+    rows: &[EditorRow; 20],
     count: usize,
     layout: MenuLayout,
     status: &[u8],
@@ -492,7 +492,7 @@ fn draw_menu(editor: &Editor) {
         coarse: 0,
         label: core::ptr::null(),
     };
-    let mut menu_rows = [empty; 16];
+    let mut menu_rows = [empty; 20];
     let count = rows(editor, &mut menu_rows);
     let mut title_bytes = [0; 40];
     let mut title = Text::new(&mut title_bytes);

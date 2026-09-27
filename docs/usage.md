@@ -43,7 +43,7 @@ the lane by one step. Occupied cells are never overwritten.
 | Note | Pitch C0–C9, initially C4; length 0.25–64 steps, initially 1 |
 | Cycle gate | Period 2–32, initially 4; pattern with only lap 1 enabled |
 | Probability gate | Chance 0–100%, initially 50% |
-| Regular head (`Ch1`–`Ch8`) | Length, step division, channel, shared Sound settings, delete lane |
+| Regular head (`Ch1`–`Ch8`) | Length, step division, channel, Play, shared Sound settings, delete lane |
 | Relative Lock | Separate Attack/Release enable switches and signed millisecond offsets; both disabled initially |
 | Branch head (`B`) | Length, delete lane; division and channel inherited from its source |
 | Jump | Copy stack, delete tile; destination is its own branch |
@@ -156,7 +156,8 @@ moving a Jump subtree to another lane changes that inheritance. Regular heads
 show their assigned channel on the score; branch heads retain `B`.
 
 Open `SOUND` on a regular head to edit that channel's shared sound in a
-single scrolling column. WAVEFORM contains WAVE 1 and WAVE 2; AMP and MIX
+single scrolling column. Level, Pan, Transpose, and Gate ratio precede the
+waveform controls. WAVEFORM contains WAVE 1 and WAVE 2; AMP and MIX
 each contain Attack and Release; PITCH contains Sweep and Decay; REVERB is an
 on/off row (initially Off). All rows commit immediately. O returns to the same
 SOUND row in the head menu. Heads assigned to the same channel edit the same
@@ -166,11 +167,26 @@ independent.
 
 | Row | Range | Initial value |
 | --- | --- | --- |
+| Level | -60–+6 dB | 0 dB |
+| Pan | -100% left–+100% right | Center |
+| Transpose | -24–+24 semitones | 0 |
+| Gate ratio | 5–400% of note length | 100% |
 | Wave 1, Wave 2 | Sine, Triangle, Saw, Square, Noise | Both Sine |
 | Amp Attack, Amp Release | 0–16,000 ms | Both 5 ms |
 | Mix Attack, Mix Release | 0–500 ms | 120 ms, 280 ms |
 | Pitch Sweep | -24–+24 semitones | 0 |
 | Pitch Decay | 0–2,000 ms | 200 ms |
+
+The regular head's `PLAY` switch starts On. A lane switched Off finishes its
+current lap and then stops. Switching it On restarts it from step zero at the
+next master lap boundary. A lane already Off when playback starts waits for
+that boundary. The master lane always plays to maintain synchronization.
+Notes already sounding keep their gates.
+
+Transpose shifts each new note before pitch sweep and clamps it to C0–C9.
+Gate ratio multiplies the note tile's gate length without changing the lane's
+step timing. Level scales the voice amplitude and Pan balances its two stereo
+outputs; both are captured when the note starts.
 
 Amplitude rises at note-on, sustains until gate-off, and releases from its
 current level. Mix independently travels from A to B during its attack and
