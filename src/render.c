@@ -78,8 +78,6 @@ void render_backend_monitor_reset(void)
 
 const RenderMonitor* render_backend_monitor(void)
 {
-    monitor.packet_peak = render_packet_peak;
-    monitor.packet_overflows = render_overflows;
     monitor.audio_dispatch_peak = audio_dispatch_peak;
     monitor.audio_skipped_notes = audio_skipped_notes;
     monitor.audio_queue_underruns = audio_queue_underruns;
@@ -185,7 +183,6 @@ void render_backend_present(void)
     AudioTime work_end = audio_platform_time();
     uint32_t work = (uint32_t)(work_end - work_start);
     monitor.work_ticks = work;
-    if (work > monitor.work_peak) monitor.work_peak = work;
     monitor.history[monitor.history_next] = work;
     monitor.history_next =
         (monitor.history_next + 1) % RENDER_MONITOR_HISTORY;
@@ -193,20 +190,23 @@ void render_backend_present(void)
         monitor.history_count++;
 #endif
     DrawSync(0);
-#if defined(__mips__) && !defined(NDEBUG)
-    AudioTime gpu_done = audio_platform_time();
-    monitor.gpu_wait_ticks = (uint32_t)(gpu_done - work_end);
-#endif
     VSync(0);
 #if defined(__mips__) && !defined(NDEBUG)
     AudioTime vsync_done = audio_platform_time();
     uint32_t vblank = (uint32_t)VSync(-1);
     uint32_t frames = vblank - last_vblank;
-    monitor.vsync_wait_ticks = (uint32_t)(vsync_done - gpu_done);
-    if (frames > 1) monitor.missed_vsyncs += frames - 1;
     if (have_vsync && frames > 0)
         monitor.frame_ticks = (uint32_t)((vsync_done - last_vsync_at) /
                                          frames);
+    // Store a percentage with its own frame budget so later VSync jitter
+    // cannot change the displayed peak without a new slow frame.
+    if (monitor.frame_ticks > 0)
+    {
+        uint32_t usage = (uint32_t)((uint64_t)work * 100 /
+                                    monitor.frame_ticks);
+        if (usage > monitor.work_peak_percent)
+            monitor.work_peak_percent = usage;
+    }
     last_vblank = vblank;
     last_vsync_at = vsync_done;
     have_vsync = 1;

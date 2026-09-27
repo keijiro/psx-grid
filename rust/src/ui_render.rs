@@ -76,12 +76,7 @@ struct RenderMonitor {
     history_count: u32,
     frame_ticks: u32,
     work_ticks: u32,
-    work_peak: u32,
-    gpu_wait_ticks: u32,
-    vsync_wait_ticks: u32,
-    missed_vsyncs: u32,
-    packet_peak: u32,
-    packet_overflows: u32,
+    work_peak_percent: u32,
     audio_dispatch_peak: u32,
     audio_skipped_notes: u32,
     audio_queue_underruns: u32,
@@ -256,73 +251,104 @@ fn percent(ticks: u32, budget: u32) -> u32 {
     ((u64::from(ticks) * 100) / u64::from(budget.max(1))) as u32
 }
 
-/// Draws last frame's wall-time history over the editor in Debug builds.
+/// Draws a monitor primitive in the reserved bottom band.
+#[cfg(all(target_arch = "mips", debug_assertions))]
+fn monitor_tile(
+    depth: c_int,
+    x: c_int,
+    y: c_int,
+    w: c_int,
+    h: c_int,
+    gray: c_int,
+) {
+    // SAFETY: Every monitor primitive has fixed geometry inside the frame.
+    unsafe { render_backend_tile(depth, x, y, w, h, gray) };
+}
+
+/// Draws glyphs without the menu renderer's protected-margin clipping.
+#[cfg(all(target_arch = "mips", debug_assertions))]
+fn monitor_text(mut x: c_int, y: c_int, bytes: &[u8], right: c_int) {
+    for &ch in bytes {
+        let i = glyph(ch);
+        let advance = c_int::from(ADVANCE[i]);
+        if x + advance > right {
+            break;
+        }
+        if i != 0 {
+            // SAFETY: Fixed band positions and the atlas glyph table keep
+            // both destination and source inside their respective bounds.
+            unsafe {
+                render_backend_sprite(
+                    0,
+                    x,
+                    y,
+                    (i as c_int % 32) * 8,
+                    24 + (i as c_int / 32) * 8,
+                    advance - 1,
+                    7,
+                )
+            };
+        }
+        x += advance;
+    }
+}
+
+/// Draws the last frame's diagnostics in the bottom 16-pixel band.
 #[cfg(all(target_arch = "mips", debug_assertions))]
 fn draw_monitor() {
     // SAFETY: The C backend owns static storage and frame rendering is serial.
     let monitor = unsafe { &*render_backend_monitor() };
     let budget = monitor.frame_ticks.max(1);
     let cpu = percent(monitor.work_ticks, budget);
-    let peak = percent(monitor.work_peak, budget);
+    let peak = monitor.work_peak_percent;
     let audio = percent(monitor.audio_dispatch_peak, 4233);
 
     // Draw first: ordering-table buckets reverse insertion order, so the
     // monitor stays above the editor's panels and labels.
-    rect(2, 148, 18, 168, 94, UI_PANEL);
-    rect(1, 154, 40, 144, 1, UI_RULE);
+    monitor_tile(
+        1,
+        0,
+        SCREEN_H - UI_MENU_EDGE,
+        SCREEN_W,
+        UI_MENU_EDGE,
+        UI_PANEL,
+    );
+    monitor_tile(0, 172, 230, 144, 1, UI_RULE);
     for i in 0..MONITOR_HISTORY {
         let index = (monitor.history_next as usize + i) % MONITOR_HISTORY;
         if i + (monitor.history_count as usize) < MONITOR_HISTORY {
             continue;
         }
         let ticks = monitor.history[index];
-        let height = ((u64::from(ticks) * 22 * 100) / (u64::from(budget) * 150))
-            .min(22) as c_int;
+        let height = ((u64::from(ticks) * 14 * 100) / (u64::from(budget) * 150))
+            .min(14) as c_int;
         if height > 0 {
-            rect(1, 154 + i as c_int * 3, 55 - height, 2, height, UI_INK);
+            monitor_tile(
+                0,
+                172 + i as c_int * 3,
+                239 - height,
+                2,
+                height,
+                UI_INK,
+            );
         }
     }
 
     let mut bytes = [0; 48];
     let mut label = Text::new(&mut bytes);
-    let _ = write!(label, "CPU {}% PEAK {}%", cpu, peak);
-    text(154, 22, label.as_bytes());
-
-    label.clear();
-    let gpu_tenths = monitor.gpu_wait_ticks / 423;
-    let vsync_tenths = monitor.vsync_wait_ticks / 423;
-    let _ = write!(
-        label,
-        "GPU {}.{} VS {}.{} MS",
-        gpu_tenths / 10,
-        gpu_tenths % 10,
-        vsync_tenths / 10,
-        vsync_tenths % 10
-    );
-    text(154, 59, label.as_bytes());
+    let _ = write!(label, "CPU {}% P {}%", cpu, peak);
+    monitor_text(4, 225, label.as_bytes(), 168);
 
     label.clear();
     let _ = write!(
         label,
-        "DROP {} PKT {}K/64K",
-        monitor.missed_vsyncs,
-        monitor.packet_peak / 1024
-    );
-    text(154, 70, label.as_bytes());
-
-    label.clear();
-    let _ = write!(label, "OVF {} AUD {}%", monitor.packet_overflows, audio);
-    text(154, 81, label.as_bytes());
-
-    label.clear();
-    let _ = write!(
-        label,
-        "SK {} U {} O {}",
+        "AUD {}% SK {} U {} O {}",
+        audio,
         monitor.audio_skipped_notes,
         monitor.audio_queue_underruns,
         monitor.audio_overloads
     );
-    text(154, 92, label.as_bytes());
+    monitor_text(4, 233, label.as_bytes(), 168);
 }
 
 /// Stops before a whole glyph would cross the panel limit.

@@ -80,8 +80,7 @@ with tempfile.TemporaryDirectory(prefix='session-', dir=output) as directory:
     def stable_screen(png):
         if args.configuration == 'release':
             return png
-        # The Debug monitor animates in rows 18..111. PNG filters may refer
-        # to the preceding row, so skip row 112 as well when comparing states.
+        # The Debug monitor animates only in the bottom 16 rows.
         assert png[24:29] == b'\x08\x06\x00\x00\x00'
         offset = 8
         chunks = []
@@ -93,7 +92,7 @@ with tempfile.TemporaryDirectory(prefix='session-', dir=output) as directory:
         raw = zlib.decompress(b''.join(chunks))
         stride = 1 + 320 * 4
         assert len(raw) == stride * 240
-        return raw[:18 * stride] + raw[113 * stride:]
+        return raw[:224 * stride]
     with output.joinpath('emulator.log').open('wb') as log:
         process = subprocess.Popen(command, cwd=root, stdout=log, stderr=subprocess.STDOUT)
         try:
