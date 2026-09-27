@@ -73,9 +73,10 @@ beside their source in `src/`.
   register driver for host tests.
 - `include/audio_synth.h`: Opaque Rust voice state, synthesis declarations,
   and the inline binding to pointer-based Rust callbacks.
-- `src/audio_platform.h`, `src/audio_psx.c`: Double-buffered score
-  publication, SPU upload/registers, timer interrupts, lifecycle, and
-  debugger-visible measurements.
+- `rust/src/audio_transport.rs`, `include/audio_platform.h`: Double-buffered
+  score publication, transport lifecycle, and replacement handoff.
+- `src/audio_psx.c`, `src/audio_hw.h`: SPU upload/registers, timer interrupts,
+  hardware callbacks, and debugger-visible measurements.
 - `scripts/generate-audio.py`: Deterministic five-wave ADPCM banks
   (`generated/wave_samples.h`), fixed-point control tables
   (`generated/audio_tables.h` and `rust/src/audio_tables.rs`), and
@@ -110,8 +111,9 @@ The Rust crate targets `mipsel-sony-psx` and builds `core` from pinned
 static library into the game and fixtures.
 The editor, model, file codec, storage coordinator, input history, and display
 formatting run in Rust. C retains SDK and hardware access. Shared
-aggregates cross the C/Rust boundary through pointers. Sequencing and voice
-synthesis run in Rust from the timer callback. Changes to either path require
+aggregates cross the C/Rust boundary through pointers. The main thread calls
+Rust transport operations directly; the C timer callback enters Rust to
+service sequencing and voice synthesis. Changes to either path require
 checking the 1 ms dispatch deadline and interrupt stack use on the emulator.
 `scripts/elf2x-rust.py` omits Rust's GNU_STACK metadata from the temporary ELF
 passed to the SDK converter. The linked ELF itself is unchanged. Host tests

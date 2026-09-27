@@ -7,6 +7,7 @@
 
 mod audio;
 mod audio_tables;
+mod audio_transport;
 mod editor;
 mod input;
 mod input_queue;

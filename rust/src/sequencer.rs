@@ -4,8 +4,8 @@
 //! timer service serializes access and prepared replacements enter at a lap seam.
 
 // Implementation notes:
-// The layout mirrors audio_sequencer.h while C tests and the platform inspect
-// state. The sink crosses the MIPS C/Rust boundary by pointer because the two
+// The layout mirrors audio_sequencer.h for C tests and FFI callers. The sink
+// crosses the MIPS C/Rust boundary by pointer because the two
 // compilers pass aggregate values differently.
 
 use core::ffi::{c_int, c_void};
@@ -29,8 +29,8 @@ const LOCK_RELEASE: c_int = 2;
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct NoteSink {
-    context: *mut c_void,
-    on: Option<
+    pub(crate) context: *mut c_void,
+    pub(crate) on: Option<
         unsafe extern "C" fn(
             *mut c_void,
             u64,
@@ -38,14 +38,14 @@ pub struct NoteSink {
             *const SoundSettings,
         ) -> u32,
     >,
-    off: Option<unsafe extern "C" fn(*mut c_void, u64, u32)>,
-    stop: Option<unsafe extern "C" fn(*mut c_void, u64)>,
-    advance: Option<unsafe extern "C" fn(*mut c_void, u64)>,
+    pub(crate) off: Option<unsafe extern "C" fn(*mut c_void, u64, u32)>,
+    pub(crate) stop: Option<unsafe extern "C" fn(*mut c_void, u64)>,
+    pub(crate) advance: Option<unsafe extern "C" fn(*mut c_void, u64)>,
 }
 
 #[repr(C)]
 #[derive(Clone, Copy)]
-struct Runner {
+pub(crate) struct Runner {
     origin: c_int,
     lane: c_int,
     step: c_int,
@@ -54,7 +54,7 @@ struct Runner {
     lap: u32,
     duration: u32,
     active: c_int,
-    next: u64,
+    pub(crate) next: u64,
     held: [u16; HEIGHT],
     held_generation: [u32; HEIGHT],
     held_count: c_int,
@@ -72,17 +72,17 @@ struct NoteOff {
 pub struct Sequencer {
     score: *const Score,
     sink: NoteSink,
-    runners: [Runner; LANES],
+    pub(crate) runners: [Runner; LANES],
     order: [c_int; LANES],
     offs: [NoteOff; VOICES],
-    count: c_int,
-    playing: c_int,
+    pub(crate) count: c_int,
+    pub(crate) playing: c_int,
     master: c_int,
     replacement: *mut Sequencer,
     replacement_at: u64,
     random: u32,
-    skipped: u32,
-    overloads: u32,
+    pub(crate) skipped: u32,
+    pub(crate) overloads: u32,
     slice_at: u64,
     working: [SoundSettings; CHANNELS],
     slicing: c_int,

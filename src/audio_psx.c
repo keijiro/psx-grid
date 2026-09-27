@@ -1,13 +1,13 @@
 /*
- * audio_psx.c - PlayStation SPU and timer transport
+ * audio_psx.c - PlayStation SPU and timer backend
  *
  * Implementation notes:
  *
- * The timer callback owns the active sequencer while the main thread owns
- * score preparation, SPU resource setup and card-session handoffs.
+ * Rust owns transport state; this file owns SPU registers, the extended clock,
+ * and the timer callback that enters Rust after hardware setup.
  */
 
-#include "audio_platform.h"
+#include "audio_hw.h"
 #include "audio_synth.h"
 
 #include <psxapi.h>
@@ -17,37 +17,9 @@
 #include "pad.h"
 #include "wave_samples.h"
 
-/*
- * The main thread owns the spare until it publishes it. The interrupt owns
- * both buffers while one is pending, and releases the old one only after a
- * whole slice has finished. No score copy needs to mask timer interrupts.
- */
-static Score snapshots[2];
-static volatile int active_snapshot;
-static volatile int pending_snapshot = -1;
-static Sequencer states[2];
-static Sequencer* volatile seq = &states[0];
-
-enum
-{
-    REPLACE_IDLE,                   // No replacement is in progress.
-    REPLACE_PREPARING,              // A spare snapshot is being prepared.
-    REPLACE_WAITING,                // Playback has not reached the handoff.
-    REPLACE_ADOPTED                 // The caller has not taken the new score.
-};
-
-/*
- * Replacement moves from main-thread preparation to interrupt adoption and
- * remains acknowledged until the editor takes the new snapshot.
- */
-static volatile int replacement_state;
-static int replacement_snapshot;
-static Audio* audio;
 static AudioTime clock_ticks;
 static AudioTime service_previous;
 static uint16_t last_counter;
-static volatile int enabled;
-static volatile uint32_t published_revision;
 volatile uint32_t audio_service_peak;
 volatile uint32_t audio_interval_peak;
 volatile uint32_t audio_services;
@@ -153,8 +125,8 @@ static int cached_pitch[SEQUENCER_VOICES];
  * Prepares both hardware halves from the same pitch bank while software
  * envelopes retain the score's millisecond attack and release settings.
  */
-static void start_voice(void* ctx, int slot, int bank,
-                        const SoundSettings* sound)
+void audio_hw_start_voice(void* ctx, int slot, int bank,
+                          const SoundSettings* sound)
 {
     (void)ctx;
     for (int half = 0; half < 2; half++)
@@ -172,7 +144,7 @@ static void start_voice(void* ctx, int slot, int bank,
     }
 }
 
-static void volume(void* ctx, int slot, int a, int b)
+void audio_hw_volume(void* ctx, int slot, int a, int b)
 {
     (void)ctx;
     for (int half = 0; half < 2; half++)
@@ -185,7 +157,7 @@ static void volume(void* ctx, int slot, int a, int b)
     }
 }
 
-static void pitch(void* ctx, int slot, int value)
+void audio_hw_pitch(void* ctx, int slot, int value)
 {
     (void)ctx;
     if (cached_pitch[slot] == value) return;
@@ -198,7 +170,7 @@ static void pitch(void* ctx, int slot, int value)
  * Redux reports 1 for a pending key-on, including a stolen voice whose old
  * envelope was nonzero. Wait for both halves of the logical pair.
  */
-static int ready(void* ctx, int slot)
+int audio_hw_ready(void* ctx, int slot)
 {
     (void)ctx;
     return (SPU_CH_ADSR_VOL(slot * 2) & 0x7fff) > 1 &&
@@ -219,8 +191,8 @@ static uint32_t hardware_mask(uint32_t logical)
  * Commits logical key masks after Rust rejects overdue starts. Rust supplies
  * the wet mask so this callback does not reenter the mutable synthesizer.
  */
-static void flush(void* ctx, uint32_t starts, uint32_t stops, uint32_t sends,
-                  uint32_t dispatch_peak)
+void audio_hw_flush(void* ctx, uint32_t starts, uint32_t stops, uint32_t sends,
+                    uint32_t dispatch_peak)
 {
     (void)ctx;
     if (!(starts | stops)) return;
@@ -263,28 +235,15 @@ static AudioTime read_clock(void)
     return clock_ticks;
 }
 
-static AudioTime audio_clock(void* context)
+AudioTime audio_hw_clock(void* context)
 {
     (void)context;
     return read_clock();
 }
 
 /*
- * Publishes the adopted state and its score revision only after the sequencer
- * returns the new active pointer.
- */
-static void replacement_adopted(Sequencer* next)
-{
-    if (next == seq) return;
-    seq = next;
-    active_snapshot = replacement_snapshot;
-    published_revision = snapshots[active_snapshot].revision;
-    replacement_state = REPLACE_ADOPTED;
-}
-
-/*
- * Shares the timer callback between pad polling, score publication and bounded
- * audio work, then records deadline diagnostics.
+ * Samples time and pad state before entering the Rust transport. The callback
+ * never owns score publication or sequencer state.
  */
 static void service(void)
 {
@@ -293,36 +252,13 @@ static void service(void)
     service_previous = now;
     if (interval > audio_interval_peak) audio_interval_peak = interval;
     pad_service();
-    if (enabled)
-    {
-        int pending = pending_snapshot;
-        if (pending >= 0 && sequencer_resync(seq, &snapshots[pending], now))
-        {
-            active_snapshot = pending;
-            published_revision = snapshots[pending].revision;
-            pending_snapshot = -1;
-        }
-        replacement_adopted(sequencer_service(seq, now));
-    }
-    else
-    {
-        NoteSink sink = audio_sink(audio);
-        sink.advance(sink.context, now);
-    }
-    // Register fixtures use the completed control timestamp, since reading the
-    // main-thread clock before readback can straddle another service.
-    audio_control_time = (uint32_t)now;
-    audio_modulation_start =
-        (uint32_t)audio_voice_modulation_start(audio, now);
-    audio_voice_steals = audio_steals(audio);
-    audio_skipped_notes = seq->skipped + audio_late_starts(audio);
-    audio_overloads = seq->overloads;
+    audio_transport_service(now);
     uint32_t elapsed = (uint32_t)(read_clock() - now);
     if (elapsed > audio_service_peak) audio_service_peak = elapsed;
     audio_services++;
 }
 
-void audio_platform_init(void)
+void audio_hw_init(void)
 {
     SpuInit();
     reverb_size = reverb_amount = -1;
@@ -338,10 +274,8 @@ void audio_platform_init(void)
     for (int i = 0; i < SEQUENCER_VOICES; i++)
     {
         cached_pitch[i] = -1;
-        volume(NULL, i, 0, 0);
+        audio_hw_volume(NULL, i, 0, 0);
     }
-    audio = audio_init(NULL, start_voice, volume, pitch, flush, ready,
-                       audio_clock);
     // Timer 2 free-runs at CLK/8 (4,233,600 Hz). Timer 0 requests service every
     // 8,467 CPU clocks, approximately 0.25 ms, independently of VSync. Retain
     // the cadence used by the original sine backend; paired control cost and
@@ -364,34 +298,63 @@ void audio_platform_init(void)
     ExitCriticalSection();
 }
 
-void audio_platform_card_stop(void)
+void audio_hw_enter(void)
 {
     EnterCriticalSection();
-    if (enabled)
+}
+
+void audio_hw_exit(void)
+{
+    ExitCriticalSection();
+}
+
+AudioTime audio_hw_now(void)
+{
+    return read_clock();
+}
+
+AudioTime audio_hw_time(void)
+{
+    EnterCriticalSection();
+    AudioTime now = read_clock();
+    ExitCriticalSection();
+    return now;
+}
+
+void audio_hw_reverb(const Score* score)
+{
+    update_reverb(score);
+}
+
+void audio_hw_restart(void)
+{
+    for (int i = 0; i < SEQUENCER_VOICES; i++)
     {
-        replacement_adopted(sequencer_stop(seq, read_clock()));
-        enabled = 0;
+        audio_hw_volume(NULL, i, 0, 0);
     }
-    pending_snapshot = -1;
-    // The ordinary Stop deliberately runs a release ramp in later timer
-    // services. A BIOS session has no such services, so silence both halves of
-    // every pair and the wet return before detaching the dispatcher.
-    for (int i = 0; i < SEQUENCER_VOICES; i++) volume(NULL, i, 0, 0);
+    SPU_KEY_OFF1 = 0xffff;
+    SPU_KEY_OFF2 = 0xff;
+}
+
+void audio_hw_card_stop(void)
+{
+    // A BIOS session has no timer services to finish a release ramp.
+    for (int i = 0; i < SEQUENCER_VOICES; i++)
+    {
+        audio_hw_volume(NULL, i, 0, 0);
+    }
     SPU_KEY_OFF1 = 0xffff;
     SPU_KEY_OFF2 = 0xff;
     SPU_REVERB_ON1 = SPU_REVERB_ON2 = 0;
     SPU_REVERB_VOL_L = SPU_REVERB_VOL_R = 0;
     SPU_CTRL &= ~0x80;
-    audio = audio_init(NULL, start_voice, volume, pitch, flush, ready,
-                       audio_clock);
     for (int i = 0; i < AUDIO_HARDWARE_VOICES; i++) cached_volume[i] = -1;
     TIMER_CTRL(0) = 0;
     IRQ_MASK &= ~(1u << IRQ_TIMER0);
     IRQ_STAT = (uint16_t)~(1u << IRQ_TIMER0);
-    ExitCriticalSection();
 }
 
-void audio_platform_card_resume(const Score* score)
+void audio_hw_card_resume(const Score* score)
 {
     // BIOS work may span arbitrarily many Timer 2 wraps. Discard that interval
     // instead of turning it into an overdue musical service.
@@ -406,135 +369,4 @@ void audio_platform_card_resume(const Score* score)
     IRQ_MASK |= 1u << IRQ_TIMER0;
     TIMER_CTRL(0) = 0x0058;
     ExitCriticalSection();
-}
-
-void audio_platform_update(const Score* score, int connected, int start)
-{
-    if (replacement_state == REPLACE_IDLE) update_reverb(score);
-    if (!connected || (start && enabled))
-    {
-        EnterCriticalSection();
-        if (enabled)
-        {
-            replacement_adopted(sequencer_stop(seq, read_clock()));
-            enabled = 0;
-        }
-        pending_snapshot = -1;
-        ExitCriticalSection();
-    }
-    else if (start)
-    {
-        if (replacement_state != REPLACE_IDLE) return;
-        // The timer remains live while the immutable snapshot is prepared.
-        // Nothing in the interrupt can observe this copy until publication.
-        snapshots[0] = *score;
-        NoteSink sink = audio_sink(audio);
-        sequencer_start(seq, &snapshots[0], &sink, 0);
-        EnterCriticalSection();
-        // Restart discards release tails. Zero their registers before reuse;
-        // the regular stop path, in contrast, always completes its 5 ms ramp.
-        for (int i = 0; i < SEQUENCER_VOICES; i++)
-        {
-            volume(NULL, i, 0, 0);
-        }
-        SPU_KEY_OFF1 = 0xffff;
-        SPU_KEY_OFF2 = 0xff;
-        // Let interrupt flush retire every old send, including unused pairs.
-        // New starts remove their own stop bits through the normal allocator.
-        audio_restart(audio);
-        // Begin the timeline after restart preparation. Charging register
-        // cleanup to the first dispatch can drop an otherwise timely chord when
-        // all 16 runners begin together.
-        AudioTime now = read_clock();
-        for (int i = 0; i < seq->count; i++) seq->runners[i].next = now;
-        audio_started = (uint32_t)now;
-        audio_dispatch_peak = audio_note_count = audio_first_note =
-            audio_last_note = 0;
-        active_snapshot = 0;
-        pending_snapshot = -1;
-        published_revision = score->revision;
-        enabled = 1;
-        ExitCriticalSection();
-    }
-    else if (replacement_state == REPLACE_IDLE && enabled &&
-             pending_snapshot < 0 && score->revision != published_revision)
-    {
-        // With no pending publication the active buffer cannot change during
-        // this copy. Edits arriving while a buffer is pending are coalesced in
-        // the editor score and copied on a later main-thread update.
-        int spare = 1 - active_snapshot;
-        snapshots[spare] = *score;
-        EnterCriticalSection();
-        pending_snapshot = spare;
-        ExitCriticalSection();
-    }
-}
-
-int audio_platform_playing(void)
-{
-    return enabled;
-}
-
-uint32_t audio_platform_revision(void)
-{
-    return published_revision;
-}
-
-AudioTime audio_platform_time(void)
-{
-    EnterCriticalSection();
-    AudioTime now = read_clock();
-    ExitCriticalSection();
-    return now;
-}
-
-int audio_platform_replace(const Score* incoming)
-{
-    EnterCriticalSection();
-    if (replacement_state != REPLACE_IDLE)
-    {
-        ExitCriticalSection();
-        return 0;
-    }
-    replacement_state = REPLACE_PREPARING;
-    pending_snapshot = -1;
-    replacement_snapshot = 1 - active_snapshot;
-    ExitCriticalSection();
-    snapshots[replacement_snapshot] = *incoming;
-    Sequencer* prepared = seq == &states[0] ? &states[1] : &states[0];
-    NoteSink sink = audio_sink(audio);
-    sequencer_start(prepared, &snapshots[replacement_snapshot],
-                    &sink, 0);
-    EnterCriticalSection();
-    if (enabled)
-    {
-        sequencer_replace(seq, prepared, read_clock());
-        replacement_state = REPLACE_WAITING;
-    }
-    else
-    {
-        prepared->playing = 0;
-        replacement_adopted(prepared);
-    }
-    ExitCriticalSection();
-    return 1;
-}
-
-int audio_platform_take_replacement(Score* score)
-{
-    if (replacement_state != REPLACE_ADOPTED) return 0;
-    // Publication remains locked through the editor copy and effect update.
-    // Same-size reverb keeps its delay memory; a size change wet-mutes and
-    // clears only after adoption, with incoming dry notes already running.
-    *score = snapshots[active_snapshot];
-    update_reverb(score);
-    EnterCriticalSection();
-    replacement_state = REPLACE_IDLE;
-    ExitCriticalSection();
-    return 1;
-}
-
-int audio_platform_replacing(void)
-{
-    return replacement_state != REPLACE_IDLE;
 }

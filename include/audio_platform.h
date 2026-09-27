@@ -1,8 +1,8 @@
 /*
  * audio_platform.h - PlayStation audio transport and publication
  *
- * The platform owns timer service, SPU setup, and score snapshots. Lifecycle
- * and live publication run on the main thread.
+ * Rust owns score snapshots and transport state. C supplies timer and SPU
+ * services. Lifecycle and live publication run on the main thread.
  */
 
 #ifndef AUDIO_PLATFORM_H
