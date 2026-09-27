@@ -10,7 +10,7 @@
 #ifndef AUDIO_SYNTH_H
 #define AUDIO_SYNTH_H
 
-#include "audio/sequencer.h"
+#include "audio_sequencer.h"
 
 #include <stddef.h>
 #include <stdint.h>

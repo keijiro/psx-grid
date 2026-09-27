@@ -100,7 +100,7 @@ static TileValue relative(int a, int r)
 static void start(void)
 {
     snapshot = score;
-    sequencer_start(&seq, &snapshot, trace, 0);
+    sequencer_start(&seq, &snapshot, &trace, 0);
     sequencer_service(&seq, 0);
 }
 
@@ -252,7 +252,7 @@ static void gates_branches(void)
         Event saved[100];
         memcpy(saved, events, n * sizeof(Event));
         count = off_count = 0;
-        sequencer_start(&seq, &snapshot, trace, 0);
+        sequencer_start(&seq, &snapshot, &trace, 0);
         for (int i = 0; i < 100; i++)
         {
             sequencer_service(&seq, (AudioTime)i * SEQUENCER_HZ / 8);
@@ -433,7 +433,7 @@ static void voices(void)
     put(1, 0, test_score_default(TILE_NOTE));
     put(2, 0, relative(0, -500));
     snapshot = score;
-    sequencer_start(&seq, &snapshot, sink, 0);
+    sequencer_start(&seq, &snapshot, &sink, 0);
     sequencer_service(&seq, 0);
     sequencer_service(&seq, SEQUENCER_HZ / 8);
     assert(voice(0).end == SEQUENCER_HZ / 8 + audio_ms(500));
@@ -650,7 +650,7 @@ static void dense_and_rollback(void)
     put(9, 0, test_score_default(TILE_NOTE));
     assert(!score_set_division(&score, 1, 32));
     snapshot = score;
-    sequencer_start(&seq, &snapshot, trace, 0);
+    sequencer_start(&seq, &snapshot, &trace, 0);
     sequencer_service(&seq, 0);
     assert(seq.slicing && count == 0);
     sequencer_service(&seq, 0);
@@ -933,7 +933,7 @@ static void live_split(void)
     for (int i = 0; i < 63; i++) put(1, i, relative(1, 1));
     put(1, 63, test_score_default(TILE_NOTE));
     snapshot = score;
-    sequencer_start(&seq, &snapshot, trace, 0);
+    sequencer_start(&seq, &snapshot, &trace, 0);
     sequencer_service(&seq, 0);
     assert(seq.slicing && !count);
     TileValue v = test_score_default(TILE_NOTE);
@@ -1021,7 +1021,7 @@ static void channels(void)
     assert(!score_set_channel(&score, 2, 7));
     assert(!test_score_set_sound(&score, 7, second));
     snapshot = score;
-    sequencer_start(&seq, &snapshot, trace, 0);
+    sequencer_start(&seq, &snapshot, &trace, 0);
     sequencer_service(&seq, 0);
     assert(seq.slicing && count == 0);
     assert(!score_set_channel(&score, 0, 7));

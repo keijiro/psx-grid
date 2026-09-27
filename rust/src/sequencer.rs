@@ -4,9 +4,9 @@
 //! timer service serializes access and prepared replacements enter at a lap seam.
 
 // Implementation notes:
-// The layout mirrors sequencer.h while C tests and the platform inspect state.
-// A C entry point owns the aggregate NoteSink ABI. Note callbacks use pointers
-// to keep the timer path compatible with the shared C/Rust interface.
+// The layout mirrors audio_sequencer.h while C tests and the platform inspect
+// state. The sink crosses the MIPS C/Rust boundary by pointer because the two
+// compilers pass aggregate values differently.
 
 use core::ffi::{c_int, c_void};
 
@@ -181,9 +181,10 @@ fn order_runners(s: &mut Sequencer) {
 /// Starts traversal from a caller-owned score and a copied C sink.
 ///
 /// # Safety
-/// Both pointers must be valid, nonoverlapping and kept alive during service.
+/// All pointers must be valid and nonoverlapping. The score and sink context
+/// must remain live during service; the sink value need only live for this call.
 #[no_mangle]
-pub unsafe extern "C" fn rust_sequencer_start(
+pub unsafe extern "C" fn sequencer_start(
     s: *mut Sequencer,
     score: *const Score,
     sink: *const NoteSink,
@@ -195,7 +196,7 @@ pub unsafe extern "C" fn rust_sequencer_start(
         &mut *s
     };
     s.score = score;
-    // SAFETY: The C adapter owns a valid sink value for this call.
+    // SAFETY: The caller owns a valid sink value for this call.
     s.sink = unsafe { *sink };
     s.playing = 1;
     s.random = 0x6d2b79f5;

@@ -9,7 +9,7 @@
 
 #include "value_api.h"
 
-#include "audio/sequencer.h"
+#include "audio_sequencer.h"
 
 #include <assert.h>
 #include <stdio.h>
@@ -164,9 +164,9 @@ static void mixed_divisions_and_master(void)
     lane(&incoming, 0, 0, 1, 16, 0, 70);
     lane(&incoming, 0, 4, 1, 32, 1, 80);
     reset_trace();
-    sequencer_start(&current, &old, trace, 0);
+    sequencer_start(&current, &old, &trace, 0);
     sequencer_service(&current, 0);
-    sequencer_start(&prepared, &incoming, trace, 0);
+    sequencer_start(&prepared, &incoming, &trace, 0);
     assert(sequencer_replace(&current, &prepared, 1));
     assert(!sequencer_replace(&current, &prepared, 1));
     AudioTime half = SEQUENCER_HZ / 16;
@@ -210,9 +210,9 @@ static void branch_lap_and_gate_transfer(void)
     score_init(&incoming);
     lane(&incoming, 0, 0, 1, 16, 0, 72);
     reset_trace();
-    sequencer_start(&current, &old, trace, 0);
+    sequencer_start(&current, &old, &trace, 0);
     sequencer_service(&current, 0);
-    sequencer_start(&prepared, &incoming, trace, 0);
+    sequencer_start(&prepared, &incoming, &trace, 0);
     assert(sequencer_replace(&current, &prepared, 1));
     AudioTime step = SEQUENCER_HZ / 8;
     AudioTime seam = 3 * step;
@@ -263,8 +263,8 @@ static void conditional_branch_seams(void)
         score_init(&incoming);
         lane(&incoming, 0, 0, 1, 16, 0, 73);
         reset_trace();
-        sequencer_start(&current, &old, trace, 0);
-        sequencer_start(&prepared, &incoming, trace, 0);
+        sequencer_start(&current, &old, &trace, 0);
+        sequencer_start(&prepared, &incoming, &trace, 0);
         assert(sequencer_replace(&current, &prepared, 0));
         Sequencer* active = sequencer_service(&current, 0);
         assert(active == &current && count(EVENT_ON, 0, 73) == 0);
@@ -295,8 +295,8 @@ static void empty_and_stop_adoption(void)
     score_init(&incoming);
     lane(&incoming, 0, 0, 1, 16, 0, 65);
     reset_trace();
-    sequencer_start(&current, &empty, trace, 100);
-    sequencer_start(&prepared, &incoming, trace, 0);
+    sequencer_start(&current, &empty, &trace, 100);
+    sequencer_start(&prepared, &incoming, &trace, 0);
     assert(sequencer_replace(&current, &prepared, 100));
     Sequencer* active = sequencer_service(&current, 100);
     assert(active == &prepared && count(EVENT_ON, 100, 65) == 1);
@@ -307,9 +307,9 @@ static void empty_and_stop_adoption(void)
     score_init(&old);
     lane(&old, 0, 0, 4, 16, 0, 48);
     reset_trace();
-    sequencer_start(&stopped, &old, trace, 0);
+    sequencer_start(&stopped, &old, &trace, 0);
     sequencer_service(&stopped, 0);
-    sequencer_start(&next, &incoming, trace, 0);
+    sequencer_start(&next, &incoming, &trace, 0);
     assert(sequencer_replace(&stopped, &next, 1));
     active = sequencer_stop(&stopped, 10);
     assert(active == &next && !active->playing &&
@@ -337,10 +337,10 @@ static void split_slice_discovers_seam(void)
     score_init(&incoming);
     lane(&incoming, 0, 0, 1, 16, 0, 90);
     reset_trace();
-    sequencer_start(&current, &old, trace, 0);
+    sequencer_start(&current, &old, &trace, 0);
     sequencer_service(&current, 0);
     assert(current.slicing);
-    sequencer_start(&prepared, &incoming, trace, 0);
+    sequencer_start(&prepared, &incoming, &trace, 0);
     assert(sequencer_replace(&current, &prepared, 1));
     Sequencer* active = sequencer_service(&current, SEQUENCER_HZ / 8);
     assert(active == &prepared && count(EVENT_ON, SEQUENCER_HZ / 8, 90) == 1);
@@ -359,7 +359,7 @@ static void replacement_preempts_pending_lane(void)
     score_init(&old);
     lane(&old, 0, 0, 2, 16, 0, 41);
     reset_trace();
-    sequencer_start(&current, &old, trace, 0);
+    sequencer_start(&current, &old, &trace, 0);
     sequencer_service(&current, 0);
 
     published = old;
@@ -375,7 +375,7 @@ static void replacement_preempts_pending_lane(void)
     score_init(&incoming);
     lane(&incoming, 0, 0, 1, 16, 0, 76);
     incoming.sounds[0].attack = 321;
-    sequencer_start(&prepared, &incoming, trace, 0);
+    sequencer_start(&prepared, &incoming, &trace, 0);
     assert(sequencer_replace(&current, &prepared, 1));
     AudioTime step = SEQUENCER_HZ / 8;
     AudioTime seam = 2 * step;

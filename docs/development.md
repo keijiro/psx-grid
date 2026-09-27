@@ -68,8 +68,8 @@ those groups.
 - `rust/src/sequencer.rs`: SDK-independent runners, exact absolute deadlines,
   live runner reconciliation, ordered held locks, generation-tagged gate-offs,
   and bounded catch-up.
-- `src/audio/sequencer.h`, `src/audio/sequencer.c`: Shared caller-owned layout,
-  C declarations, and aggregate-value sink adapter for generic C callbacks.
+- `include/audio_sequencer.h`: Shared caller-owned layout and pointer-based
+  C declarations for generic sink callbacks.
 - `rust/src/audio.rs`: SDK-independent 12-note pair allocation,
   amplitude/mix envelopes, and fixed-point pitch sweep with an injected
   register driver for host tests.

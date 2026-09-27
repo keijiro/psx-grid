@@ -368,7 +368,7 @@ static void snapshots(void)
     assert(!test_score_place_value(&score, 1, 0, lock));
     assert(!test_score_place_value(&score, 1, 1, test_score_default(TILE_NOTE)));
     NoteSink sink = reset();
-    sequencer_start(&seq, &score, sink, 0);
+    sequencer_start(&seq, &score, &sink, 0);
     sequencer_service(&seq, 0);
     SoundSettings resolved = old;
     resolved.attack = 7;

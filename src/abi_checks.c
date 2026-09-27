@@ -12,7 +12,7 @@
 #include "input.h"
 #include "score_format.h"
 #include "storage.h"
-#include "audio/sequencer.h"
+#include "audio_sequencer.h"
 #include "ui/ui_style.h"
 
 // The Rust codec uses these discriminants as stable wire tags.

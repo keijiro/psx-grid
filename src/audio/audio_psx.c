@@ -428,7 +428,8 @@ void audio_platform_update(const Score* score, int connected, int start)
         // The timer remains live while the immutable snapshot is prepared.
         // Nothing in the interrupt can observe this copy until publication.
         snapshots[0] = *score;
-        sequencer_start(seq, &snapshots[0], audio_sink(audio), 0);
+        NoteSink sink = audio_sink(audio);
+        sequencer_start(seq, &snapshots[0], &sink, 0);
         EnterCriticalSection();
         // Restart discards release tails. Zero their registers before reuse;
         // the regular stop path, in contrast, always completes its 5 ms ramp.
@@ -501,8 +502,9 @@ int audio_platform_replace(const Score* incoming)
     ExitCriticalSection();
     snapshots[replacement_snapshot] = *incoming;
     Sequencer* prepared = seq == &states[0] ? &states[1] : &states[0];
+    NoteSink sink = audio_sink(audio);
     sequencer_start(prepared, &snapshots[replacement_snapshot],
-                    audio_sink(audio), 0);
+                    &sink, 0);
     EnterCriticalSection();
     if (enabled)
     {

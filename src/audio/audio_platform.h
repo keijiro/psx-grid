@@ -8,7 +8,7 @@
 #ifndef AUDIO_PLATFORM_H
 #define AUDIO_PLATFORM_H
 
-#include "audio/sequencer.h"
+#include "audio_sequencer.h"
 
 /*
  * Initializes the SPU and timer-backed transport before pad initialization.

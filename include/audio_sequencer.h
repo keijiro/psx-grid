@@ -1,5 +1,5 @@
 /*
- * sequencer.h - Clocked traversal of score lanes into note events
+ * audio_sequencer.h - Clocked traversal of score lanes into note events
  *
  * A caller-owned Sequencer holds Rust traversal state for an immutable Score
  * snapshot and supplies note events through a sink. It uses fixed storage for
@@ -7,8 +7,8 @@
  * is adopted only at a complete slice edge.
  */
 
-#ifndef SEQUENCER_H
-#define SEQUENCER_H
+#ifndef AUDIO_SEQUENCER_H
+#define AUDIO_SEQUENCER_H
 
 #include "score.h"
 
@@ -102,12 +102,13 @@ typedef struct Sequencer
 } Sequencer;
 
 /*
- * Starts traversal of `snapshot` at `now` using `sink`. The caller keeps the
- * snapshot alive and immutable, and keeps the sink context alive with access
- * serialized, while this state can be serviced.
- * `seq` and `snapshot` must not be NULL.
+ * Starts traversal of `snapshot` at `now` using a copy of `sink`. The caller
+ * keeps the snapshot alive and immutable, and keeps the sink context alive
+ * with access serialized, while this state can be serviced. The sink value
+ * itself need only remain valid for this call.
+ * `seq`, `snapshot`, and `sink` must not be NULL.
  */
-void sequencer_start(Sequencer* seq, const Score* snapshot, NoteSink sink,
+void sequencer_start(Sequencer* seq, const Score* snapshot, const NoteSink* sink,
                      AudioTime now);
 /*
  * Returns success if the transport can adopt `snapshot` at `now`. Keep the
@@ -138,4 +139,4 @@ Sequencer* sequencer_stop(Sequencer* seq, AudioTime now);
  */
 Sequencer* sequencer_service(Sequencer* seq, AudioTime now);
 
-#endif // SEQUENCER_H
+#endif // AUDIO_SEQUENCER_H
