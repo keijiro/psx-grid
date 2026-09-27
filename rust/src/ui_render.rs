@@ -64,6 +64,30 @@ const CELL_END: c_int = 4;
 const LOCK_ATTACK: c_int = 1;
 const LOCK_RELEASE: c_int = 2;
 
+#[cfg(all(target_arch = "mips", debug_assertions))]
+const MONITOR_HISTORY: usize = 48;
+
+/// Mirrors the C backend's completed-frame diagnostics.
+#[cfg(all(target_arch = "mips", debug_assertions))]
+#[repr(C)]
+struct RenderMonitor {
+    history: [u32; MONITOR_HISTORY],
+    history_next: u32,
+    history_count: u32,
+    frame_ticks: u32,
+    work_ticks: u32,
+    work_peak: u32,
+    gpu_wait_ticks: u32,
+    vsync_wait_ticks: u32,
+    missed_vsyncs: u32,
+    packet_peak: u32,
+    packet_overflows: u32,
+    audio_dispatch_peak: u32,
+    audio_skipped_notes: u32,
+    audio_queue_underruns: u32,
+    audio_overloads: u32,
+}
+
 // The renderer is main-thread only, like the C packet backend.
 static mut CAMERA_X: c_int = 0;
 static mut CAMERA_Y: c_int = 0;
@@ -90,6 +114,8 @@ unsafe extern "C" {
         h: c_int,
     );
     fn render_backend_present();
+    #[cfg(all(target_arch = "mips", debug_assertions))]
+    fn render_backend_monitor() -> *const RenderMonitor;
 }
 
 /// Reads a label owned by a static model or editor table.
@@ -223,6 +249,80 @@ fn text_width(bytes: &[u8]) -> c_int {
         .iter()
         .map(|&ch| c_int::from(ADVANCE[glyph(ch)]))
         .sum()
+}
+
+#[cfg(all(target_arch = "mips", debug_assertions))]
+fn percent(ticks: u32, budget: u32) -> u32 {
+    ((u64::from(ticks) * 100) / u64::from(budget.max(1))) as u32
+}
+
+/// Draws last frame's wall-time history over the editor in Debug builds.
+#[cfg(all(target_arch = "mips", debug_assertions))]
+fn draw_monitor() {
+    // SAFETY: The C backend owns static storage and frame rendering is serial.
+    let monitor = unsafe { &*render_backend_monitor() };
+    let budget = monitor.frame_ticks.max(1);
+    let cpu = percent(monitor.work_ticks, budget);
+    let peak = percent(monitor.work_peak, budget);
+    let audio = percent(monitor.audio_dispatch_peak, 4233);
+
+    // Draw first: ordering-table buckets reverse insertion order, so the
+    // monitor stays above the editor's panels and labels.
+    rect(2, 148, 18, 168, 94, UI_PANEL);
+    rect(1, 154, 40, 144, 1, UI_RULE);
+    for i in 0..MONITOR_HISTORY {
+        let index = (monitor.history_next as usize + i) % MONITOR_HISTORY;
+        if i + (monitor.history_count as usize) < MONITOR_HISTORY {
+            continue;
+        }
+        let ticks = monitor.history[index];
+        let height = ((u64::from(ticks) * 22 * 100) / (u64::from(budget) * 150))
+            .min(22) as c_int;
+        if height > 0 {
+            rect(1, 154 + i as c_int * 3, 55 - height, 2, height, UI_INK);
+        }
+    }
+
+    let mut bytes = [0; 48];
+    let mut label = Text::new(&mut bytes);
+    let _ = write!(label, "CPU {}% PEAK {}%", cpu, peak);
+    text(154, 22, label.as_bytes());
+
+    label.clear();
+    let gpu_tenths = monitor.gpu_wait_ticks / 423;
+    let vsync_tenths = monitor.vsync_wait_ticks / 423;
+    let _ = write!(
+        label,
+        "GPU {}.{} VS {}.{} MS",
+        gpu_tenths / 10,
+        gpu_tenths % 10,
+        vsync_tenths / 10,
+        vsync_tenths % 10
+    );
+    text(154, 59, label.as_bytes());
+
+    label.clear();
+    let _ = write!(
+        label,
+        "DROP {} PKT {}K/64K",
+        monitor.missed_vsyncs,
+        monitor.packet_peak / 1024
+    );
+    text(154, 70, label.as_bytes());
+
+    label.clear();
+    let _ = write!(label, "OVF {} AUD {}%", monitor.packet_overflows, audio);
+    text(154, 81, label.as_bytes());
+
+    label.clear();
+    let _ = write!(
+        label,
+        "SK {} U {} O {}",
+        monitor.audio_skipped_notes,
+        monitor.audio_queue_underruns,
+        monitor.audio_overloads
+    );
+    text(154, 92, label.as_bytes());
 }
 
 /// Stops before a whole glyph would cross the panel limit.
@@ -862,6 +962,8 @@ pub unsafe extern "C" fn render_frame(
         CAMERA_Y = camera_y;
         render_backend_begin();
     }
+    #[cfg(all(target_arch = "mips", debug_assertions))]
+    draw_monitor();
     for row in 0..VIEW_ROWS {
         for col in 0..VIEW_COLS {
             let x = col * CELL_SIZE;

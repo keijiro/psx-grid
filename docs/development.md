@@ -104,6 +104,14 @@ beside their source in `src/`.
   frame/status updates.
 - `build/{debug,release}/psx-grid.{elf,exe}`: ELF and PS-X EXE outputs.
 
+Debug console builds show a performance monitor at the upper right. Its CPU
+graph and current/peak percentages cover main-thread wall time before the
+GPU and VSync waits. GPU and VS show those waits in milliseconds; DROP counts
+missed VSyncs. PKT/OVF show peak GPU packet use and rejected primitives.
+AUD is the timer dispatch peak as a fraction of its 1 ms deadline; SK, U, and
+O count skipped notes, queue underruns, and planning overloads. Release builds
+omit the monitor.
+
 The Rust crate targets `mipsel-sony-psx` and builds `core` from pinned
 `rust-src` with `noabicalls` to match the SDK's fixed GP. CMake links its
 static library into the game and fixtures.

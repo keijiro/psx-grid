@@ -13,6 +13,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+import zlib
 from tool_paths import bios_path, emulator_path
 
 root = Path(__file__).resolve().parents[1]
@@ -76,6 +77,23 @@ with tempfile.TemporaryDirectory(prefix='session-', dir=output) as directory:
         output.joinpath(name + '.png').write_bytes(png)
         records.append(dict(capture=name, sha256=hashlib.sha256(png).hexdigest()))
         return png
+    def stable_screen(png):
+        if args.configuration == 'release':
+            return png
+        # The Debug monitor animates in rows 18..111. PNG filters may refer
+        # to the preceding row, so skip row 112 as well when comparing states.
+        assert png[24:29] == b'\x08\x06\x00\x00\x00'
+        offset = 8
+        chunks = []
+        while offset < len(png):
+            size = struct.unpack_from('>I', png, offset)[0]
+            if png[offset + 4:offset + 8] == b'IDAT':
+                chunks.append(png[offset + 8:offset + 8 + size])
+            offset += size + 12
+        raw = zlib.decompress(b''.join(chunks))
+        stride = 1 + 320 * 4
+        assert len(raw) == stride * 240
+        return raw[:18 * stride] + raw[113 * stride:]
     with output.joinpath('emulator.log').open('wb') as log:
         process = subprocess.Popen(command, cwd=root, stdout=log, stderr=subprocess.STDOUT)
         try:
@@ -99,7 +117,7 @@ with tempfile.TemporaryDirectory(prefix='session-', dir=output) as directory:
             menu = capture('02-ground-menu')
             assert menu != initial
             step('CIRCLE')
-            assert capture('03-cancelled') == initial
+            assert stable_screen(capture('03-cancelled')) == stable_screen(initial)
             step('CROSS')
             step('CROSS')
             lane = capture('04-new-lane')

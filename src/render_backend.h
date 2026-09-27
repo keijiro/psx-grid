@@ -10,6 +10,45 @@
 #ifndef RENDER_BACKEND_H
 #define RENDER_BACKEND_H
 
+#include <stdint.h>
+
+#if defined(__mips__) && !defined(NDEBUG)
+// A short history fits beside the editor without allocating at runtime.
+#define RENDER_MONITOR_HISTORY 48
+
+// Timer ticks use the audio backend's 4,233,600 Hz clock.
+typedef struct
+{
+    uint32_t history[RENDER_MONITOR_HISTORY];
+    uint32_t history_next;
+    uint32_t history_count;
+    uint32_t frame_ticks;
+    uint32_t work_ticks;
+    uint32_t work_peak;
+    uint32_t gpu_wait_ticks;
+    uint32_t vsync_wait_ticks;
+    uint32_t missed_vsyncs;
+    uint32_t packet_peak;
+    uint32_t packet_overflows;
+    uint32_t audio_dispatch_peak;
+    uint32_t audio_skipped_notes;
+    uint32_t audio_queue_underruns;
+    uint32_t audio_overloads;
+} RenderMonitor;
+
+/*
+ * Restarts frame timing after initialization or a BIOS card handoff. The
+ * cumulative audio and packet counters remain owned by their backends.
+ */
+void render_backend_monitor_reset(void);
+
+/*
+ * Returns the most recently completed frame's measurements. The returned
+ * storage is static and remains valid until the next frame is submitted.
+ */
+const RenderMonitor* render_backend_monitor(void);
+#endif
+
 /*
  * Initializes video state, texture data and both command buffers.
  */

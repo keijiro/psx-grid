@@ -94,6 +94,10 @@ static void storage_action(int connected)
     RestartCallback();
     audio_platform_card_resume(&editor.score);
     pad_resume();
+#if defined(__mips__) && !defined(NDEBUG)
+    // The BIOS handoff can stop the timer for several video frames.
+    render_backend_monitor_reset();
+#endif
     input_init(&input);
     editor.gesture = 0;
     editor.message = storage_message(result);
@@ -123,6 +127,9 @@ int main(void)
     render_init();
     audio_platform_init();
     pad_init();
+#if defined(__mips__) && !defined(NDEBUG)
+    render_backend_monitor_reset();
+#endif
     CardBackend backend = card_platform_backend();
     storage_init(&storage, &backend);
     int connected = 0;

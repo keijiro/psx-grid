@@ -16,6 +16,26 @@
 #include "ui_atlas.h"
 #include "ui_style.h"
 
+#if defined(__mips__) && !defined(NDEBUG)
+#include "audio_platform.h"
+
+extern volatile uint32_t audio_dispatch_peak;
+extern volatile uint32_t audio_skipped_notes;
+extern volatile uint32_t audio_queue_underruns;
+extern volatile uint32_t audio_overloads;
+
+/*
+ * The history records elapsed main-thread work before GPU/VSync waits. The
+ * audio clock also advances during interrupts, so these are wall-time costs.
+ */
+static RenderMonitor monitor;
+static AudioTime work_start;
+static AudioTime last_vsync_at;
+static uint32_t last_vblank;
+static int have_vsync;
+
+#endif
+
 // A full 20-by-15 view can contain 300 labeled tiles and their rail dots. Both
 // buffers still fit in main RAM at the measured 64 KiB packet budget.
 #define PACKET_BYTES 65536
@@ -44,6 +64,29 @@ static size_t used;
 // Debugger-visible counters; overflow is rejected before touching memory.
 volatile unsigned render_packet_peak;
 volatile unsigned render_overflows;
+
+#if defined(__mips__) && !defined(NDEBUG)
+void render_backend_monitor_reset(void)
+{
+    monitor = (RenderMonitor){0};
+    monitor.frame_ticks = 70560; // Nominal NTSC 60 Hz until two VSync samples.
+    work_start = audio_platform_time();
+    last_vsync_at = work_start;
+    last_vblank = (uint32_t)VSync(-1);
+    have_vsync = 0;
+}
+
+const RenderMonitor* render_backend_monitor(void)
+{
+    monitor.packet_peak = render_packet_peak;
+    monitor.packet_overflows = render_overflows;
+    monitor.audio_dispatch_peak = audio_dispatch_peak;
+    monitor.audio_skipped_notes = audio_skipped_notes;
+    monitor.audio_queue_underruns = audio_queue_underruns;
+    monitor.audio_overloads = audio_overloads;
+    return &monitor;
+}
+#endif
 
 /*
  * Rejects a primitive before touching either packet buffer when the fixed
@@ -136,8 +179,39 @@ void render_backend_present(void)
         setDrawTPage(page, 0, 0, getTPage(0, 0, 640, 0));
         addPrim(&buffers[active].ot[7], page);
     }
+#if defined(__mips__) && !defined(NDEBUG)
+    // Fixtures render without calling the application's reset hook.
+    if (monitor.frame_ticks == 0) render_backend_monitor_reset();
+    AudioTime work_end = audio_platform_time();
+    uint32_t work = (uint32_t)(work_end - work_start);
+    monitor.work_ticks = work;
+    if (work > monitor.work_peak) monitor.work_peak = work;
+    monitor.history[monitor.history_next] = work;
+    monitor.history_next =
+        (monitor.history_next + 1) % RENDER_MONITOR_HISTORY;
+    if (monitor.history_count < RENDER_MONITOR_HISTORY)
+        monitor.history_count++;
+#endif
     DrawSync(0);
+#if defined(__mips__) && !defined(NDEBUG)
+    AudioTime gpu_done = audio_platform_time();
+    monitor.gpu_wait_ticks = (uint32_t)(gpu_done - work_end);
+#endif
     VSync(0);
+#if defined(__mips__) && !defined(NDEBUG)
+    AudioTime vsync_done = audio_platform_time();
+    uint32_t vblank = (uint32_t)VSync(-1);
+    uint32_t frames = vblank - last_vblank;
+    monitor.vsync_wait_ticks = (uint32_t)(vsync_done - gpu_done);
+    if (frames > 1) monitor.missed_vsyncs += frames - 1;
+    if (have_vsync && frames > 0)
+        monitor.frame_ticks = (uint32_t)((vsync_done - last_vsync_at) /
+                                         frames);
+    last_vblank = vblank;
+    last_vsync_at = vsync_done;
+    have_vsync = 1;
+    work_start = vsync_done;
+#endif
     PutDispEnv(&buffers[active ^ 1].disp);
     DrawOTagEnv(&buffers[active].ot[OT_SIZE - 1], &buffers[active].draw);
     active ^= 1;
