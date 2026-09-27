@@ -10,7 +10,7 @@
 use core::ffi::{c_char, c_int, CStr};
 use core::fmt::Write;
 
-use crate::editor::{rows, Editor, EditorRow};
+use crate::editor::{rows, Editor, EditorRow, TILE_PICKER_ORDER};
 use crate::score::{
     at, resolve, score_channel, score_note_name, score_tile_label, Cell, Score,
 };
@@ -37,6 +37,7 @@ const UI_MENU_MARGIN: c_int = 12;
 const UI_MENU_ROW: c_int = 17;
 const UI_MENU_EDGE: c_int = 16;
 const EDIT_PLANE: c_int = 0;
+const EDIT_MENU: c_int = 1;
 const EDIT_DELETE: c_int = 2;
 const EDIT_PICKER: c_int = 3;
 const EDIT_PATTERN: c_int = 4;
@@ -50,7 +51,6 @@ const TILE_CYCLE: c_int = 2;
 const TILE_PROBABILITY: c_int = 3;
 const TILE_JUMP: c_int = 4;
 const TILE_RELATIVE: c_int = 5;
-const TILE_KIND_COUNT: c_int = 6;
 const CELL_EMPTY: c_int = 0;
 const CELL_HEAD: c_int = 1;
 const CELL_STEP: c_int = 2;
@@ -298,6 +298,27 @@ fn menu_title(editor: &Editor, out: &mut Text<'_>) {
         }
         EDIT_PATTERN => out.push(b"CYCLE PATTERN"),
         EDIT_PICKER => out.push(b"CREATE TILE"),
+        EDIT_MENU => {
+            let cell = resolve(&editor.score, editor.x, editor.y);
+            match cell.kind {
+                CELL_EMPTY => out.push(b"GROUND"),
+                CELL_HEAD => {
+                    if editor.score.lanes[cell.lane as usize].source == 0 {
+                        out.push(b"LANE");
+                    } else {
+                        out.push(b"BRANCH LANE");
+                    }
+                }
+                CELL_STEP | CELL_END => out.push(b"EMPTY STEP"),
+                CELL_TILE => {
+                    let kind =
+                        editor.score.tiles[usize::from(cell.tile)].value.kind;
+                    // SAFETY: Model tile labels are static strings.
+                    unsafe { out.push_c(score_tile_label(kind)) };
+                }
+                _ => out.push(b"CELL"),
+            }
+        }
         EDIT_DELETE => {
             if editor.target != 0 {
                 out.push(b"DELETE JUMP BRANCH?");
@@ -337,7 +358,7 @@ fn menu_width(
             width = width.max(row_width);
         }
         if editor.mode == EDIT_PICKER {
-            for kind in 1..TILE_KIND_COUNT {
+            for &kind in &TILE_PICKER_ORDER {
                 // SAFETY: Model tile labels are static strings.
                 width = width.max(
                     text_width(unsafe { cbytes(score_tile_label(kind)) }) + 32,
@@ -364,7 +385,7 @@ fn menu_height(editor: &Editor, count: usize, alert: bool) -> c_int {
                 * 18
             + 10;
     } else if editor.mode == EDIT_PICKER {
-        bottom = 32 + (TILE_KIND_COUNT - 2) * UI_MENU_ROW + 10;
+        bottom = 32 + (TILE_PICKER_ORDER.len() as c_int - 1) * UI_MENU_ROW + 10;
     } else if editor.mode == EDIT_DELETE {
         bottom = 11 + 7;
     }
@@ -417,8 +438,8 @@ fn menu_body(
             }
         }
     } else if editor.mode == EDIT_PICKER {
-        for kind in 1..TILE_KIND_COUNT {
-            let py = y + 32 + (kind - 1) * UI_MENU_ROW;
+        for (index, &kind) in TILE_PICKER_ORDER.iter().enumerate() {
+            let py = y + 32 + index as c_int * UI_MENU_ROW;
             clipped_text(
                 x + 16,
                 py,

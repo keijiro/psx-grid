@@ -422,7 +422,16 @@ static void controls(void)
     e.x = 6;
     e.y = 1;
     action(ACTION_PLACE);
-    tap(INPUT_DOWN);
+    const TileKind picker_order[] = {
+        TILE_NOTE, TILE_RELATIVE, TILE_CYCLE, TILE_PROBABILITY, TILE_JUMP
+    };
+    for (int i = 0; i < 5; i++)
+    {
+        assert(e.tile_candidate == picker_order[i]);
+        if (i < 4) tap(INPUT_DOWN);
+    }
+    tap(INPUT_UP);
+    tap(INPUT_UP);
     tap(INPUT_CROSS);
     TileId gate = test_score_at(&e.score, e.x, e.y).tile;
     assert(e.score.tiles[gate].value.kind == TILE_CYCLE);

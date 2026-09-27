@@ -92,6 +92,15 @@ const TILE_PROBABILITY: c_int = 3;
 const TILE_JUMP: c_int = 4;
 const TILE_RELATIVE: c_int = 5;
 
+/// Lists picker entries independently of tile IDs, which saved scores use.
+pub(crate) const TILE_PICKER_ORDER: [c_int; 5] = [
+    TILE_NOTE,
+    TILE_RELATIVE,
+    TILE_CYCLE,
+    TILE_PROBABILITY,
+    TILE_JUMP,
+];
+
 #[repr(C)]
 #[derive(Clone, Copy)]
 /// Presents one fixed menu row through the shared C interface.
@@ -277,7 +286,7 @@ pub unsafe extern "C" fn editor_menu(
 
 const ACTION_LABELS: [&[u8]; 19] = [
     b"NEW LANE\0",
-    b"CREATE TILE\0",
+    b"CREATE TILE...\0",
     b"DELETE TILE\0",
     b"LENGTH\0",
     b"DELETE LANE\0",
@@ -286,10 +295,10 @@ const ACTION_LABELS: [&[u8]; 19] = [
     b"PITCH\0",
     b"NOTE LENGTH\0",
     b"PERIOD\0",
-    b"PATTERN\0",
+    b"PATTERN...\0",
     b"CHANCE\0",
     b"DIVISION\0",
-    b"SOUND\0",
+    b"SOUND...\0",
     b"CHANNEL\0",
     b"ATTACK ENABLE\0",
     b"RELEASE ENABLE\0",
@@ -347,7 +356,7 @@ pub(crate) fn rows(
         push(
             output,
             &mut n,
-            row(ROW_SUBMENU, ROW_REVERB, b"REVERB\0", 0, 0, 0, 0),
+            row(ROW_SUBMENU, ROW_REVERB, b"REVERB...\0", 0, 0, 0, 0),
         );
         push(
             output,
@@ -1019,7 +1028,16 @@ fn update_plane(editor: &mut Editor, frame: &InputFrame) {
 
 /// Places a chosen tile and remembers successful note settings.
 fn update_picker(editor: &mut Editor, frame: &InputFrame) {
-    editor.tile_candidate = clamp(editor.tile_candidate + frame.row_dy, 1, 5);
+    let index = TILE_PICKER_ORDER
+        .iter()
+        .position(|&kind| kind == editor.tile_candidate)
+        .expect("picker candidate must be a valid tile kind");
+    let index = clamp(
+        index as c_int + frame.row_dy,
+        0,
+        TILE_PICKER_ORDER.len() as c_int - 1,
+    ) as usize;
+    editor.tile_candidate = TILE_PICKER_ORDER[index];
     if frame.cross != 0 && editor.load_busy == 0 {
         let value = if editor.tile_candidate == TILE_NOTE {
             editor.last_note

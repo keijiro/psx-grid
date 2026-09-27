@@ -35,7 +35,7 @@ precedence over vertical movement. Mode changes reset repeat.
 ## Tiles and lanes
 
 Ground offers `NEW LANE`. Empty steps, terminators, and cells immediately below
-stacks offer `CREATE TILE` and `PASTE STACK`. Placement on a terminator extends
+stacks offer `CREATE TILE...` and `PASTE STACK`. Placement on a terminator extends
 the lane by one step. Occupied cells are never overwritten.
 
 | Object | Menu properties and initial values |
