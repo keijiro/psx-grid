@@ -52,6 +52,8 @@ typedef struct
     uint32_t duration;
     int active;
     AudioTime next;
+    // The visible step ends here even when a paused runner has no next tick.
+    AudioTime playing_until;
     // Geometry limits a stack to 64 tiles. A reached lock reads its current
     // value until the next step, but never a replacement born in its slot.
     TileId held[SCORE_HEIGHT];

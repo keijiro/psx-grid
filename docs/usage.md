@@ -117,8 +117,10 @@ the master starts at publication instead, so it can provide that boundary. Playb
 then starts at publication. Deleting and recreating a lane creates a new
 runner, even if the same pool slot is reused.
 
-There is no Transport Row or playhead. START toggles playback without opening
-a menu.
+There is no Transport Row. During playback, a bright bar in the left gutter
+marks each Runner's audible step, including steps on branches. The bars vanish
+when playback stops or while an edited score awaits audio publication. START
+toggles playback without opening a menu.
 
 Tempo defaults to 120 BPM and can be set from 30 to 300 BPM in the main menu.
 A step lasts 240,000 / BPM / division milliseconds: at 120 BPM, sixteen steps

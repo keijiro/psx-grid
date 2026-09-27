@@ -30,6 +30,21 @@ const REPLACE_PREPARING: c_int = 1;
 const REPLACE_WAITING: c_int = 2;
 const REPLACE_ADOPTED: c_int = 3;
 
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub(crate) struct AudioPlayhead {
+    pub(crate) lane: c_int,
+    pub(crate) step: c_int,
+}
+
+#[repr(C)]
+/// Holds a frame-sized copy of timer-owned runner positions.
+pub struct AudioPlayheads {
+    pub(crate) revision: u32,
+    pub(crate) count: c_int,
+    pub(crate) items: [AudioPlayhead; crate::score::LANES],
+}
+
 /// Shared scalar state for score publication and sequencer handoff.
 struct Transport {
     active_snapshot: c_int,
@@ -360,6 +375,42 @@ pub extern "C" fn audio_platform_playing() -> c_int {
     let t = transport();
     // SAFETY: The timer and main thread exchange this word atomically on PSX.
     unsafe { load!(t, enabled) }
+}
+
+/// Copies the currently audible runner positions for one rendered frame.
+///
+/// # Safety
+/// `out` must point to writable `AudioPlayheads` storage.
+#[no_mangle]
+pub unsafe extern "C" fn audio_platform_playheads(out: *mut AudioPlayheads) {
+    let t = transport();
+    // SAFETY: The caller supplies writable storage. Initialize even unused
+    // seats because rendering borrows the complete C layout as a Rust value.
+    unsafe { ptr::write_bytes(out, 0, 1) };
+    // SAFETY: Excluding timer service keeps the active state, its score, and
+    // all runner positions consistent for this short bounded copy.
+    unsafe {
+        audio_hw_enter();
+        if load!(t, enabled) != 0 {
+            let seq = &*load!(t, seq);
+            (*out).revision = (*seq.score).revision;
+            let now = audio_hw_now();
+            for runner in &seq.runners {
+                if runner.active != 0
+                    && runner.playing_step >= 0
+                    && now < runner.playing_until
+                {
+                    let count = (*out).count as usize;
+                    (*out).items[count] = AudioPlayhead {
+                        lane: runner.playing_lane,
+                        step: runner.playing_step,
+                    };
+                    (*out).count += 1;
+                }
+            }
+        }
+        audio_hw_exit();
+    }
 }
 
 /// Returns the revision currently owned by timer service.

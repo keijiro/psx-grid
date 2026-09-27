@@ -63,7 +63,7 @@ static void run(unsigned phase)
     for (int i = 0; i < frames; i++)
     {
         editor.x = i % 64;
-        render_frame(&editor, 1);
+        render_frame(&editor, 1, NULL);
         // A slow main loop must retain complete taps, not just the latest held
         // state. The interrupt still collects one report per video frame.
         if (phase != 6 && (phase != 3 || i % 8 == 7))
@@ -94,7 +94,7 @@ int main(void)
     pad_init();
     for (int i = 0; i < 8; i++)
     {
-        render_frame(&editor, 1);
+        render_frame(&editor, 1, NULL);
         drain();
     }
     run(1);

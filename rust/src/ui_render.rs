@@ -10,6 +10,7 @@
 use core::ffi::{c_char, c_int, CStr};
 use core::fmt::Write;
 
+use crate::audio_transport::AudioPlayheads;
 use crate::editor::{rows, Editor, EditorRow, TILE_PICKER_ORDER};
 use crate::score::{
     at, resolve, score_channel, score_note_name, score_tile_label, Cell, Score,
@@ -786,15 +787,50 @@ fn marker(x: c_int, y: c_int, gray: c_int, camera_x: c_int, camera_y: c_int) {
     );
 }
 
+/// Draws each audible step in the two-pixel gutter beside its tile stack.
+fn draw_playheads(
+    editor: &Editor,
+    playheads: &AudioPlayheads,
+    camera_x: c_int,
+    camera_y: c_int,
+) {
+    // During publication the editable geometry may lead the audio snapshot.
+    // Waiting for matching revisions keeps a moved lane from showing a bar
+    // at a position that is not yet sounding.
+    if playheads.revision != editor.score.revision {
+        return;
+    }
+    for head in &playheads.items[..playheads.count as usize] {
+        if head.lane < 0 || head.lane as usize >= editor.score.lanes.len() {
+            continue;
+        }
+        let lane = &editor.score.lanes[head.lane as usize];
+        if lane.active == 0 || head.step < 0 || head.step >= lane.length {
+            continue;
+        }
+        let mut depth = 0;
+        let mut tile_id = lane.tiles[head.step as usize];
+        while tile_id != 0 {
+            depth += 1;
+            tile_id = editor.score.tiles[usize::from(tile_id)].next;
+        }
+        let x = (lane.x + head.step + 1 - camera_x) * CELL_SIZE;
+        let y = (lane.y - camera_y) * CELL_SIZE;
+        rect(3, x, y + 1, 2, depth.max(1) * CELL_SIZE - 2, UI_INK);
+    }
+}
+
 /// Submits one complete frame without changing caller-owned editor state.
 ///
 /// # Safety
 /// `editor` must point to a valid editor that is not mutated during the call;
-/// rendering and the C backend must run serially on the main thread.
+/// `playheads` must be null or point to a stable snapshot. Rendering and the
+/// C backend must run serially on the main thread.
 #[no_mangle]
 pub unsafe extern "C" fn render_frame(
     editor: *const Editor,
     _connected: c_int,
+    playheads: *const AudioPlayheads,
 ) {
     // SAFETY: The caller provides a live immutable editor for this frame.
     let editor = unsafe { &*editor };
@@ -944,6 +980,11 @@ pub unsafe extern "C" fn render_frame(
                 }
             }
         }
+    }
+    if !playheads.is_null() {
+        // SAFETY: The caller keeps this frame's snapshot stable until return.
+        let playheads = unsafe { &*playheads };
+        draw_playheads(editor, playheads, camera_x, camera_y);
     }
     cursor(screen_x(editor.x, camera_x), screen_y(editor.y, camera_y));
     if editor.mode != EDIT_PLANE && editor.mode != EDIT_MOVE {

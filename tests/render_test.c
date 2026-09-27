@@ -214,7 +214,7 @@ static Editor e;
  */
 static void draw(const char* name)
 {
-    render_frame(&e, 1);
+    render_frame(&e, 1, NULL);
     if (name)
     {
         char path[256];
@@ -293,6 +293,26 @@ int main(void)
             assert(changed == 1);
         }
     }
+    // Each runner gets its own gutter bar, extending beside a full stack.
+    e.score.lanes[0] = (Lane){.active = 1, .x = 2, .y = 2, .length = 2};
+    e.score.lanes[1] = (Lane){.active = 1, .x = 2, .y = 5, .length = 2};
+    e.score.lanes[0].tiles[0] = 1;
+    e.score.tiles[1].next = 2;
+    AudioPlayheads heads = {.revision = e.score.revision,
+                            .count = 2,
+                            .items = {{0, 0}, {1, 1}}};
+    render_frame(&e, 1, &heads);
+    assert(output[33][48] != background);
+    assert(output[49][48] != background);
+    assert(output[81][64] != background);
+    heads.revision++;
+    render_frame(&e, 1, &heads);
+    assert(output[33][48] == background);
+    assert(output[49][48] == background);
+    assert(output[81][64] == background);
+    editor_init(&e);
+    e.x = 10;
+    e.y = 7;
     e.mode = EDIT_MAIN;
     e.selected = 0;
     draw("main");

@@ -25,8 +25,8 @@ _Static_assert(TILE_NOTE == 1 && TILE_CYCLE == 2 && TILE_PROBABILITY == 3 &&
 _Static_assert(sizeof(Score) == 199716, "Rust Score ABI changed");
 _Static_assert(sizeof(SoundSettings) == 52 && sizeof(Lane) == 160,
                "Rust sound and lane ABI changed");
-_Static_assert(sizeof(Runner) == 432, "Rust Runner ABI changed");
-_Static_assert(sizeof(Sequencer) == (sizeof(void*) == 4 ? 7760 : 7792),
+_Static_assert(sizeof(Runner) == 440, "Rust Runner ABI changed");
+_Static_assert(sizeof(Sequencer) == (sizeof(void*) == 4 ? 7888 : 7920),
                "Rust Sequencer ABI changed");
 _Static_assert(sizeof(TileValue) == 36, "Rust TileValue ABI changed");
 _Static_assert(sizeof(Cell) == 20, "Rust Cell ABI changed");

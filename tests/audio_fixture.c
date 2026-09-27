@@ -94,7 +94,7 @@ static void frames(int count)
     {
         editor.x = i % 128;
         editor.y = (i / 4) % 64;
-        render_frame(&editor, 1);
+        render_frame(&editor, 1, NULL);
         InputSample sample;
         while (pad_read(&sample))
         {
