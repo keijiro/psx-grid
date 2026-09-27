@@ -136,9 +136,10 @@ to its original regular lane and increments its lap, with no extra empty step.
 Cycle gates select bit zero on the first lap. Probability gates use a repeatable
 random sequence reset at each start.
 
-SELECT opens the main menu with `BPM`, `REVERB`, `SLOT`, `CHECK CARD`,
-`SAVE`, and `LOAD`. SELECT again or O closes it; SELECT from a nested menu
-returns to MAIN. Opening MAIN cancels a move. Playback continues while menus
+SELECT opens the main menu with `BPM`, `REVERB`, and `MEMORY CARD`.
+The `MEMORY CARD` submenu contains `SLOT`, `CHECK CARD`, `SAVE`, and `LOAD`.
+SELECT again or O closes MAIN; SELECT from a nested menu returns to MAIN.
+Opening MAIN cancels a move. Playback continues while menus
 are open. BPM changes in place by 1 or 10 BPM.
 
 `REVERB` provides `SIZE` (Small, Medium, Large; initially Medium) and `AMOUNT`
@@ -235,8 +236,9 @@ removed left two CRC-valid generations, but the next Save reported CARD I/O
 ERROR in the pinned OpenBIOS test. See [validation.md](validation.md) before
 using interrupted-save recovery as a reliability guarantee.
 
-Open the main menu with SELECT. Select SLOT and use Left/Right to choose 01–15;
-this only changes the target. Choose `CHECK CARD` to check the card in port 1.
+Open the main menu with SELECT, then choose MEMORY CARD. Select SLOT and use
+Left/Right to choose 01–15; this only changes the target. Choose `CHECK CARD`
+to check the card in port 1.
 Choose SAVE to capture the committed score, or LOAD to replace it. The slot
 number remains independent of the currently playing score. EMPTY cannot load;
 CORRUPT and NEWER VERSION identify unreadable content. The separate `BLK`

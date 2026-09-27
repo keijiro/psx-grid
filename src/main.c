@@ -34,8 +34,8 @@ static void replacement_acknowledged(void)
 {
     editor.load_busy = 0;
     editor.message = "LOADED";
-    editor.mode = EDIT_MAIN;
-    editor.selected = 5;
+    editor.mode = EDIT_CARD;
+    editor.selected = 3;
     editor.target = 0;
     editor.gesture = 0;
     editor_refresh_capacity(&editor);

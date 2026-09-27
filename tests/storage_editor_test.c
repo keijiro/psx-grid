@@ -37,7 +37,7 @@ static void init(void)
 }
 
 /*
- * Checks that slot selection and card actions become main-loop requests
+ * Checks that nested slot selection and card actions become main-loop requests
  * without immediate I/O.
  */
 static void chooser_and_requests(void)
@@ -51,17 +51,11 @@ static void chooser_and_requests(void)
 
     tap(INPUT_SELECT);
     assert(editor.mode == EDIT_MAIN && editor.selected == 0);
-    for (int row = 0; row < 5; row++)
-    {
-        tap(INPUT_DOWN);
-        assert(editor.selected == row + 1);
-    }
     tap(INPUT_DOWN);
-    assert(editor.selected == 5);
-    tap(INPUT_UP);
-    tap(INPUT_UP);
-    tap(INPUT_UP);
+    tap(INPUT_DOWN);
     assert(editor.selected == 2);
+    tap(INPUT_CROSS);
+    assert(editor.mode == EDIT_CARD && editor.selected == 0);
 
     editor.message = "SAVED";
     tap(INPUT_RIGHT);
@@ -83,7 +77,7 @@ static void chooser_and_requests(void)
     assert(editor.storage_slot == 2);
     frame(0);
     frame(INPUT_DOWN | INPUT_R1);
-    assert(editor.selected == 3 && editor.storage_slot == 2);
+    assert(editor.selected == 1 && editor.storage_slot == 2);
     frame(0);
 
     tap(INPUT_CROSS);
@@ -98,7 +92,9 @@ static void chooser_and_requests(void)
     assert(editor.storage_request == STORAGE_ACTION_LOAD);
     editor.storage_request = STORAGE_ACTION_NONE;
     tap(INPUT_DOWN);
-    assert(editor.selected == 5);
+    assert(editor.selected == 3);
+    tap(INPUT_CIRCLE);
+    assert(editor.mode == EDIT_MAIN && editor.selected == 2);
     tap(INPUT_CIRCLE);
     assert(editor.mode == EDIT_PLANE);
 }
@@ -118,8 +114,8 @@ static void waiting_load_lock(void)
     editor.storage_slot = 4;
     editor.load_slot = editor.storage_slot;
     editor.load_busy = 1;
-    editor.mode = EDIT_MAIN;
-    editor.selected = 4;
+    editor.mode = EDIT_CARD;
+    editor.selected = 2;
     editor.target = 12;
     editor.slot_status = STORAGE_BUSY;
     editor.message = "WAITING FOR LAP";
@@ -127,15 +123,17 @@ static void waiting_load_lock(void)
     tap(INPUT_CROSS);
     assert(editor.storage_request == STORAGE_ACTION_NONE);
     tap(INPUT_UP);
-    assert(editor.selected == 3);
+    assert(editor.selected == 1);
     tap(INPUT_CROSS);
     assert(editor.storage_request == STORAGE_ACTION_NONE);
     tap(INPUT_UP);
-    assert(editor.selected == 2);
+    assert(editor.selected == 0);
     tap(INPUT_RIGHT);
     assert(editor.storage_slot == 5 && editor.load_slot == 4);
     assert(!strcmp(editor.message, "WAITING FOR LAP"));
 
+    tap(INPUT_SELECT);
+    assert(editor.mode == EDIT_MAIN && editor.selected == 2);
     tap(INPUT_SELECT);
     assert(editor.mode == EDIT_PLANE);
     int target = editor.target;
@@ -151,12 +149,16 @@ static void waiting_load_lock(void)
 
     tap(INPUT_SELECT);
     assert(editor.mode == EDIT_MAIN && editor.selected == 2);
+    tap(INPUT_CROSS);
+    assert(editor.mode == EDIT_CARD && editor.selected == 0);
     tap(INPUT_DOWN);
     tap(INPUT_DOWN);
-    assert(editor.selected == 4);
+    assert(editor.selected == 2);
     tap(INPUT_CROSS);
     assert(editor.storage_request == STORAGE_ACTION_NONE);
     // Card requests and score value changes stay locked until acknowledgement.
+    tap(INPUT_CIRCLE);
+    assert(editor.mode == EDIT_MAIN && editor.selected == 2);
     editor.selected = 0;
     int bpm = editor.score.bpm;
     frame(INPUT_RIGHT);
@@ -206,15 +208,16 @@ static void adoption_and_capacity(void)
     editor.score = incoming;
     editor.load_busy = 0;
     editor.message = "LOADED";
-    editor.mode = EDIT_MAIN;
-    editor.selected = 4;
+    editor.mode = EDIT_CARD;
+    editor.selected = 3;
     editor.target = 0;
     editor.gesture = 0;
     editor_refresh_capacity(&editor);
 
     assert(editor.storage_slot == 3 && editor.load_slot == 7);
     assert(editor.x == 50 && editor.y == 40);
-    assert(editor.mode == EDIT_MAIN && editor.selected == 4 && !editor.target);
+    assert(editor.mode == EDIT_CARD && editor.selected == 3 &&
+           !editor.target);
     assert(!strcmp(editor.message, "LOADED"));
     assert(editor.free_bytes ==
            SCORE_FILE_BYTES - (int)score_format_measure(&incoming));
@@ -227,21 +230,21 @@ static void adoption_and_capacity(void)
 static void resume_requires_all_buttons_up(void)
 {
     init();
-    editor.mode = EDIT_MAIN;
-    editor.selected = 4;
+    editor.mode = EDIT_CARD;
+    editor.selected = 2;
 
     // storage_action resets Input after the intentional pad polling pause.
     input_init(&input);
     frame(INPUT_CROSS | INPUT_START | INPUT_DOWN);
-    assert(editor.selected == 4);
+    assert(editor.selected == 2);
     assert(editor.storage_request == STORAGE_ACTION_NONE);
     frame(INPUT_CROSS);
     assert(editor.storage_request == STORAGE_ACTION_NONE);
     frame(0);
     tap(INPUT_UP);
-    assert(editor.selected == 3);
+    assert(editor.selected == 1);
     tap(INPUT_DOWN);
-    assert(editor.selected == 4);
+    assert(editor.selected == 2);
     tap(INPUT_CROSS);
     assert(editor.storage_request == STORAGE_ACTION_SAVE);
 }

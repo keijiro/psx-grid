@@ -53,6 +53,7 @@ typedef enum
     EDIT_SOUND,                     // Channel sound settings are open.
     EDIT_MAIN,                      // Global score settings are open.
     EDIT_REVERB,                    // Reverb settings are open.
+    EDIT_CARD,                      // Memory-card actions are open.
     EDIT_MODE_COUNT                 // The number of editor surfaces.
 } EditorMode;
 

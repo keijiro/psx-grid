@@ -316,15 +316,18 @@ int main(void)
     e.mode = EDIT_MAIN;
     e.selected = 0;
     draw("main");
-    e.selected = 5;
+    e.selected = 2;
     draw("main-last-row");
+    e.mode = EDIT_CARD;
+    e.selected = 3;
+    draw("card");
     for (int status = STORAGE_UNKNOWN; status <= STORAGE_GENERATION_FULL;
          status++)
     {
         e.slot_status = status;
         e.card_free = status % 16;
         e.message = storage_message(status);
-        e.selected = 4;
+        e.selected = 2;
         draw(NULL);
     }
     e.message = "";

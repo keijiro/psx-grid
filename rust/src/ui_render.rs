@@ -37,6 +37,8 @@ const UI_RAIL: c_int = 0x60;
 const UI_MENU_MARGIN: c_int = 12;
 const UI_MENU_ROW: c_int = 17;
 const UI_MENU_EDGE: c_int = 16;
+const LOGO_W: c_int = 72;
+const LOGO_H: c_int = 15;
 const EDIT_PLANE: c_int = 0;
 const EDIT_MENU: c_int = 1;
 const EDIT_DELETE: c_int = 2;
@@ -46,6 +48,7 @@ const EDIT_MOVE: c_int = 5;
 const EDIT_SOUND: c_int = 6;
 const EDIT_MAIN: c_int = 7;
 const EDIT_REVERB: c_int = 8;
+const EDIT_CARD: c_int = 9;
 const ROW_HEADING: c_int = 0;
 const TILE_NOTE: c_int = 1;
 const TILE_CYCLE: c_int = 2;
@@ -291,8 +294,9 @@ fn menu_row(
 fn menu_title(editor: &Editor, out: &mut Text<'_>) {
     out.clear();
     match editor.mode {
-        EDIT_MAIN => out.push(b"JACQUARD / MAIN"),
+        EDIT_MAIN => {}
         EDIT_REVERB => out.push(b"REVERB / GLOBAL"),
+        EDIT_CARD => out.push(b"MEMORY CARD"),
         EDIT_SOUND => {
             write!(out, "SOUND CH {}", editor.sound_channel + 1)
                 .expect("fixed text writer cannot fail");
@@ -391,7 +395,7 @@ fn menu_height(editor: &Editor, count: usize, alert: bool) -> c_int {
         bottom = 11 + 7;
     }
     let mut height = bottom + 10;
-    if editor.mode == EDIT_MAIN {
+    if editor.mode == EDIT_CARD {
         height += UI_MENU_ROW;
     }
     if alert {
@@ -468,7 +472,7 @@ fn menu_body(
                 menu_row(editor, row, i as c_int, x + 15, py, width - 30);
             }
         }
-        if editor.mode == EDIT_MAIN {
+        if editor.mode == EDIT_CARD {
             clipped_text(
                 x + 15,
                 y + height - if alert { 31 } else { 17 },
@@ -500,7 +504,7 @@ fn draw_menu(editor: &Editor) {
     menu_title(editor, &mut title);
     let mut status_bytes = [0; 64];
     let mut status = Text::new(&mut status_bytes);
-    if editor.mode == EDIT_MAIN {
+    if editor.mode == EDIT_CARD {
         // SAFETY: Storage returns a static C string.
         unsafe { status.push_c(storage_message(editor.slot_status)) };
         if editor.card_free >= 0 {
@@ -553,12 +557,17 @@ fn draw_menu(editor: &Editor) {
         unsafe { MENU_MODE = editor.mode };
     }
     menu_panel(x, y, width, height);
-    clipped_text(
-        x + UI_MENU_MARGIN,
-        y + 11,
-        title.as_bytes(),
-        x + width - UI_MENU_MARGIN,
-    );
+    if editor.mode == EDIT_MAIN {
+        // The atlas keeps the wordmark's 60-unit cells as single pixels.
+        sprite(0, x + UI_MENU_MARGIN, y + 11, 0, 64, LOGO_W, LOGO_H);
+    } else {
+        clipped_text(
+            x + UI_MENU_MARGIN,
+            y + 11,
+            title.as_bytes(),
+            x + width - UI_MENU_MARGIN,
+        );
+    }
     menu_body(
         editor,
         &menu_rows,
