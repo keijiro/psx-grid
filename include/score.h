@@ -46,18 +46,26 @@ typedef enum
     TILE_CYCLE,                     // Gate following events by pattern.
     TILE_PROBABILITY,               // Gate following events by chance.
     TILE_JUMP,                      // Traverse a branch lane.
-    TILE_RELATIVE,                  // Apply relative envelope locks.
+    TILE_RELATIVE,                  // Apply relative channel sound locks.
     TILE_KIND_COUNT                 // The number of tile kinds.
 } TileKind;
 
 // Zero is the empty link. Live IDs stay stable across movement and reordering;
 // deletion releases an ID for reuse by a later placement.
 typedef uint16_t TileId;
-// Independent override bits for relative envelope locks.
+// Independent targets for relative sound locks.
 enum
 {
-    LOCK_ATTACK = 1,                // Override the attack interval.
-    LOCK_RELEASE = 2                // Override the release interval.
+    LOCK_ATTACK = 1 << 0,           // Shift amplitude attack.
+    LOCK_RELEASE = 1 << 1,          // Shift amplitude release.
+    LOCK_MIX_ATTACK = 1 << 2,       // Shift mix attack.
+    LOCK_MIX_RELEASE = 1 << 3,      // Shift mix release.
+    LOCK_SWEEP = 1 << 4,            // Shift pitch sweep.
+    LOCK_DECAY = 1 << 5,            // Shift pitch decay.
+    LOCK_LEVEL = 1 << 6,            // Shift level in decibels.
+    LOCK_PAN = 1 << 7,              // Shift stereo position.
+    LOCK_TRANSPOSE = 1 << 8,        // Shift note pitch.
+    LOCK_GATE_RATIO = 1 << 9        // Shift note gate percentage.
 };
 
 // Wave bank choices available to each half of a logical voice.
@@ -110,6 +118,8 @@ typedef struct
     int lock_mask;
     int attack;
     int release;
+    // Signed offsets for targets from mix attack through gate ratio.
+    int16_t lock_offsets[8];
 } TileValue;
 
 // Pool tile with an optional stack successor or jump branch.

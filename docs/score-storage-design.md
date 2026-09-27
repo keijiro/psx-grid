@@ -89,7 +89,7 @@ it excludes the PSX wrapper and block padding.
 | --- | --- | --- |
 | 0 | 4 | ASCII `JQSC` |
 | 4 | 2 | Envelope version, 1 |
-| 6 | 2 | Minimum reader version, 2 (older scores use 1) |
+| 6 | 2 | Minimum reader version: 1 for original scores, 2 for channel extensions, 3 for extended Relative Locks |
 | 8 | 2 | Envelope length, 32 |
 | 10 | 2 | Reserved, zero |
 | 12 | 4 | Payload length, excluding envelope |
@@ -111,9 +111,10 @@ output has Global (tag 1), Sounds (2), Lanes (3), and Steps (4), each exactly
 once with schema 1 and required set. Readers accept these chunks in any order;
 duplicate/missing known chunks fail. Unknown optional chunks are disposable
 metadata and are skipped; unknown required chunks or schemas report NEWER
-VERSION. Minor version 2 extends sound and lane records while retaining schema
-1. The decoder accepts minor version 1 and supplies unity gate ratio and
-enabled Play switches for older scores.
+VERSION. Reader version 2 extends sound and lane records while retaining
+schema 1. The decoder accepts version 1 and supplies unity gate ratio and
+enabled Play switches for older scores. Reader version 3 adds extended
+Relative Lock records without changing sound or lane records.
 
 Persistent chunk content:
 
@@ -150,7 +151,8 @@ Use stable wire tags independent of C enum ordinals. Store divisions as their
 numeric values, not indices into the current division table.
 
 Each tile has a one-byte wire kind (Note=1, Cycle=2, Probability=3, Jump=4,
-Relative Lock=5) and one-byte payload length, with these payloads:
+Relative Lock=5, extended Relative Lock=6) and one-byte payload length,
+with these payloads:
 
 | Kind | Payload | Total bytes |
 | --- | --- | ---: |
@@ -159,6 +161,14 @@ Relative Lock=5) and one-byte payload length, with these payloads:
 | Probability | chance u8 | 3 |
 | Jump | destination lane u8 | 3 |
 | Relative lock | mask u8, attack i16, release i16 in milliseconds | 7 |
+
+Extended relative locks use wire tag 6 when any target beyond Amp
+Attack/Release is enabled. Their payload contains a u16 target mask followed
+by one signed i16 offset per enabled target in target order. The payload is
+4–22 bytes, so an extended tile consumes 6–24 bytes. Files containing such
+locks require reader version 3; files using only the original two targets
+retain reader version 2 and their seven-byte records. This preserves the
+capacity of older scores on re-encoding.
 
 One u8 stack count per step accommodates the 64-cell height limit. The fixed
 minor version 2 cost is 512 bytes reserved for the PSX wrapper, 32 for the
@@ -179,7 +189,7 @@ Keep action/error messages and transport status available in their existing
 bottom rows. This readout works without a card inserted and describes room
 for score content, not unused card blocks or bytes of runtime RAM.
 
-With the v1 encoding, the exact calculation is:
+For scores using only the original two lock targets, the exact calculation is:
 
 ```
 used = 728 + 12 * active_lanes + sum(active_lane_lengths)
@@ -187,6 +197,9 @@ used = 728 + 12 * active_lanes + sum(active_lane_lengths)
      + 7 * relative_locks
 free = 8192 - used
 ```
+
+For each extended lock, replace its 7-byte term with 4 bytes for its tag,
+length, and mask, plus 2 bytes per enabled target.
 
 An empty score has 7,464 bytes free. A new empty 16-step lane consumes 28 bytes.
 A Note on an existing step consumes 5 bytes; a Cycle or Relative Lock consumes

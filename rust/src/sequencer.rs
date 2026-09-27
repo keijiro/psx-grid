@@ -23,8 +23,6 @@ const CYCLE: c_int = 2;
 const PROBABILITY: c_int = 3;
 const JUMP: c_int = 4;
 const RELATIVE: c_int = 5;
-const LOCK_ATTACK: c_int = 1;
-const LOCK_RELEASE: c_int = 2;
 
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -104,17 +102,43 @@ const _: () = assert!(core::mem::size_of::<Sequencer>() == 7920);
 #[cfg(target_pointer_width = "32")]
 const _: () = assert!(core::mem::size_of::<Sequencer>() == 7888);
 
-fn bound(value: c_int) -> c_int {
-    value.clamp(0, MAX_MS)
-}
-
 /// Accumulates relative locks on the working channel within edit bounds.
 fn lock(sound: &mut SoundSettings, value: TileValue) {
-    if value.lock_mask & LOCK_ATTACK != 0 {
-        sound.attack = bound(sound.attack + value.attack);
-    }
-    if value.lock_mask & LOCK_RELEASE != 0 {
-        sound.release = bound(sound.release + value.release);
+    let fields = [
+        &mut sound.attack,
+        &mut sound.release,
+        &mut sound.mix_attack,
+        &mut sound.mix_release,
+        &mut sound.sweep,
+        &mut sound.decay,
+        &mut sound.level,
+        &mut sound.pan,
+        &mut sound.transpose,
+        &mut sound.gate_ratio,
+    ];
+    let bounds = [
+        (0, MAX_MS),
+        (0, MAX_MS),
+        (0, 500),
+        (0, 500),
+        (-24, 24),
+        (0, 2000),
+        (-60, 6),
+        (-100, 100),
+        (-24, 24),
+        (5, 400),
+    ];
+    for (target, (field, (low, high))) in
+        fields.into_iter().zip(bounds).enumerate()
+    {
+        if value.lock_mask & (1 << target) == 0 {
+            continue;
+        }
+        // Legacy callers use zero as a unity gate ratio sentinel.
+        if target == 9 && *field == 0 {
+            *field = 100;
+        }
+        *field = (*field + value.lock_offset(target)).clamp(low, high);
     }
 }
 

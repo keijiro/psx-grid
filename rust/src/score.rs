@@ -13,6 +13,10 @@ pub(crate) const LANES: usize = 16;
 pub(crate) const CHANNELS: usize = 8;
 pub(crate) const STEPS: usize = 64;
 pub(crate) const TILE_CAPACITY: usize = 4096;
+pub(crate) const LOCK_TARGETS: usize = 10;
+// Offsets span each target's useful range; level uses a musical 24 dB span.
+pub(crate) const LOCK_LIMITS: [c_int; LOCK_TARGETS] =
+    [16000, 16000, 500, 500, 48, 2000, 24, 200, 48, 395];
 
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -51,6 +55,25 @@ pub(crate) struct TileValue {
     pub(crate) lock_mask: c_int,
     pub(crate) attack: c_int,
     pub(crate) release: c_int,
+    pub(crate) lock_offsets: [i16; LOCK_TARGETS - 2],
+}
+
+impl TileValue {
+    pub(crate) fn lock_offset(self, target: usize) -> c_int {
+        match target {
+            0 => self.attack,
+            1 => self.release,
+            _ => c_int::from(self.lock_offsets[target - 2]),
+        }
+    }
+
+    pub(crate) fn set_lock_offset(&mut self, target: usize, offset: c_int) {
+        match target {
+            0 => self.attack = offset,
+            1 => self.release = offset,
+            _ => self.lock_offsets[target - 2] = offset as i16,
+        }
+    }
 }
 
 #[repr(C)]
@@ -98,11 +121,11 @@ pub struct Cell {
     pub(crate) tile: u16,
 }
 
-const _: () = assert!(core::mem::size_of::<TileValue>() == 36);
+const _: () = assert!(core::mem::size_of::<TileValue>() == 52);
 const _: () = assert!(core::mem::size_of::<SoundSettings>() == 52);
-const _: () = assert!(core::mem::size_of::<Tile>() == 44);
+const _: () = assert!(core::mem::size_of::<Tile>() == 60);
 const _: () = assert!(core::mem::size_of::<Lane>() == 160);
-const _: () = assert!(core::mem::size_of::<Score>() == 199716);
+const _: () = assert!(core::mem::size_of::<Score>() == 265268);
 const _: () = assert!(core::mem::size_of::<Cell>() == 20);
 
 /// Supported step divisions shared with C editor menus and fixtures.
@@ -241,6 +264,7 @@ pub(crate) fn default_value(kind: c_int) -> TileValue {
         lock_mask: 0,
         attack: 0,
         release: 0,
+        lock_offsets: [0; LOCK_TARGETS - 2],
     }
 }
 
@@ -499,6 +523,7 @@ const SCORE_HEIGHT: usize = 64;
 const SOUND_MAX_MS: c_int = 16000;
 const SCORE_BOUNDS: c_int = 1;
 const SCORE_COLLISION: c_int = 2;
+const SCORE_FULL: c_int = 3;
 const SCORE_INVALID: c_int = 5;
 const SCORE_CYCLE: c_int = 6;
 
@@ -513,11 +538,12 @@ pub(crate) fn value_valid(value: TileValue) -> bool {
         && (5..=1280).contains(&value.length)
         && (2..=32).contains(&value.period)
         && (0..=100).contains(&value.chance)
-        && (0..=3).contains(&value.lock_mask)
-        && (-SOUND_MAX_MS..=SOUND_MAX_MS).contains(&value.attack)
-        && (-SOUND_MAX_MS..=SOUND_MAX_MS).contains(&value.release)
-        && (value.lock_mask & 1 != 0 || value.attack == 0)
-        && (value.lock_mask & 2 != 0 || value.release == 0)
+        && (0..1 << LOCK_TARGETS).contains(&value.lock_mask)
+        && (0..LOCK_TARGETS).all(|target| {
+            let offset = value.lock_offset(target);
+            (-LOCK_LIMITS[target]..=LOCK_LIMITS[target]).contains(&offset)
+                && (value.lock_mask & (1 << target) != 0 || offset == 0)
+        })
 }
 
 /// Changes a live tile's values while preserving its kind and pool identity.
@@ -542,7 +568,24 @@ pub unsafe extern "C" fn score_edit(
     {
         return SCORE_INVALID;
     }
+    let previous = score.tiles[usize::from(id)].value;
     score.tiles[usize::from(id)].value = value;
+    // Only target changes can grow a tile record. Keep value adjustments at
+    // their existing cost and reject a larger record beyond one card block.
+    let lock_bytes = |mask: c_int| {
+        if mask & !3 == 0 {
+            7
+        } else {
+            4 + 2 * mask.count_ones()
+        }
+    };
+    if value.kind == 5
+        && lock_bytes(value.lock_mask) > lock_bytes(previous.lock_mask)
+        && crate::score_format::measure(score) > 8192
+    {
+        score.tiles[usize::from(id)].value = previous;
+        return SCORE_FULL;
+    }
     score.revision = score.revision.wrapping_add(1);
     0
 }

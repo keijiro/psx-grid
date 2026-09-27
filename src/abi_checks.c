@@ -22,15 +22,15 @@ _Static_assert(WAVE_SINE == 0 && WAVE_TRIANGLE == 1 && WAVE_SAW == 2 &&
 _Static_assert(TILE_NOTE == 1 && TILE_CYCLE == 2 && TILE_PROBABILITY == 3 &&
                    TILE_JUMP == 4 && TILE_RELATIVE == 5,
                "Rust tile tags must match the C model");
-_Static_assert(sizeof(Score) == 199716, "Rust Score ABI changed");
+_Static_assert(sizeof(Score) == 265268, "Rust Score ABI changed");
 _Static_assert(sizeof(SoundSettings) == 52 && sizeof(Lane) == 160,
                "Rust sound and lane ABI changed");
 _Static_assert(sizeof(Runner) == 440, "Rust Runner ABI changed");
 _Static_assert(sizeof(Sequencer) == (sizeof(void*) == 4 ? 7888 : 7920),
                "Rust Sequencer ABI changed");
-_Static_assert(sizeof(TileValue) == 36, "Rust TileValue ABI changed");
+_Static_assert(sizeof(TileValue) == 52, "Rust TileValue ABI changed");
 _Static_assert(sizeof(Cell) == 20, "Rust Cell ABI changed");
-_Static_assert(sizeof(Clipboard) == 2308, "Rust Clipboard ABI changed");
+_Static_assert(sizeof(Clipboard) == 3332, "Rust Clipboard ABI changed");
 _Static_assert(sizeof(MovePlan) == 20, "Rust MovePlan ABI changed");
 _Static_assert(sizeof(Input) == 40, "Rust Input ABI changed");
 _Static_assert(sizeof(InputFrame) == 48, "Rust InputFrame ABI changed");
@@ -48,9 +48,8 @@ _Static_assert(SOUND_MAX_MS == 16000 && SOUND_MAX_MIX_MS == 500 &&
                SOUND_MAX_DECAY_MS == 2000 && SOUND_MAX_SWEEP == 24 &&
                WAVE_COUNT == 5,
                "editor sound bounds");
-_Static_assert(EDIT_REVERB == 8 && EDIT_CARD == 9 &&
-                   ACTION_LOCK_RELEASE == 18 &&
-                   ACTION_PLAY == 19 &&
+_Static_assert(EDIT_REVERB == 8 && EDIT_CARD == 9 && EDIT_LOCK == 10 &&
+                   ACTION_PLAY == 15 && ACTION_LOCK_SETTINGS == 16 &&
                    TILE_RELATIVE == 5 && CELL_END == 4,
                "editor discriminants");
 

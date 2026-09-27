@@ -44,7 +44,7 @@ the lane by one step. Occupied cells are never overwritten.
 | Cycle gate | Period 2–32, initially 4; pattern with only lap 1 enabled |
 | Probability gate | Chance 0–100%, initially 50% |
 | Regular head (`Ch1`–`Ch8`) | Length, step division, channel, Play, shared Sound settings, delete lane |
-| Relative Lock | Separate Attack/Release enable switches and signed millisecond offsets; both disabled initially |
+| Relative Lock | Ten channel sound offsets, each independently enabled; all disabled initially |
 | Branch head (`B`) | Length, delete lane; division and channel inherited from its source |
 | Jump | Copy stack, delete tile; destination is its own branch |
 
@@ -210,19 +210,26 @@ All settings are captured at note-on. Published edits affect future notes;
 existing notes keep their complete sound. Automated synthesis checks and
 remaining listening/controller checks are recorded in [validation.md](validation.md).
 
-Relative Locks affect only Amp Attack and Amp Release, adding signed offsets
-from -16,000 to +16,000 ms. Enable a target before changing its offset. Enabled zero is distinct from disabled; disabling
-clears the offset. Both targets may be enabled in one tile (`A` and `R` labels).
+Open `LOCK SETTINGS...` on a Relative Lock to edit Amp Attack/Release,
+Mix Attack/Release, Pitch Sweep/Decay, Level, Pan, Transpose, and Gate Ratio.
+X enables or disables the selected target; left/right changes its signed
+offset once enabled. Disabling clears the offset. Enabled zero is distinct
+from disabled. Time offsets use milliseconds, Sweep/Transpose use semitones,
+Level uses decibels, and Pan/Gate Ratio use percentage points. Waveforms and
+the Reverb Send switch have no meaningful relative ordering and remain
+channel settings. The tile shows `A`/`R` for attack/release-only locks and
+the enabled target count when other targets are active.
 
 Runners execute by their original heads, top to bottom, then left to right.
 Within each stack, locks affect notes below them and subsequent lower runners
 on the same channel. Other channels are unaffected.
-Each addition clamps immediately to 0–16,000 ms. The reached locks remain held
-until that runner's next step; an empty step clears them. Faster lower lanes
-on the same channel hear a slower upper lane's held locks. Notes already
-sounding retain their original Attack and Release, and base channel settings never accumulate
-lock changes. After a published channel reassignment, still-held locks apply
-to the new channel on the next slice and stop contributing to the old one.
+Each addition clamps immediately to its channel setting's range. The reached
+locks remain held until that runner's next step; an empty step clears them.
+Faster lower lanes on the same channel hear a slower upper lane's held locks.
+Notes already sounding retain their captured sound, and base channel settings
+never accumulate lock changes. After a published channel reassignment,
+still-held locks apply to the new channel on the next slice and stop
+contributing to the old one.
 Assignment and sound edits preserve runner positions, laps, and scheduled gates.
 
 ## Saving and loading

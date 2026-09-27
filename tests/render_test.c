@@ -335,6 +335,17 @@ int main(void)
     e.selected = 1;
     draw("reverb");
 
+    assert(score_create(&e.score, 0, 0, 1) == SCORE_OK);
+    assert(score_place(&e.score, 1, 0, TILE_RELATIVE) == SCORE_OK);
+    e.target = tile_at(1, 0);
+    e.mode = EDIT_LOCK;
+    e.selected = 0;
+    draw("lock-first-row");
+    assert_menu_edge();
+    e.selected = 9;
+    draw("lock-last-row");
+    assert_menu_edge();
+
     // Exercise the renderer's full 300-cell view; bypass model admission here
     // because the fixture intentionally exceeds persistence and lane limits.
     for (int lane = 0; lane < SCORE_LANES; lane++)

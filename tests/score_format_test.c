@@ -201,6 +201,43 @@ static void golden(int write_fixture)
 }
 
 /*
+ * Extended lock records retain every signed target while legacy cards stay
+ * byte-for-byte compatible with the v2 fixture above.
+ */
+static void extended_locks(void)
+{
+    Score source;
+    Score decoded;
+    example(&source);
+    TileId id = tile(&source, 5, 0);
+    TileValue value = source.tiles[id].value;
+    value.lock_mask = (1 << 10) - 1;
+    value.lock_offsets[0] = -500;
+    value.lock_offsets[1] = 500;
+    value.lock_offsets[2] = -48;
+    value.lock_offsets[3] = 2000;
+    value.lock_offsets[4] = -24;
+    value.lock_offsets[5] = 200;
+    value.lock_offsets[6] = -48;
+    value.lock_offsets[7] = 395;
+    assert(test_score_edit(&source, id, value) == SCORE_OK);
+    assert(score_format_encode(&source, block, 1, 9) == FORMAT_OK);
+    assert(get(block + ENVELOPE + 6, 2) == 3);
+    int slot = 0;
+    uint32_t generation = 0;
+    assert(score_format_decode(block, sizeof(block), &decoded, &slot,
+                               &generation) == FORMAT_OK);
+    assert(slot == 1 && generation == 9);
+    TileValue round_trip = decoded.tiles[tile(&decoded, 5, 0)].value;
+    assert(round_trip.lock_mask == value.lock_mask);
+    assert(round_trip.attack == value.attack &&
+           round_trip.release == value.release);
+    for (int i = 0; i < 8; i++)
+        assert(round_trip.lock_offsets[i] == value.lock_offsets[i]);
+    equivalent(&source, &decoded);
+}
+
+/*
  * Separates newer required fields from corrupt input so future files remain
  * distinguishable.
  */
@@ -251,7 +288,7 @@ static void compatibility(void)
     repair_crc(changed);
     rejected(FORMAT_NEWER, sizeof(changed));
     mutate(ENVELOPE + 4, 2, FORMAT_NEWER);
-    mutate(ENVELOPE + 6, 3, FORMAT_NEWER);
+    mutate(ENVELOPE + 6, 4, FORMAT_NEWER);
     mutate(ENVELOPE + 16, 1, FORMAT_NEWER);
 }
 
@@ -419,6 +456,7 @@ int main(int argc, char** argv)
     compatibility();
     invalid_inputs();
     encode_rejects_invalid();
+    extended_locks();
     puts("PASS: deterministic v2 fixture, round trip, compatibility, staged "
          "rejection and "
          "validation");
