@@ -38,6 +38,7 @@ const EDIT_MOVE: c_int = 5;
 const EDIT_SOUND: c_int = 6;
 const EDIT_MAIN: c_int = 7;
 const EDIT_REVERB: c_int = 8;
+const EDIT_CARD: c_int = 9;
 
 const ACTION_CREATE: c_int = 0;
 const ACTION_PLACE: c_int = 1;
@@ -73,6 +74,7 @@ const ROW_SAVE: c_int = 104;
 const ROW_LOAD: c_int = 105;
 const ROW_SIZE: c_int = 106;
 const ROW_AMOUNT: c_int = 107;
+const ROW_CARD: c_int = 108;
 const ROW_WAVE1: c_int = 200;
 const ROW_WAVE2: c_int = 201;
 const ROW_AMP_ATTACK: c_int = 202;
@@ -365,6 +367,12 @@ pub(crate) fn rows(
             &mut n,
             row(ROW_SUBMENU, ROW_REVERB, b"REVERB...\0", 0, 0, 0, 0),
         );
+        push(
+            output,
+            &mut n,
+            row(ROW_SUBMENU, ROW_CARD, b"MEMORY CARD...\0", 0, 0, 0, 0),
+        );
+    } else if editor.mode == EDIT_CARD {
         push(
             output,
             &mut n,
@@ -939,12 +947,17 @@ fn adjust(
 
 /// Defers card I/O to the main loop and retains nested-menu selection.
 fn activate(editor: &mut Editor, row: EditorRow) {
-    if editor.load_busy != 0 && row.id != ROW_REVERB && row.id != ROW_SLOT {
+    if editor.load_busy != 0 && row.id != ROW_REVERB && row.id != ROW_CARD {
         return;
     }
     match row.id {
         ROW_REVERB => {
             editor.mode = EDIT_REVERB;
+            editor.parent_selected = editor.selected;
+            editor.selected = 0;
+        }
+        ROW_CARD => {
+            editor.mode = EDIT_CARD;
             editor.parent_selected = editor.selected;
             editor.selected = 0;
         }
@@ -1198,7 +1211,7 @@ fn update(editor: &mut Editor, frame: &InputFrame) {
     if frame.circle != 0 {
         if editor.mode == EDIT_MAIN || editor.mode == EDIT_MENU {
             editor.mode = EDIT_PLANE;
-        } else if editor.mode == EDIT_REVERB {
+        } else if editor.mode == EDIT_REVERB || editor.mode == EDIT_CARD {
             editor.mode = EDIT_MAIN;
             editor.selected = editor.parent_selected;
         } else {

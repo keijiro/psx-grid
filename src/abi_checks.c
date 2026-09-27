@@ -48,7 +48,8 @@ _Static_assert(SOUND_MAX_MS == 16000 && SOUND_MAX_MIX_MS == 500 &&
                SOUND_MAX_DECAY_MS == 2000 && SOUND_MAX_SWEEP == 24 &&
                WAVE_COUNT == 5,
                "editor sound bounds");
-_Static_assert(EDIT_REVERB == 8 && ACTION_LOCK_RELEASE == 18 &&
+_Static_assert(EDIT_REVERB == 8 && EDIT_CARD == 9 &&
+                   ACTION_LOCK_RELEASE == 18 &&
                    ACTION_PLAY == 19 &&
                    TILE_RELATIVE == 5 && CELL_END == 4,
                "editor discriminants");
