@@ -178,7 +178,7 @@ static void frames(int count)
 {
     for (int i = 0; i < count; i++)
     {
-        render_frame(&editor, 1);
+        render_frame(&editor, 1, NULL);
         InputSample sample;
         while (pad_read(&sample))
         {

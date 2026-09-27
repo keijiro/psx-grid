@@ -8,13 +8,15 @@
 #ifndef UI_RENDER_H
 #define UI_RENDER_H
 
+#include "audio_platform.h"
 #include "editor.h"
 
 /*
  * Submits one frame from the caller-owned `editor` view. `connected` reports
- * whether a pad is present; rendering does not modify the editor.
- * `editor` must not be NULL.
+ * whether a pad is present. `playheads` may be NULL to omit the overlay.
+ * Rendering does not modify either input. `editor` must not be NULL.
  */
-void render_frame(const Editor* editor, int connected);
+void render_frame(const Editor* editor, int connected,
+                  const AudioPlayheads* playheads);
 
 #endif // UI_RENDER_H

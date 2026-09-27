@@ -10,6 +10,21 @@
 
 #include "audio_sequencer.h"
 
+// One runner's audible location in the published score.
+typedef struct
+{
+    int lane;
+    int step;
+} AudioPlayhead;
+
+// A frame-sized copy of the timer-owned positions.
+typedef struct
+{
+    uint32_t revision;
+    int count;
+    AudioPlayhead items[SCORE_LANES];
+} AudioPlayheads;
+
 /*
  * Initializes the SPU and timer-backed transport before pad initialization.
  */
@@ -44,6 +59,13 @@ void audio_platform_card_resume(const Score* score);
  * Returns one while transport is running, or zero while it is stopped.
  */
 int audio_platform_playing(void);
+
+/*
+ * Copies audible runner positions and their score revision while timer
+ * service is excluded. Returns an empty list when playback is stopped.
+ * `out` must not be NULL.
+ */
+void audio_platform_playheads(AudioPlayheads* out);
 
 /*
  * Copies `incoming` into a spare snapshot and arms a handoff. Returns one on

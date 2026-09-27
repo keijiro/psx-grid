@@ -49,12 +49,13 @@ pub(crate) struct Runner {
     origin: c_int,
     lane: c_int,
     step: c_int,
-    playing_lane: c_int,
-    playing_step: c_int,
+    pub(crate) playing_lane: c_int,
+    pub(crate) playing_step: c_int,
     lap: u32,
     duration: u32,
-    active: c_int,
+    pub(crate) active: c_int,
     pub(crate) next: u64,
+    pub(crate) playing_until: u64,
     held: [u16; HEIGHT],
     held_generation: [u32; HEIGHT],
     held_count: c_int,
@@ -70,7 +71,7 @@ struct NoteOff {
 /// Caller-owned transport state mirrored from the C diagnostic layout.
 #[repr(C)]
 pub struct Sequencer {
-    score: *const Score,
+    pub(crate) score: *const Score,
     sink: NoteSink,
     pub(crate) runners: [Runner; LANES],
     order: [c_int; LANES],
@@ -97,11 +98,11 @@ pub struct Sequencer {
     off_min: u64,
 }
 
-const _: () = assert!(core::mem::size_of::<Runner>() == 432);
+const _: () = assert!(core::mem::size_of::<Runner>() == 440);
 #[cfg(target_pointer_width = "64")]
-const _: () = assert!(core::mem::size_of::<Sequencer>() == 7792);
+const _: () = assert!(core::mem::size_of::<Sequencer>() == 7920);
 #[cfg(target_pointer_width = "32")]
-const _: () = assert!(core::mem::size_of::<Sequencer>() == 7760);
+const _: () = assert!(core::mem::size_of::<Sequencer>() == 7888);
 
 fn bound(value: c_int) -> c_int {
     value.clamp(0, MAX_MS)
@@ -140,6 +141,7 @@ fn runner_start(r: &mut Runner, lane: c_int, at: u64) {
     r.step = 0;
     r.playing_lane = lane;
     r.playing_step = -1;
+    r.playing_until = 0;
     r.lap = 0;
     r.duration = 0;
     r.next = at;
@@ -282,6 +284,7 @@ pub unsafe extern "C" fn sequencer_resync(
         {
             r.playing_lane = r.origin;
             r.playing_step = -1;
+            r.playing_until = 0;
             r.held_count = 0;
         }
     }
@@ -517,6 +520,7 @@ fn slice(s: &mut Sequencer, now: u64, budget: &mut c_int) -> bool {
                 // deadline or an already scheduled gate.
                 r.duration = s.step_ticks
                     / score.lanes[r.origin as usize].division as u32;
+                r.playing_until = r.next + u64::from(r.duration);
                 s.cursor = score.lanes[r.lane as usize].tiles[r.step as usize];
             }
         }

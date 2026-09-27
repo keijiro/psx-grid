@@ -72,10 +72,10 @@ static void storage_action(int connected)
                                                      : "CHECKING CARD";
     editor.slot_status = STORAGE_BUSY;
     // Submit a visible busy frame while SDK GPU callbacks still work.
-    render_frame(&editor, connected);
+    render_frame(&editor, connected, NULL);
     // The renderer displays the previously submitted buffer. A second frame
     // makes the busy slot status visible before synchronous access begins.
-    render_frame(&editor, connected);
+    render_frame(&editor, connected, NULL);
     DrawSync(0);
     pad_suspend();
     audio_platform_card_stop();
@@ -163,6 +163,8 @@ int main(void)
         editor.playing = audio_platform_playing();
         editor.snapshot_dirty = editor.playing && editor.score.revision !=
                                                       audio_platform_revision();
-        render_frame(&editor, connected);
+        AudioPlayheads playheads;
+        audio_platform_playheads(&playheads);
+        render_frame(&editor, connected, &playheads);
     }
 }
