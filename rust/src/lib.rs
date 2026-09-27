@@ -9,6 +9,7 @@ mod audio;
 mod audio_tables;
 mod editor;
 mod input;
+mod input_queue;
 mod score;
 mod score_edit;
 mod score_format;

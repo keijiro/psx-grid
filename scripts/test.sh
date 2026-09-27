@@ -15,20 +15,20 @@ ${CC:-cc} -std=c11 -Wall -Wextra -Werror -g -fsanitize=address,undefined \
   -Iinclude -Isrc tests/storage_test.c src/abi_checks.c "$RUST_LIBRARY" -o build/tests/storage_test
 build/tests/storage_test
 ${CC:-cc} -std=c11 -Wall -Wextra -Werror -g -fsanitize=address,undefined \
-  -Iinclude -Isrc tests/storage_editor_test.c src/abi_checks.c src/input/input_queue.c "$RUST_LIBRARY" -o build/tests/storage_editor_test
+  -Iinclude -Isrc tests/storage_editor_test.c src/abi_checks.c "$RUST_LIBRARY" -o build/tests/storage_editor_test
 build/tests/storage_editor_test
 ${CC:-cc} -std=c11 -Wall -Wextra -Werror -g -fsanitize=address,undefined \
   -Iinclude -Isrc tests/replacement_test.c src/abi_checks.c "$RUST_LIBRARY" -o build/tests/replacement_test
 build/tests/replacement_test
 ${CC:-cc} -std=c11 -Wall -Wextra -Werror -g -fsanitize=address,undefined \
-  -Iinclude -Isrc tests/score_test.c src/abi_checks.c src/input/input_queue.c "$RUST_LIBRARY" -o build/tests/score_test
+  -Iinclude -Isrc tests/score_test.c src/abi_checks.c "$RUST_LIBRARY" -o build/tests/score_test
 build/tests/score_test
 ${CC:-cc} -std=c11 -Wall -Wextra -Werror -g -fsanitize=address,undefined \
   -Itests/gpu_stub -Iinclude -Isrc -Ibuild/generated tests/render_test.c src/ui/render.c src/abi_checks.c "$RUST_LIBRARY" \
   -o build/tests/render_test
 build/tests/render_test
 ${CC:-cc} -std=c11 -Wall -Wextra -Werror -g -fsanitize=address,undefined \
-  -Iinclude -Isrc -Ibuild/generated tests/audio_test.c src/abi_checks.c src/input/input_queue.c "$RUST_LIBRARY" \
+  -Iinclude -Isrc -Ibuild/generated tests/audio_test.c src/abi_checks.c "$RUST_LIBRARY" \
   -o build/tests/audio_test
 build/tests/audio_test
 ${CC:-cc} -std=c11 -Wall -Wextra -Werror -g -fsanitize=address,undefined \
@@ -37,5 +37,5 @@ ${CC:-cc} -std=c11 -Wall -Wextra -Werror -g -fsanitize=address,undefined \
 build/tests/synthesis_test
 python3 tests/audio_assets_test.py
 ${CC:-cc} -std=c11 -Wall -Wextra -Werror -g -fsanitize=address,undefined \
-  -Iinclude -Isrc tests/input_test.c src/abi_checks.c src/input/input_queue.c "$RUST_LIBRARY" -o build/tests/input_test
+  -Iinclude -Isrc tests/input_test.c src/abi_checks.c "$RUST_LIBRARY" -o build/tests/input_test
 build/tests/input_test

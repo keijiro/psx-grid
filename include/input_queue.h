@@ -3,7 +3,8 @@
  *
  * The pad interrupt publishes complete reports into a fixed single-producer,
  * single-consumer ring. The main thread consumes them in order before Rust
- * normalizes input history. Callers own the queue storage.
+ * normalizes input history. Callers own the queue storage; Rust implements
+ * the queue operations.
  */
 
 #ifndef INPUT_QUEUE_H
@@ -29,6 +30,8 @@ typedef struct
     unsigned write;
 } InputQueue;
 
+// Callers prevent concurrent queue access; the platform masks interrupts
+// around main-thread reads and resets.
 /*
  * Resets caller-owned `queue` to empty before its first push or pop.
  * `queue` must not be NULL.
@@ -44,7 +47,7 @@ int input_queue_push(InputQueue* queue, InputSample sample);
 /*
  * Removes the oldest sample into `sample` and returns one. Returns zero
  * without writing `sample` when the queue is empty.
- * `queue` and `sample` must not be NULL.
+ * `queue` and `sample` must not be NULL or overlap.
  */
 int input_queue_pop(InputQueue* queue, InputSample* sample);
 

@@ -85,9 +85,9 @@ those groups.
   and Rust tables come from the same generator.
 - `rust/src/input.rs`: Ordered input history, button presses, repeats,
   disconnection, and reconnection in a `no_std` static library.
+- `rust/src/input_queue.rs`: Interrupt-facing fixed queue of raw samples.
 - `include/input.h`: Shared input-history layout and Rust function declarations.
-- `src/input/input_queue.c`, `src/input/input_queue.h`: Interrupt-facing
-  sample queue.
+- `include/input_queue.h`: Shared queue layout and Rust function declarations.
 - `src/input/pad.*`: Port 1 asynchronous SIO polling and completed-report
   publication.
 - `rust/src/editor.rs`: Menus, inline property edits, clipboard, deletion

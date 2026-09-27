@@ -9,7 +9,7 @@
 #ifndef PAD_H
 #define PAD_H
 
-#include "input/input_queue.h"
+#include "input_queue.h"
 
 /*
  * Initializes after render_init and audio_platform_init. Timer service and
@@ -32,7 +32,7 @@ void pad_resume(void);
 /*
  * Pops a queued report into `sample` and returns one. Returns zero without
  * writing `sample` if no report is queued.
- * `sample` must not be NULL.
+ * `sample` must not be NULL or point into the queue.
  */
 int pad_read(InputSample* sample);
 // Debugger-visible poll, report, timeout, overflow and controller-ID counters.

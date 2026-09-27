@@ -1,7 +1,7 @@
 //! Converts raw controller samples into edges and independent repeat clocks.
 //!
 //! The caller owns the input history. All operations are allocation free; the
-//! platform driver supplies raw reports through its C queue.
+//! platform driver supplies raw reports through the interrupt-facing queue.
 
 // Implementation notes:
 // Cursor, row, and value repeats retain separate clocks so changing editor

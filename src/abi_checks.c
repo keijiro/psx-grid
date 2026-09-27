@@ -10,10 +10,13 @@
 
 #include "editor.h"
 #include "input.h"
+#include "input_queue.h"
 #include "score_format.h"
 #include "storage.h"
 #include "audio_sequencer.h"
 #include "ui/ui_style.h"
+
+#include <stddef.h>
 
 // The Rust codec uses these discriminants as stable wire tags.
 _Static_assert(WAVE_SINE == 0 && WAVE_TRIANGLE == 1 && WAVE_SAW == 2 &&
@@ -32,6 +35,11 @@ _Static_assert(sizeof(Clipboard) == 2308, "Rust Clipboard ABI changed");
 _Static_assert(sizeof(MovePlan) == 20, "Rust MovePlan ABI changed");
 _Static_assert(sizeof(Input) == 40, "Rust Input ABI changed");
 _Static_assert(sizeof(InputFrame) == 48, "Rust InputFrame ABI changed");
+_Static_assert(sizeof(InputSample) == 8, "Rust InputSample ABI changed");
+_Static_assert(sizeof(InputQueue) == 1032, "Rust InputQueue ABI changed");
+_Static_assert(offsetof(InputQueue, read) == 1024 &&
+                   offsetof(InputQueue, write) == 1028,
+               "Rust InputQueue index offsets changed");
 _Static_assert(sizeof(CardFile) == 28, "Rust CardFile ABI changed");
 
 // These shared values also shape Rust menu arrays and value ranges.
