@@ -7,14 +7,14 @@
  * fixed double buffers, and submission order so SDK DMA types stay in C.
  */
 
-#include "ui/render_backend.h"
+#include "render_backend.h"
 
 #include <psxetc.h>
 #include <psxgpu.h>
 #include <stddef.h>
 
 #include "ui_atlas.h"
-#include "ui/ui_style.h"
+#include "ui_style.h"
 
 // A full 20-by-15 view can contain 300 labeled tiles and their rail dots. Both
 // buffers still fit in main RAM at the measured 64 KiB packet budget.

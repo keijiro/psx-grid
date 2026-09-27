@@ -45,12 +45,10 @@ to a gamepad or keyboard. See [usage.md](usage.md) for the editing walkthrough.
 
 ## Structure and Validation
 
-The C implementation groups storage, input, audio, and UI under `src/`.
+The C implementation uses a flat layout under `src/`.
 Headers whose declarations are implemented entirely in Rust form a flat set
 under `include/`. Headers for C implementations and mixed interfaces stay
 beside their source in `src/`.
-`main.c` and `abi_checks.c` remain at the root of `src/` because they span
-those groups.
 
 - `rust/src/score.rs`, `rust/src/score_edit.rs`: SDK-independent model,
   validation, and transactional edits in fixed caller-owned storage.
@@ -63,7 +61,7 @@ those groups.
   the injected card backend.
 - `include/storage.h`: Shared C layout and pointer-based backend
   initialization.
-- `src/storage/card.h`, `src/storage/card_bios.c`: File-level card interface
+- `src/card.h`, `src/card_bios.c`: File-level card interface
   and BIOS backend.
 - `rust/src/sequencer.rs`: SDK-independent runners, exact absolute deadlines,
   live runner reconciliation, ordered held locks, generation-tagged gate-offs,
@@ -75,7 +73,7 @@ those groups.
   register driver for host tests.
 - `include/audio_synth.h`: Opaque Rust voice state, synthesis declarations,
   and the inline binding to pointer-based Rust callbacks.
-- `src/audio/audio_platform.h`, `src/audio/audio_psx.c`: Double-buffered score
+- `src/audio_platform.h`, `src/audio_psx.c`: Double-buffered score
   publication, SPU upload/registers, timer interrupts, lifecycle, and
   debugger-visible measurements.
 - `scripts/generate-audio.py`: Deterministic five-wave ADPCM banks
@@ -88,7 +86,7 @@ those groups.
 - `rust/src/input_queue.rs`: Interrupt-facing fixed queue of raw samples.
 - `include/input.h`: Shared input-history layout and Rust function declarations.
 - `include/input_queue.h`: Shared queue layout and Rust function declarations.
-- `src/input/pad.*`: Port 1 asynchronous SIO polling and completed-report
+- `src/pad.*`: Port 1 asynchronous SIO polling and completed-report
   publication.
 - `rust/src/editor.rs`: Menus, inline property edits, clipboard, deletion
   confirmation, and press/hold/release movement transitions.
@@ -96,12 +94,12 @@ those groups.
 - `rust/src/ui_format.rs`: Bounded Rust display formatting for menu rendering.
 - `rust/src/ui_render.rs`: Grid, menu, camera, clipping, and text layout.
 - `include/ui_render.h`: Rust frame-rendering declaration.
-- `src/ui/render.c`, `src/ui/render_backend.h`: 320 x 240 NTSC SDK output,
+- `src/render.c`, `src/render_backend.h`: 320 x 240 NTSC SDK output,
   double buffering, and render-packet management.
 - [`assets/ui/`](../assets/ui/README.md), `scripts/generate-assets.py`: editable
   masks, font attribution, and deterministic indexed-atlas and Rust glyph
   advance generation (Python 3, no extra packages).
-- `src/ui/ui_style.h`: C screen geometry and grayscale roles mirrored by the
+- `src/ui_style.h`: C screen geometry and grayscale roles mirrored by the
   Rust renderer.
 - `src/main.c`: Input history consumption, editor processing, START, and
   frame/status updates.

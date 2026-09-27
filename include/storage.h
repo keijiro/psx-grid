@@ -9,7 +9,7 @@
 #ifndef STORAGE_H
 #define STORAGE_H
 
-#include "storage/card.h"
+#include "card.h"
 #include "score_format.h"
 
 #include <stdint.h>

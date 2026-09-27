@@ -7,7 +7,7 @@
  * Timer 2 deadlines; teardown restores SDK callback ownership.
  */
 
-#include "storage/card.h"
+#include "card.h"
 
 #include <psxapi.h>
 #include <psxetc.h>

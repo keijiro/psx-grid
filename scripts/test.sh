@@ -24,7 +24,7 @@ ${CC:-cc} -std=c11 -Wall -Wextra -Werror -g -fsanitize=address,undefined \
   -Iinclude -Isrc tests/score_test.c src/abi_checks.c "$RUST_LIBRARY" -o build/tests/score_test
 build/tests/score_test
 ${CC:-cc} -std=c11 -Wall -Wextra -Werror -g -fsanitize=address,undefined \
-  -Itests/gpu_stub -Iinclude -Isrc -Ibuild/generated tests/render_test.c src/ui/render.c src/abi_checks.c "$RUST_LIBRARY" \
+  -Itests/gpu_stub -Iinclude -Isrc -Ibuild/generated tests/render_test.c src/render.c src/abi_checks.c "$RUST_LIBRARY" \
   -o build/tests/render_test
 build/tests/render_test
 ${CC:-cc} -std=c11 -Wall -Wextra -Werror -g -fsanitize=address,undefined \

@@ -14,7 +14,7 @@
 #include "score_format.h"
 #include "storage.h"
 #include "audio_sequencer.h"
-#include "ui/ui_style.h"
+#include "ui_style.h"
 
 #include <stddef.h>
 

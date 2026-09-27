@@ -8,10 +8,10 @@
  * callbacks.
  */
 
-#include "audio/audio_platform.h"
+#include "audio_platform.h"
 #include "editor.h"
-#include "input/pad.h"
-#include "ui/render_backend.h"
+#include "pad.h"
+#include "render_backend.h"
 #include "ui_render.h"
 
 #include <psxapi.h>

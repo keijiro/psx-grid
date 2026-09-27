@@ -46,27 +46,27 @@ add_custom_command(OUTPUT "${WAVE_SAMPLES}" "${AUDIO_TABLES}" "${AUDIO_RUST_TABL
     COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/scripts/generate-audio.py" "${WAVE_SAMPLES}"
     DEPENDS scripts/generate-audio.py
     VERBATIM)
-set(CARD_SOURCE src/storage/card_bios.c)
+set(CARD_SOURCE src/card_bios.c)
 set(ABI_CHECKS_SOURCE src/abi_checks.c)
-psn00bsdk_add_executable(psx-grid GPREL src/main.c ${ABI_CHECKS_SOURCE} ${CARD_SOURCE} src/ui/render.c src/audio/audio_psx.c src/input/pad.c "${UI_ATLAS}" "${WAVE_SAMPLES}" "${AUDIO_TABLES}")
+psn00bsdk_add_executable(psx-grid GPREL src/main.c ${ABI_CHECKS_SOURCE} ${CARD_SOURCE} src/render.c src/audio_psx.c src/pad.c "${UI_ATLAS}" "${WAVE_SAMPLES}" "${AUDIO_TABLES}")
 link_grid_rust(psx-grid)
 target_include_directories(psx-grid PRIVATE include src "${CMAKE_CURRENT_BINARY_DIR}/generated")
 target_compile_options(psx-grid PRIVATE -Wall -Wextra)
 
 # Keep the platform interrupt path optimized in Debug.
 # The Rust profile controls traversal and synthesis; fixtures check both builds.
-set_source_files_properties(src/audio/audio_psx.c src/input/pad.c PROPERTIES COMPILE_OPTIONS -O2)
+set_source_files_properties(src/audio_psx.c src/pad.c PROPERTIES COMPILE_OPTIONS -O2)
 
 # PSn00bSDK GPU packet macros intentionally alias the DMA tag types.
-set_source_files_properties(src/ui/render.c PROPERTIES COMPILE_OPTIONS -fno-strict-aliasing)
+set_source_files_properties(src/render.c PROPERTIES COMPILE_OPTIONS -fno-strict-aliasing)
 
 option(AUDIO_FIXTURE "Build the automated audio and input development fixtures" OFF)
 if(AUDIO_FIXTURE)
-    psn00bsdk_add_executable(audio-fixture GPREL tests/audio_fixture.c ${ABI_CHECKS_SOURCE} src/ui/render.c src/audio/audio_psx.c src/input/pad.c "${UI_ATLAS}" "${WAVE_SAMPLES}" "${AUDIO_TABLES}")
+    psn00bsdk_add_executable(audio-fixture GPREL tests/audio_fixture.c ${ABI_CHECKS_SOURCE} src/render.c src/audio_psx.c src/pad.c "${UI_ATLAS}" "${WAVE_SAMPLES}" "${AUDIO_TABLES}")
     link_grid_rust(audio-fixture)
     target_include_directories(audio-fixture PRIVATE include src "${CMAKE_CURRENT_BINARY_DIR}/generated")
     target_compile_options(audio-fixture PRIVATE -Wall -Wextra)
-    psn00bsdk_add_executable(input-fixture GPREL tests/input_fixture.c ${ABI_CHECKS_SOURCE} src/ui/render.c src/audio/audio_psx.c src/input/pad.c "${UI_ATLAS}" "${WAVE_SAMPLES}" "${AUDIO_TABLES}")
+    psn00bsdk_add_executable(input-fixture GPREL tests/input_fixture.c ${ABI_CHECKS_SOURCE} src/render.c src/audio_psx.c src/pad.c "${UI_ATLAS}" "${WAVE_SAMPLES}" "${AUDIO_TABLES}")
     link_grid_rust(input-fixture)
     target_include_directories(input-fixture PRIVATE include src "${CMAKE_CURRENT_BINARY_DIR}/generated")
     target_compile_options(input-fixture PRIVATE -Wall -Wextra)
@@ -74,7 +74,7 @@ endif()
 
 option(STORAGE_FIXTURE "Build the isolated card/audio development fixture" OFF)
 if(STORAGE_FIXTURE)
-    psn00bsdk_add_executable(storage-fixture GPREL tests/storage_fixture.c ${ABI_CHECKS_SOURCE} ${CARD_SOURCE} src/ui/render.c src/audio/audio_psx.c src/input/pad.c "${UI_ATLAS}" "${WAVE_SAMPLES}" "${AUDIO_TABLES}")
+    psn00bsdk_add_executable(storage-fixture GPREL tests/storage_fixture.c ${ABI_CHECKS_SOURCE} ${CARD_SOURCE} src/render.c src/audio_psx.c src/pad.c "${UI_ATLAS}" "${WAVE_SAMPLES}" "${AUDIO_TABLES}")
     link_grid_rust(storage-fixture)
     target_include_directories(storage-fixture PRIVATE include src "${CMAKE_CURRENT_BINARY_DIR}/generated")
     target_compile_options(storage-fixture PRIVATE -Wall -Wextra)
@@ -91,7 +91,7 @@ if(BIOS_CARD_FIXTURE)
 endif()
 
 if(REPLACEMENT_FIXTURE)
-    psn00bsdk_add_executable(replacement-fixture GPREL tests/replacement_fixture.c src/abi_checks.c src/audio/audio_psx.c src/input/pad.c "${WAVE_SAMPLES}" "${AUDIO_TABLES}")
+    psn00bsdk_add_executable(replacement-fixture GPREL tests/replacement_fixture.c src/abi_checks.c src/audio_psx.c src/pad.c "${WAVE_SAMPLES}" "${AUDIO_TABLES}")
     link_grid_rust(replacement-fixture)
     target_include_directories(replacement-fixture PRIVATE include src "${CMAKE_CURRENT_BINARY_DIR}/generated")
     target_compile_options(replacement-fixture PRIVATE -Wall -Wextra -fstack-usage)
