@@ -3,7 +3,7 @@
  *
  * Implementation notes:
  *
- * Queued button samples exercise edge detection, reconnection and
+ * Ordered button samples exercise edge detection, reconnection and
  * independent repeat clocks through the editor.
  */
 
@@ -11,31 +11,26 @@
 
 #include "editor.h"
 #include "input.h"
-#include "input_queue.h"
+#include "pad.h"
 
 #include <assert.h>
 #include <stdio.h>
 
 static Editor editor;
 static Input input;
-static InputQueue queue;
 static int moves;
 static int presses;
 static int releases;
 
-static void drain(void)
+static void consume(InputSample s)
 {
-    InputSample s;
-    while (input_queue_pop(&queue, &s))
-    {
-        EditorMode before = editor.mode;
-        InputFrame f = test_input_update(&input, s.connected, s.held);
-        moves += f.dx != 0;
-        presses += f.cross;
-        releases += f.cross_released;
-        test_editor_update(&editor, f);
-        if (editor.mode != before) input_reset_repeat(&input);
-    }
+    EditorMode before = editor.mode;
+    InputFrame f = test_input_update(&input, s.connected, s.held);
+    moves += f.dx != 0;
+    presses += f.cross;
+    releases += f.cross_released;
+    test_editor_update(&editor, f);
+    if (editor.mode != before) input_reset_repeat(&input);
 }
 
 /*
@@ -126,45 +121,34 @@ int main(void)
     value_repeat_and_conflicts();
     editor_init(&editor);
     input_init(&input);
-    input_queue_init(&queue);
     assert(!score_create(&editor.score, 100, 1, 4));
-    input_queue_push(&queue, (InputSample){1, 0});
-    drain();
-    // Entire taps happen while the consumer is busy, including an X tap opening
-    // a menu immediately followed by a direction in that new mode.
+    consume((InputSample){1, 0});
+    // Ordered taps include an X tap opening a menu immediately followed by
+    // a direction in that new mode.
     for (int n = 0; n < 100; n++)
     {
-        assert(!input_queue_push(&queue, (InputSample){1, INPUT_RIGHT}));
-        assert(!input_queue_push(&queue, (InputSample){1, 0}));
-        if (n % 10 == 9) drain();
+        consume((InputSample){1, INPUT_RIGHT});
+        consume((InputSample){1, 0});
     }
     assert(moves == 100);
-    input_queue_push(&queue, (InputSample){1, INPUT_CROSS});
-    input_queue_push(&queue, (InputSample){1, 0});
-    input_queue_push(&queue, (InputSample){1, INPUT_DOWN});
-    drain();
+    consume((InputSample){1, INPUT_CROSS});
+    consume((InputSample){1, 0});
+    consume((InputSample){1, INPUT_DOWN});
     assert(presses == 1 && releases == 1 && editor.mode == EDIT_MENU &&
            editor.selected == 1);
-    // Overflow cancels the active gesture and suppresses a held reconnect.
+    // A disconnect after lost reports cancels the active gesture and
+    // suppresses a held reconnect.
     editor_init(&editor);
     input_init(&input);
     test_input_update(&input, 1, 0);
     test_editor_update(&editor, test_input_update(&input, 1, INPUT_CROSS));
     assert(editor.gesture);
-    input_queue_init(&queue);
-    for (int n = 0; n < INPUT_QUEUE_CAPACITY - 1; n++)
-    {
-        assert(!input_queue_push(&queue,
-                                 (InputSample){1, INPUT_CROSS | INPUT_RIGHT}));
-    }
-    assert(
-        input_queue_push(&queue, (InputSample){1, INPUT_CROSS | INPUT_RIGHT}));
-    drain();
+    consume((InputSample){0, 0});
+    consume((InputSample){1, INPUT_CROSS | INPUT_RIGHT});
     assert(!editor.gesture && editor.mode == EDIT_PLANE && editor.x == 1);
-    input_queue_push(&queue, (InputSample){1, 0});
-    input_queue_push(&queue, (InputSample){1, INPUT_RIGHT});
-    drain();
+    consume((InputSample){1, 0});
+    consume((InputSample){1, INPUT_RIGHT});
     assert(editor.x == 2);
-    puts("PASS: value repeat, coarse conflicts, ordered history, overflow and "
+    puts("PASS: value repeat, coarse conflicts, ordered history, disconnect and "
          "reconnect");
 }

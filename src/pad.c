@@ -4,7 +4,8 @@
  * Implementation notes:
  *
  * SIO0 polling is staged across timer callbacks and yields the port to BIOS
- * card access through an explicit ownership handoff.
+ * card access through an explicit ownership handoff. The interrupt and main
+ * thread share a fixed queue; main-thread reads and resets mask interrupts.
  */
 
 #include "pad.h"
@@ -16,10 +17,12 @@
 #include <psxpad.h>
 
 /*
- * The interrupt publishes controller samples into queue while ownership
- * prevents pad traffic during BIOS card sessions.
+ * The interrupt publishes controller samples into the local ring while
+ * ownership prevents pad traffic during BIOS card sessions.
  */
-static InputQueue queue;
+static InputSample samples[PAD_QUEUE_CAPACITY];
+static unsigned queue_read;
+static unsigned queue_write;
 static volatile int phase;
 static int received;
 static int length;
@@ -57,6 +60,40 @@ enum
 #define SETTLE_TICKS 128
 #define TIMEOUT_TICKS 33869 // 8 ms, below the 16-bit timer's wrap period.
 
+static void queue_reset(void)
+{
+    queue_read = 0;
+    queue_write = 0;
+}
+
+/*
+ * Discards unread history on overflow so the inserted disconnect cancels any
+ * gesture before the newest report reaches the input history.
+ */
+static int queue_push(InputSample sample)
+{
+    unsigned next = (queue_write + 1) % PAD_QUEUE_CAPACITY;
+    int overflow = next == queue_read;
+    if (overflow)
+    {
+        queue_read = 0;
+        queue_write = 1;
+        samples[0] = (InputSample){0, 0};
+        next = 2;
+    }
+    samples[queue_write] = sample;
+    queue_write = next;
+    return overflow;
+}
+
+static int queue_pop(InputSample* sample)
+{
+    if (queue_read == queue_write) return 0;
+    *sample = samples[queue_read];
+    queue_read = (queue_read + 1) % PAD_QUEUE_CAPACITY;
+    return 1;
+}
+
 static uint16_t clock_now(void)
 {
     return (uint16_t)TIMER_VALUE(2);
@@ -85,7 +122,7 @@ static void publish(int connected)
         pad_id = reply[1];
         pad_reports++;
     }
-    pad_overflows += input_queue_push(&queue, (InputSample){connected, held});
+    pad_overflows += queue_push((InputSample){connected, held});
     SIO_CTRL(0) = 0;
     phase = IDLE;
 }
@@ -179,7 +216,7 @@ void pad_service(void)
 void pad_init(void)
 {
     EnterCriticalSection();
-    input_queue_init(&queue);
+    queue_reset();
     InterruptCallback(IRQ_SIO0, receive);
     ExitCriticalSection();
     VSyncCallback(vblank);
@@ -188,7 +225,7 @@ void pad_init(void)
 int pad_read(InputSample* sample)
 {
     EnterCriticalSection();
-    int found = input_queue_pop(&queue, sample);
+    int found = queue_pop(sample);
     ExitCriticalSection();
     return found;
 }
@@ -212,7 +249,7 @@ void pad_suspend(void)
     SIO_CTRL(0) = 0;
     IRQ_STAT = (uint16_t)~(1u << IRQ_SIO0);
     phase = IDLE;
-    input_queue_init(&queue);
+    queue_reset();
     ExitCriticalSection();
 }
 
@@ -224,7 +261,7 @@ void pad_resume(void)
     SIO_CTRL(0) = 0;
     IRQ_STAT = (uint16_t)~(1u << IRQ_SIO0);
     phase = IDLE;
-    input_queue_init(&queue);
+    queue_reset();
     InterruptCallback(IRQ_SIO0, receive);
     ownership = PAD_OWNS;
     ExitCriticalSection();

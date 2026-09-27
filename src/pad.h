@@ -9,7 +9,17 @@
 #ifndef PAD_H
 #define PAD_H
 
-#include "input_queue.h"
+#include <stdint.h>
+
+// Eight delayed render frames can cover over 64 pad reports under load.
+#define PAD_QUEUE_CAPACITY 128
+
+// Raw connection state and active-high button mask from one poll.
+typedef struct
+{
+    int connected;
+    uint16_t held;
+} InputSample;
 
 /*
  * Initializes after render_init and audio_platform_init. Timer service and
@@ -32,7 +42,7 @@ void pad_resume(void);
 /*
  * Pops a queued report into `sample` and returns one. Returns zero without
  * writing `sample` if no report is queued.
- * `sample` must not be NULL or point into the queue.
+ * `sample` must not be NULL.
  */
 int pad_read(InputSample* sample);
 // Debugger-visible poll, report, timeout, overflow and controller-ID counters.

@@ -57,13 +57,19 @@ static void run(unsigned phase)
     unsigned overflows = pad_overflows;
     input_fixture_expected = 0;
     input_fixture_phase = phase;
-    for (int i = 0; i < (phase == 5 ? 120 : 480); i++)
+    int frames = 480;
+    if (phase == 5) frames = 120;
+    if (phase == 6) frames = 150;
+    for (int i = 0; i < frames; i++)
     {
         editor.x = i % 64;
         render_frame(&editor, 1);
         // A slow main loop must retain complete taps, not just the latest held
         // state. The interrupt still collects one report per video frame.
-        if (phase != 3 || i % 8 == 7) drain();
+        if (phase != 6 && (phase != 3 || i % 8 == 7))
+        {
+            drain();
+        }
     }
     drain();
     char line[256];
@@ -128,6 +134,8 @@ int main(void)
     audio_platform_update(&editor.score, 1, 1);
     run(5);
     audio_platform_update(&editor.score, 0, 0);
+    // Stall reads past the ring capacity while a gesture remains held.
+    run(6);
     *(const char* volatile*)0x1f802084 = "INPUT FIXTURE COMPLETE\n";
     *(volatile short*)0x1f802082 = 0;
     for (;;) VSync(0);

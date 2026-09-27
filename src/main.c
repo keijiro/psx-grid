@@ -131,7 +131,7 @@ int main(void)
         InputSample sample;
         // Replay completed polls in order, including press/release pairs
         // received during a slow render or model transaction.
-        for (int n = 0; n < INPUT_QUEUE_CAPACITY && pad_read(&sample); n++)
+        for (int n = 0; n < PAD_QUEUE_CAPACITY && pad_read(&sample); n++)
         {
             connected = sample.connected;
             EditorMode before = editor.mode;

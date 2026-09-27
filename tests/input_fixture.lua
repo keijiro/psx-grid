@@ -13,7 +13,7 @@ local function held(value)
 end
 input_listener = PCSX.Events.createEventListener('GPU::Vsync', function()
     local current = tonumber(phase[0])
-    if current < 1 or current > 5 then return end
+    if current < 1 or current > 6 then return end
     if current ~= previous then
         previous, frame = current, 0
         PCSX.settings.pads[1].DeviceType = input_analog and 'Analog' or 'Digital'
@@ -22,7 +22,10 @@ input_listener = PCSX.Events.createEventListener('GPU::Vsync', function()
         held(false)
     end
     frame = frame + 1
-    if current == 4 then
+    if current == 6 then
+        -- Leave the held reports unread until the queue inserts a disconnect.
+        held(true)
+    elseif current == 4 then
         -- Reconnect while held: none of these buttons may act until released.
         if frame == 16 then PCSX.settings.pads[1].Connected = false; held(true) end
         if frame == 32 then PCSX.settings.pads[1].Connected = true end
