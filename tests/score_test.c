@@ -463,6 +463,31 @@ static void rejected_inline_resize(void)
 }
 
 /*
+ * A lock target increases the serialized record even though it does not add
+ * a tile. The failed edit must restore its value and revision together.
+ */
+static void rejected_lock_growth(void)
+{
+    score_init(&s);
+    assert(!score_create(&s, 0, 0, 64));
+    assert(!score_create(&s, 70, 0, 4));
+    assert(!score_place(&s, 71, 0, TILE_RELATIVE));
+    TileId lock = id(71, 0);
+    TileValue value = s.tiles[lock].value;
+    value.lock_mask = LOCK_ATTACK | LOCK_RELEASE;
+    assert(!test_score_edit(&s, lock, value));
+    for (int n = 0; score_format_measure(&s) + 5 <= SCORE_FILE_BYTES; n++)
+        assert(!score_place(&s, n / 64 + 1, n % 64, TILE_NOTE));
+    assert(score_format_measure(&s) <= SCORE_FILE_BYTES);
+    snapshot();
+    value.lock_mask |= LOCK_MIX_ATTACK | LOCK_MIX_RELEASE | LOCK_SWEEP |
+                       LOCK_DECAY | LOCK_LEVEL | LOCK_PAN | LOCK_TRANSPOSE |
+                       LOCK_GATE_RATIO;
+    assert(test_score_edit(&s, lock, value) == SCORE_FULL);
+    assert(!memcmp(&s, &before, sizeof(s)));
+}
+
+/*
  * Checks sound rows and their value bounds through the editor interaction
  * path.
  */
@@ -654,6 +679,7 @@ int main(void)
     generations();
     controls();
     rejected_inline_resize();
+    rejected_lock_growth();
     sound_controls();
     main_controls();
     channels();

@@ -218,6 +218,35 @@ static void locks(void)
 }
 
 /*
+ * All lock targets affect the same note, with each sound field bounded after
+ * its offset is applied.
+ */
+static void extended_locks(void)
+{
+    base(1);
+    TileValue value = test_score_default(TILE_RELATIVE);
+    value.lock_mask = (1 << 10) - 1;
+    value.attack = -16000;
+    value.release = 16000;
+    const int offsets[8] = {500, -500, 48, 2000, -24, 200,
+                            48, 395};
+    for (int i = 0; i < 8; i++) value.lock_offsets[i] = offsets[i];
+    put(1, 0, value);
+    put(1, 1, test_score_default(TILE_NOTE));
+    start();
+    assert(count == 1);
+    const SoundSettings* sound = &events[0].sound;
+    assert(sound->attack == 0 && sound->release == 16000);
+    assert(sound->mix_attack == 500 && sound->mix_release == 0);
+    assert(sound->sweep == 24 && sound->decay == 2000);
+    assert(sound->level == -24 && sound->pan == 100);
+    assert(sound->transpose == 24 && sound->gate_ratio == 400);
+    assert(events[0].pitch == 72);
+    assert(seq.offs[0].at ==
+           (AudioTime)(seq.runners[0].duration / 20) * 20 * 4);
+}
+
+/*
  * Exercises conditional tiles and jump branches while verifying emitted note
  * order.
  */
@@ -547,18 +576,37 @@ static void model_editor(void)
     editor.y = 0;
     editor.target = test_score_at(&editor.score, 1, 0).tile;
     editor.mode = EDIT_MENU;
+    EditorRow rows[EDITOR_ROWS];
+    int row_count = editor_rows(&editor, rows);
+    int lock_action = -1;
+    for (int i = 0; i < row_count; i++)
+    {
+        if (rows[i].id == ACTION_LOCK_SETTINGS) lock_action = i;
+    }
+    assert(lock_action >= 0 && rows[lock_action].kind == ROW_SUBMENU);
+    editor.selected = lock_action;
+    test_editor_update(&editor, (InputFrame){.connected = 1, .cross = 1});
+    assert(editor.mode == EDIT_LOCK);
+    assert(editor_rows(&editor, rows) == 10);
+    const int limits[10] = {16000, 16000, 500, 500, 48,
+                            2000, 24, 200, 48, 395};
+    for (int i = 0; i < 10; i++)
+    {
+        assert(rows[i].kind == ROW_VALUE && rows[i].min == -limits[i] &&
+               rows[i].max == limits[i]);
+        editor.selected = i;
+        test_editor_update(&editor, (InputFrame){.connected = 1, .cross = 1});
+        assert(editor.score.tiles[editor.target].value.lock_mask & (1 << i));
+        test_editor_update(&editor, (InputFrame){.connected = 1,
+                                                .value_dir = 1,
+                                                .value_coarse = 1});
+    }
+    TileValue locked = editor.score.tiles[editor.target].value;
+    assert(locked.attack == 100 && locked.release == 100);
+    for (int i = 2; i < 10; i++) assert(locked.lock_offsets[i - 2] != 0);
     editor.selected = 0;
-    test_editor_update(&editor, (InputFrame){.connected = 1, .value_dir = 1});
-    assert(editor.score.tiles[editor.target].value.lock_mask == LOCK_ATTACK);
-    editor.selected = 1;
-    test_editor_update(
-        &editor,
-        (InputFrame){.connected = 1, .value_dir = 1, .value_coarse = 1});
-    test_editor_update(&editor, (InputFrame){.connected = 1, .value_dir = 1});
-    assert(editor.score.tiles[editor.target].value.attack == 101);
-    editor.selected = 0;
-    test_editor_update(&editor, (InputFrame){.connected = 1, .value_dir = -1});
-    assert(!editor.score.tiles[editor.target].value.lock_mask &&
+    test_editor_update(&editor, (InputFrame){.connected = 1, .cross = 1});
+    assert(!(editor.score.tiles[editor.target].value.lock_mask & LOCK_ATTACK) &&
            !editor.score.tiles[editor.target].value.attack);
     for (int mode = 0; mode < EDIT_MODE_COUNT; mode++)
     {
@@ -1183,6 +1231,7 @@ int main(void)
     tempo_changes();
     timing();
     locks();
+    extended_locks();
     gates_branches();
     voices();
     uniform_steals();

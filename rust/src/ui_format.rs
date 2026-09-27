@@ -8,7 +8,7 @@ use core::fmt::{self, Write};
 use crate::editor::Editor;
 use crate::score::{
     score_channel, score_division, score_note_name, score_reverb_size,
-    score_wave_name,
+    score_wave_name, LOCK_TARGETS,
 };
 
 const ROW_BPM: c_int = 100;
@@ -29,6 +29,7 @@ const ROW_LEVEL: c_int = 209;
 const ROW_PAN: c_int = 210;
 const ROW_TRANSPOSE: c_int = 211;
 const ROW_GATE_RATIO: c_int = 212;
+const ROW_LOCK_FIRST: c_int = 300;
 const ACTION_LENGTH: c_int = 3;
 const ACTION_PITCH: c_int = 7;
 const ACTION_DURATION: c_int = 8;
@@ -36,13 +37,7 @@ const ACTION_PERIOD: c_int = 9;
 const ACTION_CHANCE: c_int = 11;
 const ACTION_DIVISION: c_int = 12;
 const ACTION_CHANNEL: c_int = 14;
-const ACTION_LOCK_ATTACK_ENABLE: c_int = 15;
-const ACTION_LOCK_RELEASE_ENABLE: c_int = 16;
-const ACTION_LOCK_ATTACK: c_int = 17;
-const ACTION_LOCK_RELEASE: c_int = 18;
-const ACTION_PLAY: c_int = 19;
-const LOCK_ATTACK: c_int = 1;
-const LOCK_RELEASE: c_int = 2;
+const ACTION_PLAY: c_int = 15;
 
 /// Writes ASCII display text without allocating, retaining a final NUL byte.
 pub(crate) struct Text<'a> {
@@ -181,21 +176,23 @@ pub(crate) fn row_value(editor: &Editor, id: c_int, out: &mut Text<'_>) {
         }
         ACTION_PERIOD => write!(out, "{}", value.period),
         ACTION_CHANCE => write!(out, "{}%", value.chance),
-        ACTION_LOCK_ATTACK_ENABLE | ACTION_LOCK_RELEASE_ENABLE => {
-            let mask = if id == ACTION_LOCK_ATTACK_ENABLE {
-                LOCK_ATTACK
+        id if (ROW_LOCK_FIRST..ROW_LOCK_FIRST + LOCK_TARGETS as c_int)
+            .contains(&id) =>
+        {
+            let target = (id - ROW_LOCK_FIRST) as usize;
+            if value.lock_mask & (1 << target) == 0 {
+                out.push(b"OFF");
+                Ok(())
             } else {
-                LOCK_RELEASE
-            };
-            out.push(if value.lock_mask & mask != 0 {
-                b"ON"
-            } else {
-                b"OFF"
-            });
-            Ok(())
+                let unit = match target {
+                    0..=3 | 5 => "MS",
+                    4 | 8 => "ST",
+                    6 => "DB",
+                    _ => "%",
+                };
+                write!(out, "{:+} {unit}", value.lock_offset(target))
+            }
         }
-        ACTION_LOCK_ATTACK => write!(out, "{:+} MS", value.attack),
-        ACTION_LOCK_RELEASE => write!(out, "{:+} MS", value.release),
         _ => Ok(()),
     }
     .expect("fixed text writer cannot fail");

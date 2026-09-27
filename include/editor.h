@@ -53,6 +53,7 @@ typedef enum
     EDIT_SOUND,                     // Channel sound settings are open.
     EDIT_MAIN,                      // Global score settings are open.
     EDIT_REVERB,                    // Reverb settings are open.
+    EDIT_LOCK,                      // Relative lock targets are open.
     EDIT_MODE_COUNT                 // The number of editor surfaces.
 } EditorMode;
 
@@ -74,11 +75,8 @@ typedef enum
     ACTION_DIVISION,                // Change lane step division.
     ACTION_SOUND,                   // Open channel sound settings.
     ACTION_CHANNEL,                 // Change the lane channel.
-    ACTION_LOCK_ATTACK_ENABLE,      // Toggle attack override.
-    ACTION_LOCK_RELEASE_ENABLE,     // Toggle release override.
-    ACTION_LOCK_ATTACK,             // Change attack offset.
-    ACTION_LOCK_RELEASE,            // Change release offset.
-    ACTION_PLAY                     // Toggle the regular lane's Play switch.
+    ACTION_PLAY,                    // Toggle the regular lane's Play switch.
+    ACTION_LOCK_SETTINGS            // Open relative lock targets.
 } EditorAction;
 
 // Requests are consumed by the main-thread storage coordinator.

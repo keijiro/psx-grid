@@ -12,7 +12,7 @@ use core::ffi::c_int;
 use crate::score::{
     default_value, score_init, score_set_bpm, score_set_division,
     score_set_reverb, score_set_sound, score_validate_import, ReverbSettings,
-    Score, SoundSettings, CHANNELS, LANES, STEPS, TILE_CAPACITY,
+    Score, SoundSettings, CHANNELS, LANES, LOCK_TARGETS, STEPS, TILE_CAPACITY,
 };
 
 const FILE_BYTES: usize = 8192;
@@ -124,11 +124,26 @@ fn emit_steps(
                         writer.emit(indices[entry.branch as usize] as u32, 1);
                     }
                     5 => {
-                        writer.emit(5, 1);
-                        writer.emit(5, 1);
-                        writer.emit(value.lock_mask as u32, 1);
-                        writer.emit(value.attack as u32, 2);
-                        writer.emit(value.release as u32, 2);
+                        if value.lock_mask & !3 == 0 {
+                            writer.emit(5, 1);
+                            writer.emit(5, 1);
+                            writer.emit(value.lock_mask as u32, 1);
+                            writer.emit(value.attack as u32, 2);
+                            writer.emit(value.release as u32, 2);
+                        } else {
+                            writer.emit(6, 1);
+                            writer
+                                .emit(2 + 2 * value.lock_mask.count_ones(), 1);
+                            writer.emit(value.lock_mask as u32, 2);
+                            for target in 0..LOCK_TARGETS {
+                                if value.lock_mask & (1 << target) != 0 {
+                                    writer.emit(
+                                        value.lock_offset(target) as u32,
+                                        2,
+                                    );
+                                }
+                            }
+                        }
                     }
                     _ => {}
                 }
@@ -202,6 +217,26 @@ fn payload(score: &Score, data: Option<&mut [u8]>) -> usize {
     writer.chunk(4, measure.at);
     emit_steps(&mut writer, score, &order, &indices, count);
     writer.at
+}
+
+/// Requires a newer reader only when the score uses an extended lock target.
+fn has_extended_locks(score: &Score) -> bool {
+    for lane in &score.lanes {
+        if lane.active == 0 {
+            continue;
+        }
+        for &head in &lane.tiles[..lane.length as usize] {
+            let mut tile = head;
+            while tile != 0 {
+                let entry = &score.tiles[usize::from(tile)];
+                if entry.value.kind == 5 && entry.value.lock_mask & !3 != 0 {
+                    return true;
+                }
+                tile = entry.next;
+            }
+        }
+    }
+    false
 }
 
 pub(crate) fn measure(score: &Score) -> usize {
@@ -306,7 +341,10 @@ pub unsafe extern "C" fn score_format_encode(
     let header = &mut block[WRAPPER..];
     header[..4].copy_from_slice(b"JQSC");
     put(&mut header[4..6], 1);
-    put(&mut header[6..8], 2);
+    put(
+        &mut header[6..8],
+        if has_extended_locks(score) { 3 } else { 2 },
+    );
     put(&mut header[8..10], HEADER as u32);
     put(&mut header[12..16], (used - WRAPPER - HEADER) as u32);
     put(&mut header[24..28], generation);
@@ -550,13 +588,23 @@ fn decode_tile(
         2 => 5,
         3 | 4 => 1,
         5 => 5,
+        6 => {
+            if data.len() < 2 {
+                return Err(FORMAT_CORRUPT);
+            }
+            let mask = get(&data[..2]);
+            if mask & !0x3ff != 0 {
+                return Err(FORMAT_CORRUPT);
+            }
+            2 + 2 * mask.count_ones() as usize
+        }
         _ => return Err(FORMAT_NEWER),
     };
     if data.len() != expected {
         return Err(FORMAT_CORRUPT);
     }
     let tile = &mut score.tiles[usize::from(id)];
-    tile.value = default_value(c_int::from(tag));
+    tile.value = default_value(if tag == 6 { 5 } else { c_int::from(tag) });
     tile.branch = -1;
     match tag {
         1 => {
@@ -584,6 +632,17 @@ fn decode_tile(
             tile.value.attack = c_int::from(get(&data[1..3]) as i16);
             tile.value.release = c_int::from(get(&data[3..5]) as i16);
         }
+        6 => {
+            tile.value.lock_mask = get(&data[..2]) as c_int;
+            let mut at = 2;
+            for target in 0..LOCK_TARGETS {
+                if tile.value.lock_mask & (1 << target) != 0 {
+                    let offset = get(&data[at..at + 2]) as i16;
+                    tile.value.set_lock_offset(target, c_int::from(offset));
+                    at += 2;
+                }
+            }
+        }
         _ => return Err(FORMAT_NEWER),
     }
     Ok(())
@@ -595,6 +654,7 @@ fn decode_steps(
     score: &mut Score,
     roles: &[u8; LANES],
     lane_count: usize,
+    version: u32,
 ) -> Result<usize, c_int> {
     let mut at = 0;
     let mut next_tile = 1;
@@ -614,6 +674,9 @@ fn decode_steps(
                     return Err(FORMAT_CORRUPT);
                 }
                 let tag = data[at];
+                if tag == 6 && version < 3 {
+                    return Err(FORMAT_CORRUPT);
+                }
                 let length = usize::from(data[at + 1]);
                 at += 2;
                 if data.len() - at < length {
@@ -686,7 +749,7 @@ pub unsafe extern "C" fn score_format_decode(
         return FORMAT_CORRUPT;
     }
     if get(&header[4..6]) != 1
-        || get(&header[6..8]) > 2
+        || get(&header[6..8]) > 3
         || get(&header[16..20]) != 0
         || header_bytes != HEADER
     {
@@ -732,11 +795,16 @@ pub unsafe extern "C" fn score_format_decode(
         Ok(count) => count,
         Err(error) => return error,
     };
-    let next_tile =
-        match decode_steps(chunks[STEPS_TAG], score, &roles, lane_count) {
-            Ok(next_tile) => next_tile,
-            Err(error) => return error,
-        };
+    let next_tile = match decode_steps(
+        chunks[STEPS_TAG],
+        score,
+        &roles,
+        lane_count,
+        get(&header[6..8]),
+    ) {
+        Ok(next_tile) => next_tile,
+        Err(error) => return error,
+    };
     for (i, role) in roles[..lane_count].iter().enumerate() {
         if *role != u8::from(score.lanes[i].source != 0) {
             return FORMAT_CORRUPT;

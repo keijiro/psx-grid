@@ -173,8 +173,8 @@ pending gate-offs address logical notes. Each note also captures its reverb
 send for both hardware voices. One shared network uses global Size/Amount;
 channel sound publication affects future notes, while held/releasing notes
 retain their sends and the shared wet return remains independent of them.
-Relative Locks change only amplitude attack/release; the remaining captured
-settings pass through unchanged.
+Relative Locks add signed offsets to the ten numeric channel settings before
+note-on; waveform choices and the Reverb Send switch pass through unchanged.
 
 Asset generation retains ten octave-root banks and selects one bank for the
 whole clamped sweep trajectory. Generated control tables implement normalized

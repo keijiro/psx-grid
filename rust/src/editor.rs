@@ -15,6 +15,7 @@ use crate::score::{
     at, default_value, resolve, score_channel, score_division, score_divisions,
     score_edit, score_message, score_set_bpm, score_set_channel,
     score_set_division, score_set_reverb, score_set_sound, Score, TileValue,
+    LOCK_LIMITS, LOCK_TARGETS,
 };
 use crate::score_edit::{
     score_apply_move, score_copy, score_create, score_delete, score_paste,
@@ -38,6 +39,7 @@ const EDIT_MOVE: c_int = 5;
 const EDIT_SOUND: c_int = 6;
 const EDIT_MAIN: c_int = 7;
 const EDIT_REVERB: c_int = 8;
+const EDIT_LOCK: c_int = 9;
 
 const ACTION_CREATE: c_int = 0;
 const ACTION_PLACE: c_int = 1;
@@ -54,11 +56,8 @@ const ACTION_CHANCE: c_int = 11;
 const ACTION_DIVISION: c_int = 12;
 const ACTION_SOUND: c_int = 13;
 const ACTION_CHANNEL: c_int = 14;
-const ACTION_LOCK_ATTACK_ENABLE: c_int = 15;
-const ACTION_LOCK_RELEASE_ENABLE: c_int = 16;
-const ACTION_LOCK_ATTACK: c_int = 17;
-const ACTION_LOCK_RELEASE: c_int = 18;
-const ACTION_PLAY: c_int = 19;
+const ACTION_PLAY: c_int = 15;
+const ACTION_LOCK_SETTINGS: c_int = 16;
 
 const ROW_HEADING: c_int = 0;
 const ROW_VALUE: c_int = 1;
@@ -86,6 +85,22 @@ const ROW_LEVEL: c_int = 209;
 const ROW_PAN: c_int = 210;
 const ROW_TRANSPOSE: c_int = 211;
 const ROW_GATE_RATIO: c_int = 212;
+const ROW_LOCK_FIRST: c_int = 300;
+
+const LOCK_LABELS: [&[u8]; LOCK_TARGETS] = [
+    b"AMP ATTACK\0",
+    b"AMP RELEASE\0",
+    b"MIX ATTACK\0",
+    b"MIX RELEASE\0",
+    b"PITCH SWEEP\0",
+    b"PITCH DECAY\0",
+    b"LEVEL\0",
+    b"PAN\0",
+    b"TRANSPOSE\0",
+    b"GATE RATIO\0",
+];
+const LOCK_COARSE: [c_int; LOCK_TARGETS] =
+    [100, 100, 100, 100, 12, 100, 6, 10, 12, 10];
 
 const STORAGE_ACTION_CHECK: c_int = 1;
 const STORAGE_ACTION_SAVE: c_int = 2;
@@ -157,17 +172,17 @@ pub struct Editor {
 #[cfg(target_pointer_width = "64")]
 const _: () = {
     assert!(core::mem::size_of::<EditorRow>() == 32);
-    assert!(core::mem::size_of::<Editor>() == 202208);
-    assert!(core::mem::offset_of!(Editor, target) == 202076);
-    assert!(core::mem::offset_of!(Editor, message) == 202168);
+    assert!(core::mem::size_of::<Editor>() == 268816);
+    assert!(core::mem::offset_of!(Editor, target) == 268652);
+    assert!(core::mem::offset_of!(Editor, message) == 268776);
 };
 
 #[cfg(target_pointer_width = "32")]
 const _: () = {
     assert!(core::mem::size_of::<EditorRow>() == 28);
-    assert!(core::mem::size_of::<Editor>() == 202200);
-    assert!(core::mem::offset_of!(Editor, target) == 202076);
-    assert!(core::mem::offset_of!(Editor, message) == 202164);
+    assert!(core::mem::size_of::<Editor>() == 268808);
+    assert!(core::mem::offset_of!(Editor, target) == 268652);
+    assert!(core::mem::offset_of!(Editor, message) == 268772);
 };
 
 fn text(value: &'static [u8]) -> *const c_char {
@@ -249,10 +264,7 @@ fn menu(editor: &Editor, actions: &mut [c_int; EDITOR_MENU_ITEMS]) -> usize {
             add_action(actions, &mut n, ACTION_PATTERN);
         }
         if kind == TILE_RELATIVE {
-            add_action(actions, &mut n, ACTION_LOCK_ATTACK_ENABLE);
-            add_action(actions, &mut n, ACTION_LOCK_ATTACK);
-            add_action(actions, &mut n, ACTION_LOCK_RELEASE_ENABLE);
-            add_action(actions, &mut n, ACTION_LOCK_RELEASE);
+            add_action(actions, &mut n, ACTION_LOCK_SETTINGS);
         }
         if kind == TILE_PROBABILITY {
             add_action(actions, &mut n, ACTION_CHANCE);
@@ -290,7 +302,7 @@ pub unsafe extern "C" fn editor_menu(
     menu(editor, items) as c_int
 }
 
-const ACTION_LABELS: [&[u8]; 20] = [
+const ACTION_LABELS: [&[u8]; 17] = [
     b"NEW LANE\0",
     b"CREATE TILE...\0",
     b"DELETE TILE\0",
@@ -306,11 +318,8 @@ const ACTION_LABELS: [&[u8]; 20] = [
     b"DIVISION\0",
     b"SOUND...\0",
     b"CHANNEL\0",
-    b"ATTACK ENABLE\0",
-    b"RELEASE ENABLE\0",
-    b"ATTACK OFFSET\0",
-    b"RELEASE OFFSET\0",
     b"PLAY\0",
+    b"LOCK SETTINGS...\0",
 ];
 
 /// Returns the fixed display label for a valid context action.
@@ -470,6 +479,22 @@ pub(crate) fn rows(
             &mut n,
             row(ROW_VALUE, ROW_SEND, b"REVERB\0", 0, 1, 1, 1),
         );
+    } else if editor.mode == EDIT_LOCK {
+        for target in 0..LOCK_TARGETS {
+            push(
+                output,
+                &mut n,
+                row(
+                    ROW_VALUE,
+                    ROW_LOCK_FIRST + target as c_int,
+                    LOCK_LABELS[target],
+                    -LOCK_LIMITS[target],
+                    LOCK_LIMITS[target],
+                    1,
+                    LOCK_COARSE[target],
+                ),
+            );
+        }
     } else if editor.mode == EDIT_MENU {
         let mut actions = [0; EDITOR_MENU_ITEMS];
         let count = menu(editor, &mut actions);
@@ -482,6 +507,7 @@ pub(crate) fn rows(
             if action == ACTION_SOUND
                 || action == ACTION_PLACE
                 || action == ACTION_PATTERN
+                || action == ACTION_LOCK_SETTINGS
             {
                 kind = ROW_SUBMENU;
             } else if matches!(
@@ -494,10 +520,6 @@ pub(crate) fn rows(
                     | ACTION_DURATION
                     | ACTION_PERIOD
                     | ACTION_CHANCE
-                    | ACTION_LOCK_ATTACK_ENABLE
-                    | ACTION_LOCK_RELEASE_ENABLE
-                    | ACTION_LOCK_ATTACK
-                    | ACTION_LOCK_RELEASE
             ) {
                 kind = ROW_VALUE;
             }
@@ -544,17 +566,6 @@ pub(crate) fn rows(
                     max = 100;
                     fine = 1;
                     coarse = 10;
-                }
-                ACTION_LOCK_ATTACK_ENABLE | ACTION_LOCK_RELEASE_ENABLE => {
-                    max = 1;
-                    fine = 1;
-                    coarse = 1;
-                }
-                ACTION_LOCK_ATTACK | ACTION_LOCK_RELEASE => {
-                    min = -16000;
-                    max = 16000;
-                    fine = 1;
-                    coarse = 100;
                 }
                 _ => {}
             }
@@ -641,21 +652,15 @@ fn selected_row(
 }
 
 fn tile_value_row(id: c_int) -> bool {
-    matches!(
-        id,
-        ACTION_PITCH
-            | ACTION_DURATION
-            | ACTION_PERIOD
-            | ACTION_CHANCE
-            | ACTION_LOCK_ATTACK_ENABLE
-            | ACTION_LOCK_RELEASE_ENABLE
-            | ACTION_LOCK_ATTACK
-            | ACTION_LOCK_RELEASE
-    )
+    (ROW_LOCK_FIRST..ROW_LOCK_FIRST + LOCK_TARGETS as c_int).contains(&id)
+        || matches!(
+            id,
+            ACTION_PITCH | ACTION_DURATION | ACTION_PERIOD | ACTION_CHANCE
+        )
 }
 
 fn current_value(editor: &Editor, id: c_int) -> Option<c_int> {
-    let sound = if id >= ROW_WAVE1 {
+    let sound = if (ROW_WAVE1..=ROW_GATE_RATIO).contains(&id) {
         Some(editor.score.sounds[editor.sound_channel as usize])
     } else {
         None
@@ -702,10 +707,11 @@ fn current_value(editor: &Editor, id: c_int) -> Option<c_int> {
         ACTION_DURATION => value?.length,
         ACTION_PERIOD => value?.period,
         ACTION_CHANCE => value?.chance,
-        ACTION_LOCK_ATTACK_ENABLE => c_int::from(value?.lock_mask & 1 != 0),
-        ACTION_LOCK_RELEASE_ENABLE => c_int::from(value?.lock_mask & 2 != 0),
-        ACTION_LOCK_ATTACK => value?.attack,
-        ACTION_LOCK_RELEASE => value?.release,
+        id if (ROW_LOCK_FIRST..ROW_LOCK_FIRST + LOCK_TARGETS as c_int)
+            .contains(&id) =>
+        {
+            value?.lock_offset((id - ROW_LOCK_FIRST) as usize)
+        }
         _ => return None,
     };
     Some(result)
@@ -713,7 +719,7 @@ fn current_value(editor: &Editor, id: c_int) -> Option<c_int> {
 
 /// Routes each setting through the validator that owns its score field.
 fn apply_value(editor: &mut Editor, id: c_int, candidate: c_int) {
-    let mut sound = if id >= ROW_WAVE1 {
+    let mut sound = if (ROW_WAVE1..=ROW_GATE_RATIO).contains(&id) {
         Some(editor.score.sounds[editor.sound_channel as usize])
     } else {
         None
@@ -857,41 +863,15 @@ fn apply_value(editor: &mut Editor, id: c_int, candidate: c_int) {
                 .expect("tile row requires a selected tile")
                 .chance = candidate
         }
-        ACTION_LOCK_ATTACK_ENABLE => {
-            let value =
-                value.as_mut().expect("tile row requires a selected tile");
-            if candidate != 0 {
-                value.lock_mask |= 1;
-            } else {
-                value.lock_mask &= !1;
-                value.attack = 0;
-            }
-        }
-        ACTION_LOCK_RELEASE_ENABLE => {
-            let value =
-                value.as_mut().expect("tile row requires a selected tile");
-            if candidate != 0 {
-                value.lock_mask |= 2;
-            } else {
-                value.lock_mask &= !2;
-                value.release = 0;
-            }
-        }
-        ACTION_LOCK_ATTACK => {
-            let value =
-                value.as_mut().expect("tile row requires a selected tile");
-            if value.lock_mask & 1 == 0 {
+        id if (ROW_LOCK_FIRST..ROW_LOCK_FIRST + LOCK_TARGETS as c_int)
+            .contains(&id) =>
+        {
+            let value = value.as_mut().expect("lock row requires a tile");
+            let target = (id - ROW_LOCK_FIRST) as usize;
+            if value.lock_mask & (1 << target) == 0 {
                 return;
             }
-            value.attack = candidate;
-        }
-        ACTION_LOCK_RELEASE => {
-            let value =
-                value.as_mut().expect("tile row requires a selected tile");
-            if value.lock_mask & 2 == 0 {
-                return;
-            }
-            value.release = candidate;
+            value.set_lock_offset(target, candidate);
         }
         _ => {}
     }
@@ -1012,6 +992,11 @@ fn activate(editor: &mut Editor, row: EditorRow) {
             editor.parent_selected = editor.selected;
             editor.selected = 0;
             editor.mode = EDIT_SOUND;
+        }
+        ACTION_LOCK_SETTINGS => {
+            editor.parent_selected = editor.selected;
+            editor.selected = 0;
+            editor.mode = EDIT_LOCK;
         }
         ACTION_PATTERN => {
             editor.value = editor.score.tiles[usize::from(editor.target)].value;
@@ -1163,6 +1148,22 @@ fn update_rows(editor: &mut Editor, frame: &InputFrame) {
         return;
     }
     let row = list[editor.selected as usize];
+    if editor.mode == EDIT_LOCK && frame.cross != 0 {
+        if editor.load_busy != 0 {
+            return;
+        }
+        let target = (row.id - ROW_LOCK_FIRST) as usize;
+        let mut value = editor.score.tiles[usize::from(editor.target)].value;
+        value.lock_mask ^= 1 << target;
+        if value.lock_mask & (1 << target) == 0 {
+            value.set_lock_offset(target, 0);
+        }
+        // SAFETY: The editor owns its score and `value` is a local copy.
+        let result =
+            unsafe { score_edit(&mut editor.score, editor.target, &value) };
+        editor.message = score_message(result);
+        return;
+    }
     if frame.value_dir != 0 {
         adjust(editor, row, frame.value_dir, frame.value_coarse);
     }

@@ -42,7 +42,7 @@ pub struct MovePlan {
     pub(crate) result: c_int,
 }
 
-const _: () = assert!(core::mem::size_of::<Clipboard>() == 2308);
+const _: () = assert!(core::mem::size_of::<Clipboard>() == 3332);
 const _: () = assert!(core::mem::size_of::<MovePlan>() == 20);
 
 static mut SCRATCH: MaybeUninit<Score> = MaybeUninit::uninit();

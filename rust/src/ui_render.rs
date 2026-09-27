@@ -45,6 +45,7 @@ const EDIT_MOVE: c_int = 5;
 const EDIT_SOUND: c_int = 6;
 const EDIT_MAIN: c_int = 7;
 const EDIT_REVERB: c_int = 8;
+const EDIT_LOCK: c_int = 9;
 const ROW_HEADING: c_int = 0;
 const TILE_NOTE: c_int = 1;
 const TILE_CYCLE: c_int = 2;
@@ -296,6 +297,7 @@ fn menu_title(editor: &Editor, out: &mut Text<'_>) {
             write!(out, "SOUND CH {}", editor.sound_channel + 1)
                 .expect("fixed text writer cannot fail");
         }
+        EDIT_LOCK => out.push(b"RELATIVE LOCK / X TOGGLE"),
         EDIT_PATTERN => out.push(b"CYCLE PATTERN"),
         EDIT_PICKER => out.push(b"CREATE TILE"),
         EDIT_MENU => {
@@ -730,11 +732,16 @@ fn draw_cell(score: &Score, cell: Cell, x: c_int, y: c_int) {
                 }
             }
             TILE_RELATIVE => {
-                if value.lock_mask & LOCK_ATTACK != 0 {
-                    label.push(b"A");
-                }
-                if value.lock_mask & LOCK_RELEASE != 0 {
-                    label.push(b"R");
+                if value.lock_mask & !3 == 0 {
+                    if value.lock_mask & LOCK_ATTACK != 0 {
+                        label.push(b"A");
+                    }
+                    if value.lock_mask & LOCK_RELEASE != 0 {
+                        label.push(b"R");
+                    }
+                } else {
+                    write!(label, "{}", value.lock_mask.count_ones())
+                        .expect("fixed text writer cannot fail");
                 }
             }
             TILE_CYCLE => {
