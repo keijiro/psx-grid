@@ -53,9 +53,9 @@ link_grid_rust(psx-grid)
 target_include_directories(psx-grid PRIVATE include src "${CMAKE_CURRENT_BINARY_DIR}/generated")
 target_compile_options(psx-grid PRIVATE -Wall -Wextra)
 
-# Keep the platform interrupt path optimized in Debug.
-# The Rust profile controls traversal and synthesis; fixtures check both builds.
-set_source_files_properties(src/audio_psx.c src/pad.c PROPERTIES COMPILE_OPTIONS -O2)
+# The SDK selects -Og for Debug. Append -O2 after its option so all C targets,
+# including the fixtures, use the same optimization level in both profiles.
+target_compile_options(psn00bsdk INTERFACE "$<$<CONFIG:Debug>:-O2>")
 
 # PSn00bSDK GPU packet macros intentionally alias the DMA tag types.
 set_source_files_properties(src/render.c PROPERTIES COMPILE_OPTIONS -fno-strict-aliasing)
