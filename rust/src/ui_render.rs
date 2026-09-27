@@ -62,6 +62,8 @@ const LOCK_RELEASE: c_int = 2;
 // The renderer is main-thread only, like the C packet backend.
 static mut CAMERA_X: c_int = 0;
 static mut CAMERA_Y: c_int = 0;
+static mut MENU_Y: c_int = UI_MENU_EDGE;
+static mut MENU_MODE: c_int = EDIT_PLANE;
 
 unsafe extern "C" {
     fn render_backend_begin();
@@ -496,13 +498,37 @@ fn draw_menu(editor: &Editor) {
     let x = (SCREEN_W - width) / 2;
     let mut y = (SCREEN_H - height) / 2;
     if height > SCREEN_H {
-        // Keep the selected row inside the display margins without
-        // independently shifting the rest of the panel.
-        let selected_bottom = 35 + editor.selected * UI_MENU_ROW + 10;
-        y = UI_MENU_EDGE;
-        if y + selected_bottom > SCREEN_H - UI_MENU_EDGE {
-            y = SCREEN_H - UI_MENU_EDGE - selected_bottom;
+        // The panel follows the selection near the bottom, but holds its
+        // position on the way back until the selection reaches the top rows.
+        let first_row = menu_rows[..count]
+            .iter()
+            .position(|row| row.kind != ROW_HEADING)
+            .unwrap_or(0) as c_int;
+        let top = UI_MENU_EDGE + 35 + first_row * UI_MENU_ROW;
+        let bottom = SCREEN_H - UI_MENU_EDGE - 2 * UI_MENU_ROW;
+        let selected_top = 35 + editor.selected * UI_MENU_ROW;
+        let selected_bottom = selected_top + 10;
+        let last_bottom = 35 + (count as c_int - 1) * UI_MENU_ROW + 10;
+        let min_y = SCREEN_H - UI_MENU_EDGE - last_bottom;
+        // SAFETY: Rendering is serialized on the main thread.
+        unsafe {
+            if MENU_MODE != editor.mode {
+                MENU_Y = UI_MENU_EDGE;
+            }
+            MENU_MODE = editor.mode;
+            y = MENU_Y;
+            if y + selected_bottom > bottom {
+                y = bottom - selected_bottom;
+            }
+            if y + selected_top < top {
+                y = top - selected_top;
+            }
+            y = y.clamp(min_y, UI_MENU_EDGE);
+            MENU_Y = y;
         }
+    } else {
+        // SAFETY: Rendering is serialized on the main thread.
+        unsafe { MENU_MODE = editor.mode };
     }
     menu_panel(x, y, width, height);
     clipped_text(
@@ -901,6 +927,9 @@ pub unsafe extern "C" fn render_frame(
     cursor(screen_x(editor.x, camera_x), screen_y(editor.y, camera_y));
     if editor.mode != EDIT_PLANE && editor.mode != EDIT_MOVE {
         draw_menu(editor);
+    } else {
+        // SAFETY: Rendering is serialized on the main thread.
+        unsafe { MENU_MODE = EDIT_PLANE };
     }
     // SAFETY: This is the same open frame begun above, and the backend
     // finalizes it before any other frame can start.
