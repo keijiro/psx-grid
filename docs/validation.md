@@ -8,23 +8,25 @@ and sampled the renderer's pre-wait work clock for 64 frames. The clock also
 includes timer interrupts and the preceding frame's GPU submission; it
 excludes `DrawSync` and `VSync` waits. One tick is about 0.236 microseconds.
 
-| Score | Before | Visible-cell pass | Jump cache |
-| --- | ---: | ---: | ---: |
-| 68 visible note tiles, median ticks | 66,195 | 48,793 | 48,118 |
-| 68 visible note tiles, 95th percentile ticks | 66,698 | 49,326 | 48,631 |
-| 4,096 offscreen note tiles, median ticks | 65,962 | 42,518 | 18,255 |
-| 4,096 offscreen note tiles, 95th percentile ticks | 66,379 | 42,980 | 18,672 |
+| Score | Before | Visible-cell pass | Jump cache | Direct decimal labels |
+| --- | ---: | ---: | ---: | ---: |
+| 68 visible note tiles, median ticks | 66,195 | 48,793 | 48,118 | 40,896 |
+| 68 visible note tiles, 95th percentile ticks | 66,698 | 49,326 | 48,631 | 41,410 |
+| 4,096 offscreen note tiles, median ticks | 65,962 | 42,518 | 18,255 | 18,244 |
+| 4,096 offscreen note tiles, 95th percentile ticks | 66,379 | 42,980 | 18,672 | 18,661 |
 
 The visible-cell pass reduced median work by 26% for the screenshot-shaped
 score. Caching jump origins reduced that case by another 1%, while removing
 the full-score traversal reduced the offscreen case by another 57%. These
-are stopped, steady-frame results; the first frame after an edit rebuilds
-the jump cache and is not represented by the table.
+are stopped, steady-frame results. Direct decimal labels reduced the visible
+case by another 15% without changing the offscreen case. The first frame
+after an edit rebuilds the jump cache and is not represented by the table.
 
 Build the fixture with `cmake --preset debug -DRENDER_BENCH=ON` and
 `cmake --build build/debug --target render-bench` after sourcing
 `scripts/env.sh`. The measurements are in
-`build/validation/render-bench-{baseline,stage1,stage2}.log`.
+`build/validation/render-bench-{baseline,stage1,stage2}.log` and
+`build/validation/render-bench-{baseline-current,after}.log`.
 
 ## Main-thread audio planning (2026-09-27)
 

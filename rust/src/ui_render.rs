@@ -851,6 +851,26 @@ fn small(
     }
 }
 
+/// Avoids the general formatter for the short integer labels redrawn in
+/// every visible cell. The scratch digits cover the full `c_int` range.
+fn push_decimal(label: &mut Text<'_>, value: c_int) {
+    if value < 0 {
+        label.push(b"-");
+    }
+    let mut number = value.unsigned_abs();
+    let mut digits = [0; 10];
+    let mut start = digits.len();
+    loop {
+        start -= 1;
+        digits[start] = b'0' + (number % 10) as u8;
+        number /= 10;
+        if number == 0 {
+            break;
+        }
+    }
+    label.push(&digits[start..]);
+}
+
 /// Maps a resolved model cell to its atlas sprite and compact label.
 fn draw_cell(score: &Score, cell: Cell, x: c_int, y: c_int) {
     if cell.kind == CELL_EMPTY {
@@ -884,8 +904,8 @@ fn draw_cell(score: &Score, cell: Cell, x: c_int, y: c_int) {
         } else {
             // SAFETY: A head cell always names a valid lane in this score.
             let channel = unsafe { score_channel(score, cell.lane) };
-            write!(label, "Ch{}", channel + 1)
-                .expect("fixed text writer cannot fail");
+            label.push(b"Ch");
+            push_decimal(&mut label, channel + 1);
             shift = 1;
         }
     }
@@ -895,8 +915,7 @@ fn draw_cell(score: &Score, cell: Cell, x: c_int, y: c_int) {
             TILE_NOTE => {
                 // SAFETY: The model returns a static C string.
                 unsafe { label.push_c(score_note_name(value.pitch)) };
-                write!(label, "{}", value.pitch / 12)
-                    .expect("fixed text writer cannot fail");
+                push_decimal(&mut label, value.pitch / 12);
                 // The plus and octave align; only the note letter needs a nudge.
                 if label.replace(b'#', b'+') {
                     first_shift = 1;
@@ -913,17 +932,18 @@ fn draw_cell(score: &Score, cell: Cell, x: c_int, y: c_int) {
                         label.push(b"R");
                     }
                 } else {
-                    write!(label, "{}", value.lock_mask.count_ones())
-                        .expect("fixed text writer cannot fail");
+                    push_decimal(
+                        &mut label,
+                        value.lock_mask.count_ones() as c_int,
+                    );
                 }
             }
             TILE_CYCLE => {
-                write!(label, "C{}", value.period)
-                    .expect("fixed text writer cannot fail");
+                label.push(b"C");
+                push_decimal(&mut label, value.period);
             }
             TILE_PROBABILITY => {
-                write!(label, "{}", value.chance)
-                    .expect("fixed text writer cannot fail");
+                push_decimal(&mut label, value.chance);
             }
             _ => {}
         }
