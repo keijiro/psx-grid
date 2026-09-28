@@ -14,6 +14,7 @@ use crate::audio_transport::AudioPlayheads;
 use crate::editor::{rows, Editor, EditorRow, TILE_PICKER_ORDER};
 use crate::score::{
     at, resolve, score_channel, score_note_name, score_tile_label, Cell, Score,
+    TILE_CAPACITY,
 };
 use crate::score_edit::{score_plan_move, MovePlan};
 use crate::storage::storage_message;
@@ -92,6 +93,44 @@ static mut CAMERA_X: c_int = 0;
 static mut CAMERA_Y: c_int = 0;
 static mut MENU_Y: c_int = UI_MENU_EDGE;
 static mut MENU_MODE: c_int = EDIT_PLANE;
+const EMPTY_CELL: Cell = Cell {
+    kind: CELL_EMPTY,
+    lane: -1,
+    step: -1,
+    depth: 0,
+    tile: 0,
+};
+/// Main-thread scratch storage avoids allocating 300 cells on the stack.
+static mut VISIBLE_CELLS: [Cell; (VIEW_COLS * VIEW_ROWS) as usize] =
+    [EMPTY_CELL; (VIEW_COLS * VIEW_ROWS) as usize];
+
+/// Admitted score coordinates and branch indices fit in one byte each.
+#[derive(Clone, Copy)]
+struct JumpVisual {
+    x: u8,
+    y: u8,
+    branch: u8,
+}
+
+/// Invalidates cached jump origins when the edited score revision changes.
+struct JumpCache {
+    score: *const Score,
+    revision: u32,
+    count: usize,
+    items: [JumpVisual; TILE_CAPACITY],
+}
+
+/// The renderer alone accesses this cache on the main thread.
+static mut JUMP_CACHE: JumpCache = JumpCache {
+    score: core::ptr::null(),
+    revision: 0,
+    count: 0,
+    items: [JumpVisual {
+        x: 0,
+        y: 0,
+        branch: 0,
+    }; TILE_CAPACITY],
+};
 
 unsafe extern "C" {
     fn render_backend_begin();
@@ -960,6 +999,153 @@ fn draw_playheads(
     }
 }
 
+/// Keeps the first model cell at a visible coordinate, matching `at()`'s
+/// lane-order precedence without querying the same stack at every depth.
+fn place_visible(
+    cells: &mut [Cell; (VIEW_COLS * VIEW_ROWS) as usize],
+    camera_x: c_int,
+    camera_y: c_int,
+    x: c_int,
+    y: c_int,
+    cell: Cell,
+) {
+    let col = x - camera_x;
+    let row = y - camera_y;
+    if !(0..VIEW_COLS).contains(&col) || !(0..VIEW_ROWS).contains(&row) {
+        return;
+    }
+    let slot = &mut cells[(row * VIEW_COLS + col) as usize];
+    if slot.kind == CELL_EMPTY {
+        *slot = cell;
+    }
+}
+
+/// Resolves the visible plane in lane order while walking each tile link at
+/// most once per visible step. Static storage avoids a large main-stack frame.
+fn fill_visible(
+    score: &Score,
+    camera_x: c_int,
+    camera_y: c_int,
+    cells: &mut [Cell; (VIEW_COLS * VIEW_ROWS) as usize],
+) {
+    cells.fill(EMPTY_CELL);
+    for (index, lane) in score.lanes.iter().enumerate() {
+        if lane.active == 0
+            || lane.y >= camera_y + VIEW_ROWS
+            || lane.x >= camera_x + VIEW_COLS
+            || lane.x + lane.length + 1 < camera_x
+        {
+            continue;
+        }
+        let lane_id = index as c_int;
+        place_visible(
+            cells,
+            camera_x,
+            camera_y,
+            lane.x,
+            lane.y,
+            Cell {
+                kind: CELL_HEAD,
+                lane: lane_id,
+                step: -1,
+                depth: 0,
+                tile: 0,
+            },
+        );
+        place_visible(
+            cells,
+            camera_x,
+            camera_y,
+            lane.x + lane.length + 1,
+            lane.y,
+            Cell {
+                kind: CELL_END,
+                lane: lane_id,
+                step: lane.length,
+                depth: 0,
+                tile: 0,
+            },
+        );
+        for step in 0..lane.length {
+            let x = lane.x + step + 1;
+            if x < camera_x || x >= camera_x + VIEW_COLS {
+                continue;
+            }
+            let mut tile_id = lane.tiles[step as usize];
+            if tile_id == 0 {
+                place_visible(
+                    cells,
+                    camera_x,
+                    camera_y,
+                    x,
+                    lane.y,
+                    Cell {
+                        kind: CELL_STEP,
+                        lane: lane_id,
+                        step,
+                        depth: 0,
+                        tile: 0,
+                    },
+                );
+            }
+            let mut depth = 0;
+            while tile_id != 0 && lane.y + depth < camera_y + VIEW_ROWS {
+                place_visible(
+                    cells,
+                    camera_x,
+                    camera_y,
+                    x,
+                    lane.y + depth,
+                    Cell {
+                        kind: CELL_TILE,
+                        lane: lane_id,
+                        step,
+                        depth,
+                        tile: tile_id,
+                    },
+                );
+                tile_id = score.tiles[usize::from(tile_id)].next;
+                depth += 1;
+            }
+        }
+    }
+}
+
+/// Retains jump origins across frames so a static score does not require a
+/// second walk through every tile. Admitted edits change the score revision.
+fn refresh_jumps(score: &Score, cache: &mut JumpCache) {
+    if cache.score == core::ptr::from_ref(score)
+        && cache.revision == score.revision
+    {
+        return;
+    }
+    cache.count = 0;
+    for lane in &score.lanes {
+        if lane.active == 0 {
+            continue;
+        }
+        for step in 0..lane.length {
+            let mut depth = 0;
+            let mut tile_id = lane.tiles[step as usize];
+            while tile_id != 0 {
+                let item = &score.tiles[usize::from(tile_id)];
+                if item.value.kind == TILE_JUMP {
+                    cache.items[cache.count] = JumpVisual {
+                        x: (lane.x + step + 1) as u8,
+                        y: (lane.y + depth) as u8,
+                        branch: item.branch as u8,
+                    };
+                    cache.count += 1;
+                }
+                tile_id = item.next;
+                depth += 1;
+            }
+        }
+    }
+    cache.score = core::ptr::from_ref(score);
+    cache.revision = score.revision;
+}
+
 /// Submits one complete frame without changing caller-owned editor state.
 ///
 /// # Safety
@@ -988,11 +1174,15 @@ pub unsafe extern "C" fn render_frame(
     }
     #[cfg(all(target_arch = "mips", debug_assertions))]
     draw_monitor();
+    // SAFETY: Rendering is serialized on the main thread, and no callback
+    // reads or writes the scratch plane during this frame.
+    let cells = unsafe { &mut *core::ptr::addr_of_mut!(VISIBLE_CELLS) };
+    fill_visible(&editor.score, camera_x, camera_y, cells);
     for row in 0..VIEW_ROWS {
         for col in 0..VIEW_COLS {
             let x = col * CELL_SIZE;
             let y = row * CELL_SIZE;
-            let cell = at(&editor.score, camera_x + col, camera_y + row);
+            let cell = cells[(row * VIEW_COLS + col) as usize];
             rect(7, x + 8, y + 8, 1, 1, UI_DOT);
             if cell.kind == CELL_EMPTY {
                 continue;
@@ -1014,54 +1204,27 @@ pub unsafe extern "C" fn render_frame(
             draw_cell(&editor.score, cell, x, y);
         }
     }
-    for lane in &editor.score.lanes {
-        if lane.active == 0 {
-            continue;
-        }
-        for step in 0..lane.length {
-            let mut depth = 0;
-            let mut tile_id = lane.tiles[step as usize];
-            while tile_id != 0 {
-                let item = &editor.score.tiles[usize::from(tile_id)];
-                if item.value.kind == TILE_JUMP {
-                    let branch = &editor.score.lanes[item.branch as usize];
-                    let sx = lane.x + step + 1;
-                    let sy = lane.y + depth;
-                    if visible(sx, sy, camera_x, camera_y)
-                        || visible(branch.x, branch.y, camera_x, camera_y)
-                    {
-                        let x1 = screen_x(sx, camera_x) + 8;
-                        let y1 = screen_y(sy, camera_y) + 8;
-                        let x2 = screen_x(branch.x, camera_x) + 8;
-                        let y2 = screen_y(branch.y, camera_y) + 8;
-                        rect(
-                            6,
-                            x1.min(x2),
-                            y1,
-                            (x1 - x2).abs() + 1,
-                            1,
-                            UI_BORDER,
-                        );
-                        rect(
-                            6,
-                            x2,
-                            y1.min(y2),
-                            1,
-                            (y1 - y2).abs() + 1,
-                            UI_BORDER,
-                        );
-                        if !visible(branch.x, branch.y, camera_x, camera_y) {
-                            marker(
-                                branch.x, branch.y, UI_INK, camera_x, camera_y,
-                            );
-                        }
-                        if !visible(sx, sy, camera_x, camera_y) {
-                            marker(sx, sy, UI_INK, camera_x, camera_y);
-                        }
-                    }
-                }
-                tile_id = item.next;
-                depth += 1;
+    // SAFETY: The main thread alone renders and mutates this scratch cache.
+    let jumps = unsafe { &mut *core::ptr::addr_of_mut!(JUMP_CACHE) };
+    refresh_jumps(&editor.score, jumps);
+    for jump in &jumps.items[..jumps.count] {
+        let branch = &editor.score.lanes[usize::from(jump.branch)];
+        let sx = c_int::from(jump.x);
+        let sy = c_int::from(jump.y);
+        if visible(sx, sy, camera_x, camera_y)
+            || visible(branch.x, branch.y, camera_x, camera_y)
+        {
+            let x1 = screen_x(sx, camera_x) + 8;
+            let y1 = screen_y(sy, camera_y) + 8;
+            let x2 = screen_x(branch.x, camera_x) + 8;
+            let y2 = screen_y(branch.y, camera_y) + 8;
+            rect(6, x1.min(x2), y1, (x1 - x2).abs() + 1, 1, UI_BORDER);
+            rect(6, x2, y1.min(y2), 1, (y1 - y2).abs() + 1, UI_BORDER);
+            if !visible(branch.x, branch.y, camera_x, camera_y) {
+                marker(branch.x, branch.y, UI_INK, camera_x, camera_y);
+            }
+            if !visible(sx, sy, camera_x, camera_y) {
+                marker(sx, sy, UI_INK, camera_x, camera_y);
             }
         }
     }

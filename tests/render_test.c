@@ -266,6 +266,21 @@ static int tile_at(int x, int y)
     return test_score_at(&e.score, x, y).tile;
 }
 
+/*
+ * Finds an exact untextured packet in one ordering-table bucket.
+ */
+static int has_tile(int depth, int x, int y, int w, int h, int gray)
+{
+    for (int i = 0; i < counts[depth]; i++)
+    {
+        TILE* p = primitives[depth][i];
+        if (p->code == 0x60 && p->x0 == x && p->y0 == y && p->w == w &&
+            p->h == h && p->r0 == gray)
+            return 1;
+    }
+    return 0;
+}
+
 int main(void)
 {
     editor_init(&e);
@@ -293,6 +308,27 @@ int main(void)
             assert(changed == 1);
         }
     }
+    // An admitted jump edit must refresh both connector geometry and its
+    // cached origin list on the next frame.
+    editor_init(&e);
+    assert(score_create(&e.score, 0, 0, 4) == SCORE_OK);
+    assert(score_place(&e.score, 1, 0, TILE_JUMP) == SCORE_OK);
+    TileId jump = tile_at(1, 0);
+    Lane* branch = &e.score.lanes[e.score.tiles[jump].branch];
+    int x1 = CELL_SIZE + CELL_SIZE / 2;
+    int y1 = CELL_SIZE / 2;
+    int x2 = branch->x * CELL_SIZE + CELL_SIZE / 2;
+    int y2 = branch->y * CELL_SIZE + CELL_SIZE / 2;
+    draw(NULL);
+    assert(has_tile(6, x2, y1, x1 - x2 + 1, 1, UI_BORDER));
+    assert(has_tile(6, x2, y1, 1, y2 - y1 + 1, UI_BORDER));
+    uint32_t revision = e.score.revision;
+    assert(score_remove(&e.score, 1, 0) == SCORE_OK);
+    assert(e.score.revision == revision + 1);
+    draw(NULL);
+    assert(!has_tile(6, x2, y1, x1 - x2 + 1, 1, UI_BORDER));
+    assert(!has_tile(6, x2, y1, 1, y2 - y1 + 1, UI_BORDER));
+
     // Each runner gets its own gutter bar, extending beside a full stack.
     e.score.lanes[0] = (Lane){.active = 1, .x = 2, .y = 2, .length = 2};
     e.score.lanes[1] = (Lane){.active = 1, .x = 2, .y = 5, .length = 2};
