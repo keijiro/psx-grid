@@ -66,6 +66,10 @@ const LOCK_RELEASE: c_int = 2;
 
 #[cfg(all(target_arch = "mips", debug_assertions))]
 const MONITOR_HISTORY: usize = 48;
+#[cfg(all(target_arch = "mips", debug_assertions))]
+const MONITOR_BOTTOM: c_int = SCREEN_H;
+#[cfg(all(target_arch = "mips", debug_assertions))]
+const MONITOR_TOP: c_int = MONITOR_BOTTOM - UI_MENU_EDGE;
 
 /// Mirrors the C backend's completed-frame diagnostics.
 #[cfg(all(target_arch = "mips", debug_assertions))]
@@ -305,15 +309,8 @@ fn draw_monitor() {
 
     // Draw first: ordering-table buckets reverse insertion order, so the
     // monitor stays above the editor's panels and labels.
-    monitor_tile(
-        1,
-        0,
-        SCREEN_H - UI_MENU_EDGE,
-        SCREEN_W,
-        UI_MENU_EDGE,
-        UI_PANEL,
-    );
-    monitor_tile(0, 172, 230, 144, 1, UI_RULE);
+    monitor_tile(1, 0, MONITOR_TOP, SCREEN_W, UI_MENU_EDGE, UI_PANEL);
+    monitor_tile(0, 172, MONITOR_TOP + 6, 144, 1, UI_RULE);
     for i in 0..MONITOR_HISTORY {
         let index = (monitor.history_next as usize + i) % MONITOR_HISTORY;
         if i + (monitor.history_count as usize) < MONITOR_HISTORY {
@@ -326,7 +323,7 @@ fn draw_monitor() {
             monitor_tile(
                 0,
                 172 + i as c_int * 3,
-                239 - height,
+                MONITOR_BOTTOM - 1 - height,
                 2,
                 height,
                 UI_INK,
@@ -337,7 +334,8 @@ fn draw_monitor() {
     let mut bytes = [0; 48];
     let mut label = Text::new(&mut bytes);
     let _ = write!(label, "CPU {}% P {}%", cpu, peak);
-    monitor_text(4, 225, label.as_bytes(), 168);
+    // Leave the last scanline beneath the glyphs inside the panel.
+    monitor_text(4, MONITOR_TOP, label.as_bytes(), 168);
 
     label.clear();
     let _ = write!(
@@ -348,7 +346,7 @@ fn draw_monitor() {
         monitor.audio_queue_underruns,
         monitor.audio_overloads
     );
-    monitor_text(4, 233, label.as_bytes(), 168);
+    monitor_text(4, MONITOR_TOP + 8, label.as_bytes(), 168);
 }
 
 /// Stops before a whole glyph would cross the panel limit.
