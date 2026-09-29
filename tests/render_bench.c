@@ -4,8 +4,9 @@
  * Implementation notes:
  *
  * Fixed stopped scores keep input, audio planning, and editor transactions
- * out of the timed frame. The renderer's own pre-wait clock gives the same
- * main-thread work interval displayed by the Debug performance monitor.
+ * out of the timed frame. Stationary drag cases isolate the preview render
+ * path without controller-repeat timing. The renderer's own pre-wait clock
+ * gives the main-thread interval shown by the Debug performance monitor.
  */
 
 #include "audio_platform.h"
@@ -68,6 +69,29 @@ static void screenshot_score(void)
 }
 
 /*
+ * Fills the entire 20-by-15 view with fifteen single-height note lanes so
+ * drag previews exercise lane scans even after static packets are cached.
+ */
+static void dense_score(void)
+{
+    editor_init(&editor);
+    editor.score.revision = 2;
+    TileId id = 1;
+    for (int row = 0; row < 15; row++)
+    {
+        Lane* lane = &editor.score.lanes[row];
+        *lane = (Lane){.active = 1, .x = 0, .y = row, .length = 18,
+                       .division = 16, .channel = row % SCORE_CHANNELS};
+        for (int step = 0; step < 18; step++, id++)
+        {
+            lane->tiles[step] = id;
+            editor.score.tiles[id] =
+                (Tile){.value = {.kind = TILE_NOTE, .pitch = 48}};
+        }
+    }
+}
+
+/*
  * Offscreen notes isolate the cost of the unconditional jump search from
  * tile sprites and labels. The pool contains 16 lanes * 4 steps * 64 tiles.
  */
@@ -117,6 +141,32 @@ static void measure(const char* name)
     log_line(line);
 }
 
+/*
+ * Advances between occupied steps without moving the camera, so every
+ * sample includes admission for a newly chosen destination.
+ */
+static void measure_drag_steps(void)
+{
+    render_backend_monitor_reset();
+    for (int i = 0; i < WARMUP_FRAMES + SAMPLE_FRAMES; i++)
+    {
+        editor.x = 2 + i % 16;
+        render_frame(&editor, 1, NULL);
+        if (i >= WARMUP_FRAMES)
+            samples[i - WARMUP_FRAMES] = render_backend_monitor()->work_ticks;
+    }
+    sort_samples();
+    char line[160];
+    snprintf(line, sizeof(line),
+             "RENDER dense-270-drag-moving min=%lu median=%lu p95=%lu "
+             "max=%lu ticks\n",
+             (unsigned long)samples[0],
+             (unsigned long)samples[SAMPLE_FRAMES / 2],
+             (unsigned long)samples[SAMPLE_FRAMES * 95 / 100],
+             (unsigned long)samples[SAMPLE_FRAMES - 1]);
+    log_line(line);
+}
+
 int main(void)
 {
     editor_init(&editor);
@@ -124,6 +174,28 @@ int main(void)
     audio_platform_init();
     screenshot_score();
     measure("visible-68");
+    editor.mode = EDIT_MOVE;
+    editor.source_x = 2;
+    editor.source_y = 1;
+    editor.x = 15;
+    editor.y = 12;
+    measure("visible-68-drag-invalid");
+    editor.x = 3;
+    editor.y = 1;
+    measure("visible-68-drag-valid");
+    editor.mode = EDIT_MAIN;
+    measure("visible-68-menu");
+    dense_score();
+    measure("dense-270");
+    editor.mode = EDIT_MOVE;
+    editor.source_x = 1;
+    editor.source_y = 0;
+    editor.x = 0;
+    editor.y = 0;
+    measure("dense-270-drag-invalid");
+    editor.x = 2;
+    measure("dense-270-drag-valid");
+    measure_drag_steps();
     offscreen_score();
     measure("offscreen-4096");
     log_line("RENDER BENCH COMPLETE\n");

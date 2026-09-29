@@ -228,6 +228,48 @@ static void model(void)
 }
 
 /*
+ * Compares the renderer's local preview with full admission over occupied,
+ * empty, endpoint, and colliding destinations in admitted scores.
+ */
+static void preview_equivalence(void)
+{
+    base();
+    assert(!score_place(&s, 1, 0, TILE_NOTE));
+    assert(!score_place(&s, 1, 1, TILE_NOTE));
+    assert(!score_place(&s, 2, 0, TILE_NOTE));
+    assert(!score_create(&s, 7, 2, 4));
+    assert(!score_place(&s, 8, 2, TILE_NOTE));
+    const int sources[][2] = {{1, 0}, {1, 1}, {2, 0}, {0, 0}};
+    for (size_t i = 0; i < sizeof(sources) / sizeof(*sources); i++)
+    {
+        for (int y = 0; y < 7; y++)
+        {
+            for (int x = 0; x < 14; x++)
+            {
+                ScoreResult fast = score_preview_move(
+                    &s, sources[i][0], sources[i][1], x, y);
+                MovePlan full = test_score_plan_move(
+                    &s, sources[i][0], sources[i][1], x, y);
+                assert((fast == SCORE_OK) == (full.result == SCORE_OK));
+            }
+        }
+    }
+
+    base();
+    assert(!score_place(&s, 1, 0, TILE_JUMP));
+    assert(!score_place(&s, 2, 0, TILE_NOTE));
+    for (int y = 0; y < 5; y++)
+    {
+        for (int x = 0; x < 8; x++)
+        {
+            ScoreResult fast = score_preview_move(&s, 1, 0, x, y);
+            MovePlan full = test_score_plan_move(&s, 1, 0, x, y);
+            assert((fast == SCORE_OK) == (full.result == SCORE_OK));
+        }
+    }
+}
+
+/*
  * Checks that recycled lane and tile IDs receive new births for live playback
  * reconciliation.
  */
@@ -676,6 +718,7 @@ static void channels(void)
 int main(void)
 {
     model();
+    preview_equivalence();
     generations();
     controls();
     rejected_inline_resize();

@@ -12,15 +12,14 @@ use core::ptr;
 
 use crate::input::InputFrame;
 use crate::score::{
-    at, default_value, resolve, score_channel, score_division, score_divisions,
-    score_edit, score_message, score_set_bpm, score_set_channel,
-    score_set_division, score_set_reverb, score_set_sound, Score, TileValue,
-    LOCK_LIMITS, LOCK_TARGETS,
+    LOCK_LIMITS, LOCK_TARGETS, Score, TileValue, at, default_value, resolve,
+    score_channel, score_division, score_divisions, score_edit, score_message,
+    score_set_bpm, score_set_channel, score_set_division, score_set_reverb,
+    score_set_sound,
 };
 use crate::score_edit::{
-    score_apply_move, score_copy, score_create, score_delete, score_paste,
-    score_place_value, score_plan_move, score_remove, score_resize, Clipboard,
-    MovePlan,
+    Clipboard, MovePlan, score_apply_move, score_copy, score_create,
+    score_delete, score_paste, score_place_value, score_remove, score_resize,
 };
 use crate::score_format::measure;
 
@@ -1048,24 +1047,15 @@ fn update_plane(editor: &mut Editor, frame: &InputFrame) {
     if frame.cross_released != 0 && editor.gesture != 0 {
         editor.gesture = 0;
         if editor.mode == EDIT_MOVE {
-            let mut plan = MovePlan {
-                sx: 0,
-                sy: 0,
-                x: 0,
-                y: 0,
+            let plan = MovePlan {
+                sx: editor.source_x,
+                sy: editor.source_y,
+                x: editor.x,
+                y: editor.y,
                 result: 0,
             };
-            // SAFETY: The editor owns the score, and the local plan is distinct.
-            unsafe {
-                score_plan_move(
-                    &editor.score,
-                    editor.source_x,
-                    editor.source_y,
-                    editor.x,
-                    editor.y,
-                    &mut plan,
-                )
-            };
+            // Applying rechecks the plan, so a separate full preview here
+            // would duplicate its expensive score staging on release.
             // SAFETY: The editor owns the score, and the local plan is distinct.
             let result = unsafe { score_apply_move(&mut editor.score, &plan) };
             if result != 0 {

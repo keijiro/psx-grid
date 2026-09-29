@@ -50,9 +50,19 @@ const RenderMonitor* render_backend_monitor(void);
 void render_init(void);
 
 /*
- * Clears the next command buffer before drawing a frame.
+ * Begins a frame and returns nonzero when its static score packets can be
+ * reused. The score pointer, revision, and camera position identify the
+ * geometry. A cache miss leaves an empty ordering table for reconstruction.
+ * `score` must remain valid through the frame.
  */
-void render_backend_begin(void);
+int render_backend_begin(const void* score, uint32_t revision, int camera_x,
+                         int camera_y);
+/*
+ * Retains the score packets built since a cache miss. Later frame packets
+ * remain transient and are discarded when this buffer is reused. Must be
+ * called after a cache miss and before transient packets are appended.
+ */
+void render_backend_cache_static(void);
 /*
  * Appends one clipped gray rectangle at the given ordering-table depth.
  * Coordinates and dimensions must describe a positive region on screen.

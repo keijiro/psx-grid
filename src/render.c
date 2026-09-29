@@ -61,9 +61,29 @@ typedef struct
 static Buffer buffers[2];
 static int active;
 static size_t used;
+/*
+ * Each ordering table links to packets in its own buffer, so retaining the
+ * packet bytes and eight table heads avoids copying or relinking DMA tags.
+ * The buffer is reused only after the preceding submission has completed.
+ */
+typedef struct
+{
+    const void* score;
+    uint32_t revision;
+    int camera_x;
+    int camera_y;
+    uint32_t ot[OT_SIZE];
+    size_t used;
+    int valid;
+} StaticCache;
+
+static StaticCache static_cache[2];
+static unsigned begin_overflows;
 // Debugger-visible counters; overflow is rejected before touching memory.
 volatile unsigned render_packet_peak;
 volatile unsigned render_overflows;
+volatile unsigned render_cache_hits;
+volatile unsigned render_cache_misses;
 
 #if defined(__mips__) && !defined(NDEBUG)
 void render_backend_monitor_reset(void)
@@ -118,6 +138,7 @@ void render_init(void)
     DrawSync(0);
     for (int i = 0; i < 2; i++)
     {
+        static_cache[i].valid = 0;
         SetDefDrawEnv(&buffers[i].draw, 0, i * SCREEN_H, SCREEN_W, SCREEN_H);
         SetDefDispEnv(&buffers[i].disp, 0, i * SCREEN_H, SCREEN_W, SCREEN_H);
         buffers[i].draw.isbg = 1;
@@ -127,13 +148,43 @@ void render_init(void)
     SetDispMask(1);
 }
 
-/*
- * Clears only the buffer being constructed; the other may still be visible.
- */
-void render_backend_begin(void)
+int render_backend_begin(const void* score, uint32_t revision, int camera_x,
+                         int camera_y)
 {
+    StaticCache* cache = &static_cache[active];
+    if (cache->valid && cache->score == score &&
+        cache->revision == revision && cache->camera_x == camera_x &&
+        cache->camera_y == camera_y)
+    {
+        render_cache_hits++;
+        used = cache->used;
+        // Reestablish this buffer's OT base for both SDK and host fixtures.
+        ClearOTagR(buffers[active].ot, OT_SIZE);
+        for (int i = 0; i < OT_SIZE; i++)
+            buffers[active].ot[i] = cache->ot[i];
+        return 1;
+    }
+    render_cache_misses++;
+    cache->valid = 0;
     used = 0;
+    begin_overflows = render_overflows;
     ClearOTagR(buffers[active].ot, OT_SIZE);
+    cache->score = score;
+    cache->revision = revision;
+    cache->camera_x = camera_x;
+    cache->camera_y = camera_y;
+    return 0;
+}
+
+void render_backend_cache_static(void)
+{
+    StaticCache* cache = &static_cache[active];
+    // A truncated score must be rebuilt rather than preserved indefinitely.
+    if (render_overflows != begin_overflows) return;
+    cache->used = used;
+    for (int i = 0; i < OT_SIZE; i++)
+        cache->ot[i] = buffers[active].ot[i];
+    cache->valid = 1;
 }
 
 /*

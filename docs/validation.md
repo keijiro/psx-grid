@@ -1,5 +1,55 @@
 # Validation Record
 
+## Drag preview work (2026-09-29)
+
+The Debug `render-bench` fixture measured tile drags in the PCSX-Redux
+interpreter with transport stopped. Each case discarded 16 warmup frames and
+sampled 64 frames with the pre-wait work clock. The moving case changes the
+destination to another occupied step on every sampled frame without scrolling.
+
+| Visible notes and case | Before median | After median | After p95 |
+| --- | ---: | ---: | ---: |
+| 68, invalid stationary drag | 65,016 | 4,261 | 4,730 |
+| 68, valid stationary drag | 301,884 | 5,030 | 5,315 |
+| 270, normal display | 3,558 | 3,475 | 3,884 |
+| 270, invalid stationary drag | 73,225 | 3,844 | 4,120 |
+| 270, valid stationary drag | 330,424 | 3,849 | 4,125 |
+| 270, valid moving drag | 262,648* | 4,040 | 4,254 |
+
+The old renderer searched the score from every one of 300 display cells and
+resolved the same destination 300 times. A valid tile drop also staged a
+265 KiB score copy and ran full geometry and encoded-size admission every
+frame. The renderer now walks only the carried cells and caches an unchanged
+preview. Common cross-step moves check newly occupied geometry locally;
+committing still rechecks the complete staged score. The starred moving
+baseline was measured after the rendering walk and stationary-result cache
+were fixed but before local admission. At 270 notes, the final moving median
+is below the nominal 70,560-tick frame budget. Jump-bearing suffixes still
+use full preview admission. These are emulator measurements without playing
+audio or controller input. Before and after logs are
+`build/validation/render-bench-dense-drag.log` and
+`build/validation/render-bench-fast-move.log`.
+
+## Static score packet reuse (2026-09-29)
+
+The Debug `render-bench` fixture ran in the PCSX-Redux interpreter with a
+stopped score and fixed cursor. After 16 warmup frames, it measured 64 steady
+frames per case using the same pre-wait clock as the prior stopped-score
+measurements. The new menu case shows MAIN over the visible 68-note score.
+
+| Case | Median ticks | 95th percentile ticks |
+| --- | ---: | ---: |
+| 68 visible note tiles | 3,411 | 3,849 |
+| 68 visible note tiles with MAIN menu | 9,502 | 10,507 |
+| 4,096 offscreen note tiles | 3,530 | 3,834 |
+
+The unchanged visible score now takes about one twelfth of its prior 40,896
+median ticks. The menu case takes about 2.2 ms at the median, below the
+nominal 70,560-tick NTSC frame budget. A change to the score revision or
+camera rebuilds the static packets in each framebuffer; the warmup excludes
+those frames. This emulator fixture does not measure playing audio or physical
+hardware. The log is `build/validation/render-bench-score-cache.log`.
+
 ## Stopped-score rendering work (2026-09-28)
 
 The Debug `render-bench` fixture ran in PCSX-Redux's interpreter with audio

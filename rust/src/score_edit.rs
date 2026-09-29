@@ -12,13 +12,15 @@ use core::mem::MaybeUninit;
 use core::ptr;
 
 use crate::score::{
-    at, default_value, geometry, geometry_lane_move, owner, resolve, valid,
-    value_valid, Cell, Score, Tile, TileValue, LANES, STEPS, TILE_CAPACITY,
+    Cell, LANES, STEPS, Score, TILE_CAPACITY, Tile, TileValue, at,
+    default_value, geometry, geometry_lane_move, owner, resolve, valid,
+    value_valid,
 };
 use crate::score_format::measure;
 
 const SCORE_OK: c_int = 0;
 const SCORE_BOUNDS: c_int = 1;
+const SCORE_COLLISION: c_int = 2;
 const SCORE_FULL: c_int = 3;
 const SCORE_TILES: c_int = 4;
 const SCORE_INVALID: c_int = 5;
@@ -638,6 +640,97 @@ fn move_staged(
     staged.tiles[usize::from(tail)].next = link_value(staged, to);
     set_link(staged, to, from_cell.tile);
     admission(staged)
+}
+
+/// Previews an admitted tile move by checking only newly occupied geometry.
+///
+/// A cross-step move keeps every tile and encoded field, so only an endpoint
+/// extension can increase file size. Reordering within a stack changes no
+/// geometry, ownership, or encoded size. Suffixes with jumps retain the
+/// complete staged check because branch ancestry may change.
+fn preview_move(
+    score: &Score,
+    sx: c_int,
+    sy: c_int,
+    x: c_int,
+    y: c_int,
+) -> c_int {
+    let from = at(score, sx, sy);
+    if from.kind != 1 && from.kind != 3 {
+        return SCORE_INVALID;
+    }
+    if sx == x && sy == y {
+        return SCORE_OK;
+    }
+    if from.kind == 1 {
+        return geometry_lane_move(score, from.lane as usize, x, y);
+    }
+    let to = resolve(score, x, y);
+    if to.kind != 3 && to.kind != 2 && to.kind != 4 {
+        return SCORE_INVALID;
+    }
+    if from.lane == to.lane && from.step == to.step {
+        return SCORE_OK;
+    }
+
+    let mut moved = 0;
+    let mut tile = from.tile;
+    while tile != 0 {
+        let entry = &score.tiles[usize::from(tile)];
+        if entry.value.kind == TILE_JUMP {
+            return move_staged(score, sx, sy, x, y);
+        }
+        moved += 1;
+        tile = entry.next;
+    }
+    let lane = &score.lanes[to.lane as usize];
+    let extending = to.kind == 4;
+    if extending {
+        if lane.length == STEPS as c_int || x + 1 >= SCORE_WIDTH as c_int {
+            return SCORE_BOUNDS;
+        }
+        if at(score, x + 1, lane.y).kind != 0 {
+            return SCORE_COLLISION;
+        }
+    }
+    let mut height = 0;
+    if !extending {
+        let mut tile = lane.tiles[to.step as usize];
+        while tile != 0 {
+            height += 1;
+            tile = score.tiles[usize::from(tile)].next;
+        }
+    }
+    if lane.y + height + moved > SCORE_HEIGHT as c_int {
+        return SCORE_BOUNDS;
+    }
+    for depth in height.max(1)..height + moved {
+        if at(score, x, lane.y + depth).kind != 0 {
+            return SCORE_COLLISION;
+        }
+    }
+    if extending && measure(score) + 1 > SCORE_FILE_BYTES {
+        return SCORE_FULL;
+    }
+    SCORE_OK
+}
+
+/// Returns a fast move preview for an admitted score; applying still rechecks
+/// the complete staged score. Invalid inputs return a nonzero result.
+///
+/// # Safety
+/// `score` must point to a valid immutable admitted score. Model calls must
+/// be serialized because exceptional previews use shared staging scratch.
+#[no_mangle]
+pub unsafe extern "C" fn score_preview_move(
+    score: *const Score,
+    sx: c_int,
+    sy: c_int,
+    x: c_int,
+    y: c_int,
+) -> c_int {
+    // SAFETY: The caller supplies a valid immutable admitted score.
+    preview_move(unsafe { &*score }, sx, sy, x, y)
 }
 
 /// Writes a move preview through an ABI-stable output pointer.

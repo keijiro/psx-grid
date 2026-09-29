@@ -7,18 +7,18 @@
 // OT depths reverse insertion order within each bucket. Preserve the C
 // renderer's draw order, including tile labels before their body sprites.
 
-use core::ffi::{c_char, c_int, CStr};
+use core::ffi::{CStr, c_char, c_int};
 use core::fmt::Write;
 
 use crate::audio_transport::AudioPlayheads;
-use crate::editor::{rows, Editor, EditorRow, TILE_PICKER_ORDER};
+use crate::editor::{Editor, EditorRow, TILE_PICKER_ORDER, rows};
 use crate::score::{
-    at, resolve, score_channel, score_note_name, score_tile_label, Cell, Score,
-    TILE_CAPACITY,
+    Cell, Score, TILE_CAPACITY, at, resolve, score_channel, score_note_name,
+    score_tile_label,
 };
-use crate::score_edit::{score_plan_move, MovePlan};
+use crate::score_edit::score_preview_move;
 use crate::storage::storage_message;
-use crate::ui_format::{row_value, Text};
+use crate::ui_format::{Text, row_value};
 use crate::ui_metrics::ADVANCE;
 
 const SCREEN_W: c_int = 320;
@@ -132,8 +132,37 @@ static mut JUMP_CACHE: JumpCache = JumpCache {
     }; TILE_CAPACITY],
 };
 
+/// A held cursor reuses the same admission result until an edit or movement.
+struct MovePreviewCache {
+    score: *const Score,
+    revision: u32,
+    sx: c_int,
+    sy: c_int,
+    x: c_int,
+    y: c_int,
+    result: c_int,
+    valid: bool,
+}
+
+static mut MOVE_PREVIEW_CACHE: MovePreviewCache = MovePreviewCache {
+    score: core::ptr::null(),
+    revision: 0,
+    sx: 0,
+    sy: 0,
+    x: 0,
+    y: 0,
+    result: 0,
+    valid: false,
+};
+
 unsafe extern "C" {
-    fn render_backend_begin();
+    fn render_backend_begin(
+        score: *const Score,
+        revision: u32,
+        camera_x: c_int,
+        camera_y: c_int,
+    ) -> c_int;
+    fn render_backend_cache_static();
     fn render_backend_tile(
         depth: c_int,
         x: c_int,
@@ -986,6 +1015,115 @@ fn marker(x: c_int, y: c_int, gray: c_int, camera_x: c_int, camera_y: c_int) {
     );
 }
 
+fn move_preview_result(editor: &Editor) -> c_int {
+    // SAFETY: Rendering and score edits are serialized on the main thread.
+    let cache = unsafe { &mut *core::ptr::addr_of_mut!(MOVE_PREVIEW_CACHE) };
+    let score = core::ptr::from_ref(&editor.score);
+    if cache.valid
+        && cache.score == score
+        && cache.revision == editor.score.revision
+        && cache.sx == editor.source_x
+        && cache.sy == editor.source_y
+        && cache.x == editor.x
+        && cache.y == editor.y
+    {
+        return cache.result;
+    }
+    // SAFETY: The editor owns an admitted score during this serialized frame.
+    let result = unsafe {
+        score_preview_move(
+            &editor.score,
+            editor.source_x,
+            editor.source_y,
+            editor.x,
+            editor.y,
+        )
+    };
+    *cache = MovePreviewCache {
+        score,
+        revision: editor.score.revision,
+        sx: editor.source_x,
+        sy: editor.source_y,
+        x: editor.x,
+        y: editor.y,
+        result,
+        valid: true,
+    };
+    result
+}
+
+fn move_outline(
+    x: c_int,
+    y: c_int,
+    camera_x: c_int,
+    camera_y: c_int,
+    gray: c_int,
+) {
+    if visible(x, y, camera_x, camera_y) {
+        outline(
+            4,
+            (x - camera_x) * CELL_SIZE + 2,
+            (y - camera_y) * CELL_SIZE + 2,
+            12,
+            12,
+            gray,
+        );
+    }
+}
+
+/// Walks only the carried lane or tile suffix; unrelated cells never move.
+fn draw_move_preview(editor: &Editor, camera_x: c_int, camera_y: c_int) {
+    let gray = if move_preview_result(editor) == 0 {
+        UI_INK
+    } else {
+        UI_RAIL
+    };
+    let source = at(&editor.score, editor.source_x, editor.source_y);
+    marker(
+        editor.source_x,
+        editor.source_y,
+        UI_BORDER,
+        camera_x,
+        camera_y,
+    );
+    if source.kind == CELL_HEAD {
+        let lane = &editor.score.lanes[source.lane as usize];
+        let dx = editor.x - editor.source_x;
+        let dy = editor.y - editor.source_y;
+        for step in -1..=lane.length {
+            let x = lane.x + step + 1 + dx;
+            let y = lane.y + dy;
+            move_outline(x, y, camera_x, camera_y, gray);
+            if step < 0 || step == lane.length {
+                continue;
+            }
+            let mut tile = lane.tiles[step as usize];
+            let mut depth = 1;
+            while tile != 0 {
+                tile = editor.score.tiles[usize::from(tile)].next;
+                if tile == 0 {
+                    break;
+                }
+                move_outline(x, y + depth, camera_x, camera_y, gray);
+                depth += 1;
+            }
+        }
+    } else if source.kind == CELL_TILE {
+        let dest = resolve(&editor.score, editor.x, editor.y);
+        if dest.lane == source.lane && dest.step == source.step {
+            move_outline(editor.x, editor.y, camera_x, camera_y, gray);
+        } else {
+            let mut tile = source.tile;
+            let mut y = editor.y;
+            while tile != 0 {
+                move_outline(editor.x, y, camera_x, camera_y, gray);
+                tile = editor.score.tiles[usize::from(tile)].next;
+                y += 1;
+            }
+        }
+    }
+}
+
 /// Draws each audible step in the two-pixel gutter beside its tile stack.
 fn draw_playheads(
     editor: &Editor,
@@ -1187,124 +1325,80 @@ pub unsafe extern "C" fn render_frame(
     let camera_y =
         unsafe { follow(CAMERA_Y, editor.y, VIEW_ROWS, SCORE_HEIGHT) };
     // SAFETY: Rendering is serialized on the main thread.
-    unsafe {
+    let cached = unsafe {
         CAMERA_X = camera_x;
         CAMERA_Y = camera_y;
-        render_backend_begin();
+        render_backend_begin(
+            core::ptr::from_ref(&editor.score),
+            editor.score.revision,
+            camera_x,
+            camera_y,
+        ) != 0
+    };
+    if !cached {
+        // SAFETY: Rendering is serialized on the main thread, and no callback
+        // reads or writes the scratch plane during this frame.
+        let cells = unsafe { &mut *core::ptr::addr_of_mut!(VISIBLE_CELLS) };
+        fill_visible(&editor.score, camera_x, camera_y, cells);
+        for row in 0..VIEW_ROWS {
+            for col in 0..VIEW_COLS {
+                let x = col * CELL_SIZE;
+                let y = row * CELL_SIZE;
+                let cell = cells[(row * VIEW_COLS + col) as usize];
+                rect(7, x + 8, y + 8, 1, 1, UI_DOT);
+                if cell.kind == CELL_EMPTY {
+                    continue;
+                }
+                let lane = &editor.score.lanes[cell.lane as usize];
+                if cell.depth == 0 {
+                    for dx in (0..CELL_SIZE).step_by(4) {
+                        let logical =
+                            (camera_x + col - lane.x) * CELL_SIZE + dx - 8;
+                        if logical >= 0
+                            && logical <= (lane.length + 1) * CELL_SIZE
+                        {
+                            rect(6, x + dx, y + 8, 1, 1, UI_RAIL);
+                        }
+                    }
+                }
+                if cell.depth != 0 {
+                    rect(6, x + 8, y, 1, 16, UI_RAIL);
+                }
+                draw_cell(&editor.score, cell, x, y);
+            }
+        }
+        // SAFETY: The main thread alone renders and mutates this scratch cache.
+        let jumps = unsafe { &mut *core::ptr::addr_of_mut!(JUMP_CACHE) };
+        refresh_jumps(&editor.score, jumps);
+        for jump in &jumps.items[..jumps.count] {
+            let branch = &editor.score.lanes[usize::from(jump.branch)];
+            let sx = c_int::from(jump.x);
+            let sy = c_int::from(jump.y);
+            if visible(sx, sy, camera_x, camera_y)
+                || visible(branch.x, branch.y, camera_x, camera_y)
+            {
+                let x1 = screen_x(sx, camera_x) + 8;
+                let y1 = screen_y(sy, camera_y) + 8;
+                let x2 = screen_x(branch.x, camera_x) + 8;
+                let y2 = screen_y(branch.y, camera_y) + 8;
+                rect(6, x1.min(x2), y1, (x1 - x2).abs() + 1, 1, UI_BORDER);
+                rect(6, x2, y1.min(y2), 1, (y1 - y2).abs() + 1, UI_BORDER);
+                if !visible(branch.x, branch.y, camera_x, camera_y) {
+                    marker(branch.x, branch.y, UI_INK, camera_x, camera_y);
+                }
+                if !visible(sx, sy, camera_x, camera_y) {
+                    marker(sx, sy, UI_INK, camera_x, camera_y);
+                }
+            }
+        }
+        // SAFETY: The static packet range and ordering-table heads are complete;
+        // later cursor, playback, menu, and monitor packets remain transient.
+        unsafe { render_backend_cache_static() };
     }
     #[cfg(all(target_arch = "mips", debug_assertions))]
     draw_monitor();
-    // SAFETY: Rendering is serialized on the main thread, and no callback
-    // reads or writes the scratch plane during this frame.
-    let cells = unsafe { &mut *core::ptr::addr_of_mut!(VISIBLE_CELLS) };
-    fill_visible(&editor.score, camera_x, camera_y, cells);
-    for row in 0..VIEW_ROWS {
-        for col in 0..VIEW_COLS {
-            let x = col * CELL_SIZE;
-            let y = row * CELL_SIZE;
-            let cell = cells[(row * VIEW_COLS + col) as usize];
-            rect(7, x + 8, y + 8, 1, 1, UI_DOT);
-            if cell.kind == CELL_EMPTY {
-                continue;
-            }
-            let lane = &editor.score.lanes[cell.lane as usize];
-            if cell.depth == 0 {
-                for dx in (0..CELL_SIZE).step_by(4) {
-                    let logical =
-                        (camera_x + col - lane.x) * CELL_SIZE + dx - 8;
-                    if logical >= 0 && logical <= (lane.length + 1) * CELL_SIZE
-                    {
-                        rect(6, x + dx, y + 8, 1, 1, UI_RAIL);
-                    }
-                }
-            }
-            if cell.depth != 0 {
-                rect(6, x + 8, y, 1, 16, UI_RAIL);
-            }
-            draw_cell(&editor.score, cell, x, y);
-        }
-    }
-    // SAFETY: The main thread alone renders and mutates this scratch cache.
-    let jumps = unsafe { &mut *core::ptr::addr_of_mut!(JUMP_CACHE) };
-    refresh_jumps(&editor.score, jumps);
-    for jump in &jumps.items[..jumps.count] {
-        let branch = &editor.score.lanes[usize::from(jump.branch)];
-        let sx = c_int::from(jump.x);
-        let sy = c_int::from(jump.y);
-        if visible(sx, sy, camera_x, camera_y)
-            || visible(branch.x, branch.y, camera_x, camera_y)
-        {
-            let x1 = screen_x(sx, camera_x) + 8;
-            let y1 = screen_y(sy, camera_y) + 8;
-            let x2 = screen_x(branch.x, camera_x) + 8;
-            let y2 = screen_y(branch.y, camera_y) + 8;
-            rect(6, x1.min(x2), y1, (x1 - x2).abs() + 1, 1, UI_BORDER);
-            rect(6, x2, y1.min(y2), 1, (y1 - y2).abs() + 1, UI_BORDER);
-            if !visible(branch.x, branch.y, camera_x, camera_y) {
-                marker(branch.x, branch.y, UI_INK, camera_x, camera_y);
-            }
-            if !visible(sx, sy, camera_x, camera_y) {
-                marker(sx, sy, UI_INK, camera_x, camera_y);
-            }
-        }
-    }
     if editor.mode == EDIT_MOVE {
-        let mut plan = MovePlan {
-            sx: 0,
-            sy: 0,
-            x: 0,
-            y: 0,
-            result: 0,
-        };
-        // SAFETY: The score and output plan are distinct valid objects.
-        unsafe {
-            score_plan_move(
-                &editor.score,
-                editor.source_x,
-                editor.source_y,
-                editor.x,
-                editor.y,
-                &mut plan,
-            );
-        }
-        let source = at(&editor.score, editor.source_x, editor.source_y);
-        let gray = if plan.result == 0 { UI_INK } else { UI_RAIL };
-        marker(
-            editor.source_x,
-            editor.source_y,
-            UI_BORDER,
-            camera_x,
-            camera_y,
-        );
-        for row in 0..VIEW_ROWS {
-            for col in 0..VIEW_COLS {
-                let x = camera_x + col;
-                let y = camera_y + row;
-                let cell = at(
-                    &editor.score,
-                    x - editor.x + editor.source_x,
-                    y - editor.y + editor.source_y,
-                );
-                let mut carried = if source.kind == CELL_HEAD {
-                    cell.lane == source.lane
-                } else {
-                    cell.kind == CELL_TILE
-                        && cell.lane == source.lane
-                        && cell.step == source.step
-                        && cell.depth >= source.depth
-                };
-                let dest = resolve(&editor.score, editor.x, editor.y);
-                if source.kind == CELL_TILE
-                    && dest.lane == source.lane
-                    && dest.step == source.step
-                {
-                    carried = x == editor.x && y == editor.y;
-                }
-                if carried {
-                    outline(4, col * 16 + 2, row * 16 + 2, 12, 12, gray);
-                }
-            }
-        }
+        draw_move_preview(editor, camera_x, camera_y);
     }
     if !playheads.is_null() {
         // SAFETY: The caller keeps this frame's snapshot stable until return.

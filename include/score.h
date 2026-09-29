@@ -357,6 +357,13 @@ ScoreResult score_paste(Score* score, int x, int y, const Clipboard* clipboard);
 void score_plan_move(const Score* score, int sx, int sy, int x, int y,
                      MovePlan* plan);
 /*
+ * Returns a fast preview result for a move in an admitted score. Successful
+ * application still requires score_apply_move, which rechecks the full score.
+ * `score` must not be NULL; callers serialize model operations.
+ */
+ScoreResult score_preview_move(const Score* score, int sx, int sy, int x,
+                               int y);
+/*
  * Rechecks and applies a plan against the current score.
  * `score` and `plan` must not be NULL or overlap.
  */

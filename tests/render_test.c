@@ -20,6 +20,8 @@
 
 extern volatile unsigned render_packet_peak;
 extern volatile unsigned render_overflows;
+extern volatile unsigned render_cache_hits;
+extern volatile unsigned render_cache_misses;
 
 /*
  * Packet captures retain ordering-table depth and VRAM pixels so the test
@@ -37,14 +39,18 @@ _Static_assert(sizeof(TILE) == 16 && sizeof(SPRT) == 20 &&
                "SDK packet sizes");
 
 /*
- * Records packet order before rasterization because the SDK's ordering table
- * reverses insertion within each depth bucket.
+ * Encodes each link as an offset from the buffer's ordering table. This lets
+ * the host stub traverse retained packets after the C backend restores a
+ * static table, without relying on truncated host pointers in PSX tags.
  */
 void addPrim(uint32_t* ot, void* packet)
 {
     int depth = (int)(ot - current_ot);
-    assert(depth >= 0 && depth < 8 && counts[depth] < 2048);
-    primitives[depth][counts[depth]++] = packet;
+    assert(depth >= 0 && depth < 8);
+    uintptr_t offset = (uintptr_t)packet - (uintptr_t)current_ot;
+    assert(offset > 0 && offset < 65536 + sizeof(uint32_t) * 8);
+    *(uint32_t*)packet = *ot;
+    *ot = (uint32_t)offset;
     if ((((DR_TPAGE*)packet)->code >> 24) == 0xe1) return;
 
     TILE* p = packet;
@@ -152,10 +158,21 @@ void DrawOTagEnv(uint32_t* p, DRAWENV* e)
     frame_count++;
     assert(e->r0 == e->g0 && e->g0 == e->b0);
     if (capture) memset(output, (e->r0 >> 3) * 255 / 31, sizeof(output));
+    for (int depth = 0; depth < 8; depth++)
+    {
+        counts[depth] = 0;
+        for (uint32_t offset = current_ot[depth]; offset != 0;)
+        {
+            void* packet = (uint8_t*)current_ot + offset;
+            assert(counts[depth] < 2048);
+            primitives[depth][counts[depth]++] = packet;
+            offset = *(uint32_t*)packet;
+        }
+    }
     int page = -1;
     for (int depth = 7; depth >= 0; depth--)
     {
-        for (int i = counts[depth] - 1; i >= 0; i--)
+        for (int i = 0; i < counts[depth]; i++)
         {
             void* packet = primitives[depth][i];
             if ((((DR_TPAGE*)packet)->code >> 24) == 0xe1)
@@ -266,6 +283,14 @@ static int tile_at(int x, int y)
     return test_score_at(&e.score, x, y).tile;
 }
 
+static uint32_t output_hash(void)
+{
+    uint32_t hash = 2166136261u;
+    for (size_t i = 0; i < sizeof(output); i++)
+        hash = (hash ^ ((uint8_t*)output)[i]) * 16777619u;
+    return hash;
+}
+
 /*
  * Finds an exact untextured packet in one ordering-table bucket.
  */
@@ -291,6 +316,11 @@ int main(void)
     e.x = 10;
     e.y = 7;
     draw("plane");
+    uint32_t plane_hash = output_hash();
+    draw(NULL);
+    draw(NULL);
+    assert(render_cache_hits == 1 && render_cache_misses == 2);
+    assert(output_hash() == plane_hash);
     uint8_t background = (0x16 >> 3) * 255 / 31;
     for (int row = 0; row < 15; row++)
     {
@@ -322,18 +352,53 @@ int main(void)
     draw(NULL);
     assert(has_tile(6, x2, y1, x1 - x2 + 1, 1, UI_BORDER));
     assert(has_tile(6, x2, y1, 1, y2 - y1 + 1, UI_BORDER));
+    uint32_t jump_hash = output_hash();
+    draw(NULL);
+    draw(NULL);
+    assert(output_hash() == jump_hash);
     uint32_t revision = e.score.revision;
     assert(score_remove(&e.score, 1, 0) == SCORE_OK);
     assert(e.score.revision == revision + 1);
     draw(NULL);
     assert(!has_tile(6, x2, y1, x1 - x2 + 1, 1, UI_BORDER));
     assert(!has_tile(6, x2, y1, 1, y2 - y1 + 1, UI_BORDER));
+    draw(NULL);
+    assert(!has_tile(6, x2, y1, x1 - x2 + 1, 1, UI_BORDER));
+
+    // A held tile previews its suffix at the destination, and a new cursor
+    // position changes the preview even while the score stays cached.
+    editor_init(&e);
+    assert(score_create(&e.score, 0, 0, 4) == SCORE_OK);
+    assert(score_place(&e.score, 1, 0, TILE_NOTE) == SCORE_OK);
+    assert(score_place(&e.score, 1, 1, TILE_NOTE) == SCORE_OK);
+    assert(score_place(&e.score, 2, 0, TILE_NOTE) == SCORE_OK);
+    e.mode = EDIT_MOVE;
+    e.source_x = 1;
+    e.source_y = 0;
+    e.x = 2;
+    e.y = 0;
+    draw(NULL);
+    assert(has_tile(4, 2 * 16 + 2, 2, 12, 1, UI_INK));
+    assert(has_tile(4, 2 * 16 + 2, 16 + 2, 12, 1, UI_INK));
+    uint32_t move_hash = output_hash();
+    draw(NULL);
+    draw(NULL);
+    assert(output_hash() == move_hash);
+    e.x = 0;
+    draw(NULL);
+    assert(has_tile(4, 2, 2, 12, 1, UI_RAIL));
+    e.source_x = 0;
+    e.x = 5;
+    draw(NULL);
+    assert(has_tile(4, 5 * 16 + 2, 2, 12, 1, UI_INK));
+    assert(has_tile(4, 6 * 16 + 2, 16 + 2, 12, 1, UI_INK));
 
     // Each runner gets its own gutter bar, extending beside a full stack.
     e.score.lanes[0] = (Lane){.active = 1, .x = 2, .y = 2, .length = 2};
     e.score.lanes[1] = (Lane){.active = 1, .x = 2, .y = 5, .length = 2};
     e.score.lanes[0].tiles[0] = 1;
     e.score.tiles[1].next = 2;
+    e.score.revision++;
     AudioPlayheads heads = {.revision = e.score.revision,
                             .count = 2,
                             .items = {{0, 0}, {1, 1}}};
@@ -352,8 +417,10 @@ int main(void)
     e.mode = EDIT_MAIN;
     e.selected = 0;
     draw("main");
+    uint32_t main_hash = output_hash();
     e.selected = 2;
     draw("main-last-row");
+    assert(output_hash() != main_hash);
     e.mode = EDIT_CARD;
     e.selected = 3;
     draw("card");
@@ -413,6 +480,7 @@ int main(void)
             e.score.lanes[lane].tiles[step] = (TileId)(1 + lane * 64 + step);
         }
     }
+    e.score.revision++;
     e.mode = EDIT_PLANE;
     for (int y = 0; y < 64; y++)
     {
