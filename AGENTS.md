@@ -53,6 +53,15 @@ growth and cost.
   concise findings, pass/fail results, and paths to logs or captures. When working
   without delegation, keep output concise and save bulky evidence to files as well.
 
+Worktree workflow
+-----------------
+
+When instructed to commit in a worktree, check whether HEAD is attached to a branch.
+If it is detached, create a new branch before committing.
+
+When instructed to merge a worktree branch into main, ask the user after the merge
+whether to delete the branch and worktree. Do not delete either without confirmation.
+
 Commit messages
 ---------------
 
